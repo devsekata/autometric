@@ -1,0 +1,8 @@
+{
+  "defaultEnv": "local",
+  "local": {
+    "url": {
+      "ENV": "DATABASE_URL"
+    }
+  }
+}
