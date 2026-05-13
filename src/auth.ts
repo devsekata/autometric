@@ -2,7 +2,7 @@ import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import Google from 'next-auth/providers/google'
 import { validateCredentials } from '@/lib/auth/validateCredentials'
-import { handleGoogleSignIn, getDbUserIdByEmail } from '@/lib/auth/handleGoogleSignIn'
+import { handleGoogleSignIn, getDbUserIdByEmail, getDbUserByEmail } from '@/lib/auth/handleGoogleSignIn'
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -82,16 +82,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user?.id) token.id = user.id
       if (account?.provider === 'google' && token.email) {
         try {
-          const id = await getDbUserIdByEmail(token.email)
-          if (id) token.id = id
+          const dbUser = await getDbUserByEmail(token.email)
+          if (dbUser) {
+            token.id = dbUser.id
+            token.name = dbUser.name
+          }
         } catch (e) {
-          console.error('[auth] getDbUserIdByEmail error:', e)
+          console.error('[auth] getDbUserByEmail error:', e)
         }
       }
       return token
     },
     session({ session, token }) {
       if (token.id) session.user.id = token.id as string
+      if (token.name) session.user.name = token.name
       return session
     },
   },

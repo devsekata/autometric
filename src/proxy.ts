@@ -13,6 +13,12 @@ export const proxy = auth((req) => {
     return Response.redirect(new URL('/dashboard', req.url))
   }
 
+  if (pathname.startsWith('/dashboard')) {
+    const res = NextResponse.next()
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return res
+  }
+
   if (pathname.startsWith('/login')) {
     const res = NextResponse.next()
     res.headers.set('Cache-Control', 'no-store')

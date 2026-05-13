@@ -1,8 +1,11 @@
-'use client'
+import { auth } from '@/auth'
+import Image from 'next/image'
+import LogoutButton from './LogoutButton'
 
-import { signOut } from 'next-auth/react'
+export default async function DashboardPage() {
+  const session = await auth()
+  const user = session!.user
 
-export default function DashboardPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: '#f0f1f8' }}>
 
@@ -15,23 +18,39 @@ export default function DashboardPage() {
           <span className="font-h3 text-h3 text-on-surface tracking-tight">Autometric</span>
         </div>
 
-        <button
-          onClick={() => signOut({ redirectTo: '/login' })}
-          className="flex items-center gap-2 h-9 px-4 rounded-xl border border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline font-body-md text-body-md transition-colors"
-        >
-          <span className="material-symbols-outlined text-[18px]">logout</span>
-          Logout
-        </button>
+        <LogoutButton />
       </header>
 
       {/* Body */}
       <main className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 rounded-2xl bg-primary-container/20 flex items-center justify-center mx-auto mb-4">
-            <span className="material-symbols-outlined text-primary-container" style={{ fontSize: 32 }}>insert_chart</span>
+        <div className="bg-white rounded-2xl border border-outline-variant p-8 flex flex-col items-center gap-4 w-full max-w-sm">
+
+          {user.image ? (
+            <Image
+              src={user.image}
+              alt={user.name ?? 'Avatar'}
+              width={72}
+              height={72}
+              className="rounded-full"
+            />
+          ) : (
+            <div className="w-[72px] h-[72px] rounded-full bg-primary-container flex items-center justify-center">
+              <span className="material-symbols-outlined text-on-primary" style={{ fontSize: 32 }}>person</span>
+            </div>
+          )}
+
+          <div className="text-center">
+            <p className="font-h3 text-h3 text-on-surface">{user.name ?? '—'}</p>
+            <p className="font-body-md text-body-md text-on-surface-variant mt-0.5">{user.email}</p>
           </div>
-          <h1 className="font-h2 text-h2 text-on-surface mb-2">Dashboard</h1>
-          <p className="font-body-md text-body-md text-on-surface-variant">Coming soon.</p>
+
+          <div className="w-full border-t border-outline-variant pt-4 flex flex-col gap-2">
+            <div className="flex justify-between">
+              <span className="font-body-md text-body-md text-on-surface-variant">User ID</span>
+              <span className="font-body-md text-body-md text-on-surface font-medium">{user.id}</span>
+            </div>
+          </div>
+
         </div>
       </main>
 
