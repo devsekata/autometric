@@ -34,7 +34,7 @@ export default function LoginForm({ onSwitch, onForgotPassword }: Props) {
         return
       }
 
-      router.push('/dashboard')
+      router.replace('/dashboard')
     } catch {
       setError('Something went wrong. Please try again.')
       setHasError(true)

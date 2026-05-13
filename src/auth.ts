@@ -53,29 +53,40 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   pages: {
     signIn: '/login',
+    error: '/auth-error',
   },
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider !== 'google') return true
-      await handleGoogleSignIn({
-        email: user.email!,
-        name: user.name || user.email!,
-        googleId: account.providerAccountId,
-        avatarUrl: user.image ?? null,
-      })
+      try {
+        await handleGoogleSignIn({
+          email: user.email!,
+          name: user.name || user.email!,
+          googleId: account.providerAccountId,
+          avatarUrl: user.image ?? null,
+        })
+      } catch (e) {
+        console.error('[auth] handleGoogleSignIn error:', e)
+      }
       return true
     },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
       const isOnDashboard = nextUrl.pathname.startsWith('/dashboard')
+      const isOnLogin = nextUrl.pathname.startsWith('/login')
       if (isOnDashboard && !isLoggedIn) return false
+      if (isOnLogin && isLoggedIn) return Response.redirect(new URL('/dashboard', nextUrl))
       return true
     },
     async jwt({ token, user, account }) {
       if (user?.id) token.id = user.id
       if (account?.provider === 'google' && token.email) {
-        const id = await getDbUserIdByEmail(token.email)
-        if (id) token.id = id
+        try {
+          const id = await getDbUserIdByEmail(token.email)
+          if (id) token.id = id
+        } catch (e) {
+          console.error('[auth] getDbUserIdByEmail error:', e)
+        }
       }
       return token
     },

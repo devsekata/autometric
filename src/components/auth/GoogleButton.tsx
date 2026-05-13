@@ -1,6 +1,6 @@
 'use client'
 
-import { signIn } from 'next-auth/react'
+import { getCsrfToken } from 'next-auth/react'
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
@@ -12,10 +12,31 @@ const GoogleIcon = () => (
 )
 
 export default function GoogleButton({ label }: { label: string }) {
+  async function handleClick() {
+    try {
+      const csrfToken = await getCsrfToken()
+      const res = await fetch('/api/auth/signin/google', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Auth-Return-Redirect': '1',
+        },
+        body: new URLSearchParams({
+          csrfToken: csrfToken ?? '',
+          callbackUrl: '/dashboard',
+        }),
+      })
+      const { url } = await res.json()
+      if (url) window.location.replace(url)
+    } catch {
+      window.location.href = '/api/auth/signin/google?callbackUrl=%2Fdashboard'
+    }
+  }
+
   return (
     <button
       type="button"
-      onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+      onClick={handleClick}
       className="w-full h-11 flex items-center justify-center gap-3 bg-surface-container-lowest border border-outline-variant rounded-xl font-body-md text-body-md font-semibold text-on-surface hover:bg-surface-container transition-colors"
     >
       <GoogleIcon />
