@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation'
 import OrgAvatar from './OrgAvatar'
 import { Organization } from '@/lib/organizations/types'
 
-const roleMeta: Record<Organization['role'], { label: string; color: string }> = {
-  OWNER: { label: 'Owner', color: '#3d7e96' },
-  ADMIN: { label: 'Admin', color: '#6b7280' },
-  VIEWER: { label: 'Viewer', color: '#9ca3af' },
+const roleMeta: Record<Organization['role'], { label: string; color: string; bg: string }> = {
+  OWNER:  { label: 'Owner',  color: '#1e6278', bg: '#e0f0f6' },
+  ADMIN:  { label: 'Admin',  color: '#374151', bg: '#f3f4f6' },
+  VIEWER: { label: 'Viewer', color: '#6b7280', bg: '#f9fafb' },
 }
 
 const MEMBER_COLORS = ['#3d7e96', '#5b7a6e', '#64748b', '#7b6b8b', '#8b6b5e']
@@ -46,8 +46,8 @@ export default function OrgCard({ org }: Props) {
 
   return (
     <div
-      onClick={() => router.push(`/organizations/${org.id}`)}
-      className="group relative bg-white border border-[#e5e7eb] rounded-lg p-5 hover:border-[#c5dce5] hover:shadow-sm hover:shadow-[#3d7e96]/8 transition-all cursor-pointer"
+      onClick={() => router.push(`/organizations/${org.slug}/dashboard`)}
+      className="group relative bg-white border border-[#e5e7eb] rounded-xl p-6 hover:border-[#c5dce5] hover:shadow-md hover:shadow-[#3d7e96]/8 transition-all cursor-pointer"
     >
       {/* Kebab */}
       <div
@@ -65,7 +65,7 @@ export default function OrgCard({ org }: Props) {
         {dropdownOpen && (
           <div className="absolute right-0 top-8 w-48 bg-white border border-[#e5e7eb] rounded-md shadow-lg shadow-black/5 z-20 py-1">
             <button
-              onClick={() => router.push(`/organizations/${org.id}/settings`)}
+              onClick={() => router.push(`/organizations/${org.slug}/settings`)}
               className="w-full flex items-center gap-2.5 px-3.5 h-9 text-[13px] text-[#374151] hover:bg-[#f9fafb] transition-colors"
             >
               <span className="material-symbols-outlined text-[15px] text-[#9ca3af]">settings</span>
@@ -75,24 +75,32 @@ export default function OrgCard({ org }: Props) {
         )}
       </div>
       {/* Avatar + Name + Brand count */}
-      <div className="flex items-center gap-3.5 mb-5">
-        <OrgAvatar name={org.name} size={40} />
+      <div className="flex items-center gap-3.5 mb-6">
+        <OrgAvatar name={org.name} size={44} />
         <div className="min-w-0">
-          <h3 className="text-[15px] font-semibold text-[#111827] truncate leading-tight">
+          <h3
+            style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+            className="text-[15px] font-bold text-[#111827] truncate leading-tight"
+          >
             {org.name}
           </h3>
-          <span style={{ color: role.color }} className="text-[11px] font-semibold uppercase tracking-wide mt-0.5 block">
-            {role.label}
-          </span>
-          <div className="flex items-center gap-1 text-[#9ca3af] mt-1">
-            <span className="material-symbols-outlined text-[12px]">storefront</span>
-            <span className="text-[11px]">{org.brand_count} brands</span>
+          <div className="flex items-center gap-2 mt-1.5">
+            <span
+              style={{ color: role.color, background: role.bg, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+              className="inline-flex items-center h-[18px] px-2 rounded-full text-[10.5px] font-bold"
+            >
+              {role.label}
+            </span>
+            <div className="flex items-center gap-1 text-[#b0b8c4]">
+              <span className="material-symbols-outlined text-[12px]">storefront</span>
+              <span className="text-[11px]">{org.brand_count} brands</span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="border-t border-[#f3f4f6] pt-3.5 flex items-center justify-between">
+      <div className="border-t-2 border-[#e5e7eb] pt-4 flex items-center justify-between">
         {/* Member avatar stack */}
         <div className="flex items-center gap-2">
           <div className="flex -space-x-1.5">

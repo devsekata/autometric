@@ -25,8 +25,10 @@ export default function CreateOrgModal({ onClose, onCreated }: Props) {
       return
     }
 
+    const slug = trimmed.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
     const newOrg: Organization = {
       id: crypto.randomUUID(),
+      slug,
       name: trimmed,
       created_at: new Date().toISOString(),
       role: 'OWNER',

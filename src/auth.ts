@@ -72,10 +72,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
-      const isOnDashboard = nextUrl.pathname.startsWith('/dashboard')
+      const isOnOrganizations = nextUrl.pathname.startsWith('/organizations')
       const isOnLogin = nextUrl.pathname.startsWith('/login')
-      if (isOnDashboard && !isLoggedIn) return false
-      if (isOnLogin && isLoggedIn) return Response.redirect(new URL('/dashboard', nextUrl))
+      if (isOnOrganizations && !isLoggedIn) return false
+      if (isOnLogin && isLoggedIn) return Response.redirect(new URL('/', nextUrl))
       return true
     },
     async jwt({ token, user, account }) {
