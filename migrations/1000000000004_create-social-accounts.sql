@@ -6,10 +6,14 @@ CREATE TABLE social_accounts (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   platform_id      UUID NOT NULL REFERENCES platforms (id) ON DELETE RESTRICT,
   username         VARCHAR(255) NOT NULL,
+  display_name     VARCHAR(255),
+  profile_url      TEXT,
+  followers_count  BIGINT      NOT NULL DEFAULT 0,
   oauth_token      TEXT,
   token_expires_at TIMESTAMPTZ,
-  connected        BOOLEAN NOT NULL DEFAULT false,
+  connected        BOOLEAN     NOT NULL DEFAULT false,
   connected_at     TIMESTAMPTZ,
+  last_synced_at   TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT uq_social_accounts_platform_username UNIQUE (platform_id, username)

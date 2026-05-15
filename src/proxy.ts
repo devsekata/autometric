@@ -5,27 +5,19 @@ export const proxy = auth((req) => {
   const isLoggedIn = !!req.auth
   const { pathname } = req.nextUrl
 
-  if (pathname.startsWith('/dashboard') && !isLoggedIn) {
+  if (pathname.startsWith('/organizations') && !isLoggedIn) {
     return Response.redirect(new URL('/login', req.url))
   }
 
   if (pathname.startsWith('/login') && isLoggedIn) {
-    return Response.redirect(new URL('/dashboard', req.url))
+    return Response.redirect(new URL('/organizations', req.url))
   }
 
-  if (pathname.startsWith('/dashboard')) {
-    const res = NextResponse.next()
-    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
-    return res
-  }
-
-  if (pathname.startsWith('/login')) {
-    const res = NextResponse.next()
-    res.headers.set('Cache-Control', 'no-store')
-    return res
-  }
+  const res = NextResponse.next()
+  res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+  return res
 })
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login', '/auth-error'],
+  matcher: ['/organizations/:path*', '/login', '/auth-error'],
 }

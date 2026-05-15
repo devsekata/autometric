@@ -3,7 +3,12 @@ CREATE TABLE brands (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id  UUID NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
   name          VARCHAR(255) NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  slug          VARCHAR(255) NOT NULL,
+  color         VARCHAR(7)   NOT NULL DEFAULT '#3d7e96',
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT uq_brands_workspace_slug UNIQUE (workspace_id, slug)
 );
 
 CREATE TABLE brand_social_accounts (
