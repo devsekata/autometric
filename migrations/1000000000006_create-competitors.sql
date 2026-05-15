@@ -3,8 +3,7 @@ CREATE TABLE competitors (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   brand_id    UUID NOT NULL REFERENCES brands (id) ON DELETE CASCADE,
   name        VARCHAR(255) NOT NULL,
-  color       VARCHAR(7)   NOT NULL DEFAULT '#7c5cbf',
-  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE competitor_social_accounts (

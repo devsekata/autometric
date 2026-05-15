@@ -8,10 +8,9 @@ CREATE TABLE platforms (
 
 -- Seed master data
 INSERT INTO platforms (key, label, icon) VALUES
-  ('instagram', 'Instagram',   'photo_camera'),
-  ('tiktok',    'TikTok',      'music_note'),
-  ('facebook',  'Facebook',    'public'),
-  ('youtube',   'YouTube',     'play_circle'),
+  ('instagram', 'Instagram', 'photo_camera'),
+  ('tiktok',    'TikTok',    'music_note'),
+  ('facebook',  'Facebook',  'public'),
   ('twitter',   'Twitter / X', 'tag');
 
 -- Down Migration
