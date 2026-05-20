@@ -1,23 +1,34 @@
 import { cookies } from 'next/headers'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { DUMMY_ORGS, getOrgBySlug } from '@/lib/organizations/dummy'
+import { listOrgsForUser } from '@/lib/organizations/queries'
+import { getPendingInvitationsForUser } from '@/lib/invitations/queries'
 import WelcomePage from '@/components/organizations/WelcomePage'
 
 export default async function HomePage() {
   const session = await auth()
   if (!session) redirect('/login')
 
+  const userId      = session.user?.id ?? ''
   const cookieStore = await cookies()
   const lastSlug    = cookieStore.get('last_org_slug')?.value
 
-  const hasOrgs = DUMMY_ORGS.length > 0
+  const [orgs, invitations] = await Promise.all([
+    listOrgsForUser(userId),
+    getPendingInvitationsForUser(userId),
+  ])
 
-  // Pakai last org jika valid, fallback ke org pertama
+  const hasOrgs    = orgs.length > 0
   const targetSlug =
-    (lastSlug && getOrgBySlug(lastSlug) ? lastSlug : null) ??
-    DUMMY_ORGS[0]?.slug ??
+    (lastSlug && orgs.find(o => o.slug === lastSlug) ? lastSlug : null) ??
+    orgs[0]?.slug ??
     ''
 
-  return <WelcomePage hasOrgs={hasOrgs} firstOrgSlug={targetSlug} />
+  return (
+    <WelcomePage
+      hasOrgs={hasOrgs}
+      firstOrgSlug={targetSlug}
+      initialInvitations={invitations}
+    />
+  )
 }

@@ -1,13 +1,17 @@
-import { getOrgBySlug } from '@/lib/organizations/dummy'
-import { getBrandsByOrgSlug } from '@/lib/brands/dummy'
+import { notFound } from 'next/navigation'
+import { auth } from '@/auth'
+import { getOrgBasicBySlug } from '@/lib/organizations/queries'
+import { listBrandsForOrg } from '@/lib/brands/queries'
 import BrandsPage from '@/components/brands/list/BrandsPage'
 
 interface Props { params: Promise<{ orgSlug: string }> }
 
 export default async function BrandsRoute({ params }: Props) {
   const { orgSlug } = await params
-  const org = getOrgBySlug(orgSlug)!
-  const brands = getBrandsByOrgSlug(orgSlug)
+  const [session, org] = await Promise.all([auth(), getOrgBasicBySlug(orgSlug)])
+  if (!org) notFound()
+
+  const brands = await listBrandsForOrg(org.id)
 
   return <BrandsPage orgId={org.id} orgName={org.name} initialBrands={brands} />
 }

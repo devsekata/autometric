@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
-import { getOrgBySlug } from '@/lib/organizations/dummy'
+import { auth } from '@/auth'
+import { getOrgBySlugForUser } from '@/lib/organizations/queries'
 import OrgTracker from '@/components/layout/OrgTracker'
 
 interface Props {
@@ -9,7 +10,10 @@ interface Props {
 
 export default async function OrgLayout({ children, params }: Props) {
   const { orgSlug } = await params
-  const org = getOrgBySlug(orgSlug)
+  const session     = await auth()
+  const userId      = session?.user?.id ?? ''
+
+  const org = await getOrgBySlugForUser(orgSlug, userId)
   if (!org) notFound()
 
   return (

@@ -1,9 +1,7 @@
 import OrgCard from './OrgCard'
 import { Organization } from '@/lib/organizations/types'
 
-interface Props {
-  orgs: Organization[]
-}
+interface Props { orgs: Organization[] }
 
 export default function OrgList({ orgs }: Props) {
   return (

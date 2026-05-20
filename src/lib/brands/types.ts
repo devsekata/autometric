@@ -19,27 +19,35 @@ export const PLATFORM_LIST: Platform[] = ['instagram', 'tiktok', 'facebook', 'yo
 
 export const BRAND_COLORS = ['#3d7e96', '#7c5cbf', '#059669', '#d97706', '#e11d48', '#2563eb', '#db2777', '#0891b2']
 
+export function getColorFromId(id: string): string {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
+  return BRAND_COLORS[Math.abs(hash) % BRAND_COLORS.length]
+}
+
 export interface SocialAccount {
   id: string
   platform: Platform
-  handle: string
-  followers: number
-  connected_at: string
+  username: string
+  avatar_url: string | null
+  profile_url: string | null
+  connected: boolean
+  connected_at: string | null
 }
 
-export interface Competitor {
-  id: string
-  name: string
-  color: string
-  accounts: { platform: Platform; handle: string }[]
+export interface CompetitorAccount {
+  social_account_id: string
+  platform: Platform
+  username: string
+  avatar_url: string | null
+  profile_url: string | null
 }
 
 export interface Brand {
   id: string
-  org_id: string
+  organization_id: string
   name: string
-  color: string
   created_at: string
   accounts: SocialAccount[]
-  competitors: Competitor[]
+  competitors: CompetitorAccount[]
 }

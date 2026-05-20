@@ -8,9 +8,8 @@ import DeleteOrgModal from './DeleteOrgModal'
 import { Organization } from '@/lib/organizations/types'
 
 const roleMeta: Record<Organization['role'], { label: string; color: string }> = {
-  OWNER: { label: 'Owner', color: '#3d7e96' },
-  ADMIN: { label: 'Admin', color: '#6b7280' },
-  VIEWER: { label: 'Viewer', color: '#9ca3af' },
+  ADMIN:  { label: 'Admin',  color: '#3d7e96' },
+  MEMBER: { label: 'Member', color: '#6b7280' },
 }
 
 function formatDate(dateStr: string): string {
@@ -81,7 +80,7 @@ export default function OrgListItem({ org, onRename, onDelete }: Props) {
                   <span className="material-symbols-outlined text-[15px] text-[#9ca3af]">edit</span>
                   Rename
                 </button>
-                {org.role === 'OWNER' && (
+                {org.role === 'ADMIN' && (
                   <button
                     onClick={() => { setShowDelete(true); setDropdownOpen(false) }}
                     className="w-full flex items-center gap-2.5 px-3.5 h-9 text-[13px] text-red-500 hover:bg-red-50 transition-colors"

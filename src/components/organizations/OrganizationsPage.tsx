@@ -1,18 +1,13 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import OrgList from '@/components/organizations/OrgList'
 import EmptyState from '@/components/organizations/EmptyState'
 import CreateOrgModal from '@/components/organizations/CreateOrgModal'
 import OrgAvatar from '@/components/organizations/OrgAvatar'
 import { Organization } from '@/lib/organizations/types'
 import { Invitation } from '@/lib/invitations/types'
-import { DUMMY_ORGS } from '@/lib/organizations/dummy'
-
-const DUMMY_INVITES: Invitation[] = [
-  { id: '1', org_id: '4', org_name: 'Design Co',   invited_by: 'Alex Kim',   invited_at: '2026-05-10T00:00:00Z', member_count: 5  },
-  { id: '2', org_id: '5', org_name: 'Growth Labs', invited_by: 'Sarah Chen', invited_at: '2026-05-12T00:00:00Z', member_count: 12 },
-]
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -20,9 +15,15 @@ function formatDate(dateStr: string): string {
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
-export default function OrganizationsPage() {
-  const [orgs,         setOrgs]         = useState<Organization[]>(DUMMY_ORGS)
-  const [invites,      setInvites]      = useState<Invitation[]>(DUMMY_INVITES)
+interface Props {
+  initialOrgs: Organization[]
+  initialInvitations: Invitation[]
+}
+
+export default function OrganizationsPage({ initialOrgs, initialInvitations }: Props) {
+  const router = useRouter()
+  const [orgs,         setOrgs]         = useState<Organization[]>(initialOrgs)
+  const [invites,      setInvites]      = useState<Invitation[]>(initialInvitations)
   const [showCreate,   setShowCreate]   = useState(false)
   const [activeFilter, setActiveFilter] = useState<'ALL' | Organization['role']>('ALL')
 
@@ -37,17 +38,28 @@ export default function OrganizationsPage() {
 
   const tabs: { key: 'ALL' | Organization['role']; label: string }[] = [
     { key: 'ALL',    label: 'All'    },
-    { key: 'OWNER',  label: 'Owner'  },
     { key: 'ADMIN',  label: 'Admin'  },
-    { key: 'VIEWER', label: 'Viewer' },
+    { key: 'MEMBER', label: 'Member' },
   ]
 
   function handleCreated(org: Organization) { setOrgs(prev => [org, ...prev]) }
-  function handleAccept(id: string)  { setInvites(prev => prev.filter(i => i.id !== id)) }
-  function handleDecline(id: string) { setInvites(prev => prev.filter(i => i.id !== id)) }
+
+  async function handleAccept(invite: Invitation) {
+    const res  = await fetch(`/api/invitations/${invite.id}`, { method: 'POST' })
+    const json = await res.json()
+    if (res.ok) {
+      setInvites(prev => prev.filter(i => i.id !== invite.id))
+      router.push(`/organizations/${json.data.org_slug}/dashboard`)
+    }
+  }
+
+  async function handleDecline(id: string) {
+    const res = await fetch(`/api/invitations/${id}`, { method: 'DELETE' })
+    if (res.ok) setInvites(prev => prev.filter(i => i.id !== id))
+  }
 
   return (
-    <div>
+    <div className="min-h-screen bg-white">
 
       {/* ── Header ── */}
       <div className="bg-white px-8 pt-8 pb-6 border-b border-[#e5e7eb]">
@@ -115,7 +127,7 @@ export default function OrganizationsPage() {
                     Decline
                   </button>
                   <button
-                    onClick={() => handleAccept(invite.id)}
+                    onClick={() => handleAccept(invite)}
                     style={PJB}
                     className="h-8 px-3.5 text-[12px] font-semibold bg-[#3d7e96] hover:bg-[#2d6e85] text-white rounded-lg transition-colors"
                   >

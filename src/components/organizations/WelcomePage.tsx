@@ -7,26 +7,6 @@ import CreateOrgModal from './CreateOrgModal';
 import InvitationsModal from '@/components/invitations/InvitationsModal';
 import { Organization } from '@/lib/organizations/types';
 import { Invitation } from '@/lib/invitations/types';
-import { DUMMY_ORGS } from '@/lib/organizations/dummy';
-
-const DUMMY_INVITES: Invitation[] = [
-  {
-    id: '1',
-    org_id: '4',
-    org_name: 'Design Co',
-    invited_by: 'Alex Kim',
-    invited_at: '2026-05-10T00:00:00Z',
-    member_count: 5,
-  },
-  {
-    id: '2',
-    org_id: '5',
-    org_name: 'Growth Labs',
-    invited_by: 'Sarah Chen',
-    invited_at: '2026-05-12T00:00:00Z',
-    member_count: 12,
-  },
-];
 
 const BAR_HEIGHTS = [28, 44, 36, 54, 40, 62, 50, 68, 56, 82, 66, 78];
 
@@ -40,12 +20,13 @@ const PERF_BRANDS = [
 interface Props {
   hasOrgs: boolean;
   firstOrgSlug: string;
+  initialInvitations: Invitation[];
 }
 
-export default function WelcomePage({ hasOrgs, firstOrgSlug }: Props) {
+export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations }: Props) {
   const router = useRouter();
 
-  const [invites, setInvites] = useState<Invitation[]>(DUMMY_INVITES);
+  const [invites, setInvites] = useState<Invitation[]>(initialInvitations);
   const [showCreate, setShowCreate] = useState(false);
   const [showInvites, setShowInvites] = useState(false);
 

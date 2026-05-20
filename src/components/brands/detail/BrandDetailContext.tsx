@@ -1,36 +1,83 @@
 'use client'
 
 import { createContext, useContext, useState } from 'react'
-import { Brand, SocialAccount, Competitor } from '@/lib/brands/types'
+import { Brand, Platform } from '@/lib/brands/types'
 
 interface BrandDetailCtx {
   brand: Brand
-  connectAccount: (acc: SocialAccount) => void
-  disconnectAccount: (accId: string) => void
-  addCompetitor: (comp: Competitor) => void
-  removeCompetitor: (compId: string) => void
+  orgName: string
+  connectAccount: (platform: Platform, username: string) => Promise<void>
+  disconnectAccount: (accountId: string) => Promise<void>
+  addCompetitor: (platform: Platform, username: string) => Promise<void>
+  removeCompetitor: (socialAccountId: string) => Promise<void>
+  updateBrandName: (name: string) => Promise<void>
+  deleteBrand: () => Promise<void>
 }
 
 const Ctx = createContext<BrandDetailCtx | null>(null)
 
-export function BrandDetailProvider({ initial, children }: { initial: Brand; children: React.ReactNode }) {
+export function BrandDetailProvider({
+  initial,
+  orgName,
+  children,
+}: {
+  initial: Brand
+  orgName: string
+  children: React.ReactNode
+}) {
   const [brand, setBrand] = useState<Brand>(initial)
 
-  function connectAccount(acc: SocialAccount) {
-    setBrand(b => ({ ...b, accounts: [...b.accounts, acc] }))
+  async function connectAccount(platform: Platform, username: string) {
+    const res = await fetch(`/api/brands/${brand.id}/accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, username }),
+    })
+    if (!res.ok) throw new Error('Failed to connect account')
+    const { data } = await res.json()
+    setBrand(b => ({ ...b, accounts: [...b.accounts, data] }))
   }
-  function disconnectAccount(accId: string) {
-    setBrand(b => ({ ...b, accounts: b.accounts.filter(a => a.id !== accId) }))
+
+  async function disconnectAccount(accountId: string) {
+    const res = await fetch(`/api/brands/${brand.id}/accounts/${accountId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to disconnect account')
+    setBrand(b => ({ ...b, accounts: b.accounts.filter(a => a.id !== accountId) }))
   }
-  function addCompetitor(comp: Competitor) {
-    setBrand(b => ({ ...b, competitors: [...b.competitors, comp] }))
+
+  async function addCompetitor(platform: Platform, username: string) {
+    const res = await fetch(`/api/brands/${brand.id}/competitors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, username }),
+    })
+    if (!res.ok) throw new Error('Failed to add competitor')
+    const { data } = await res.json()
+    setBrand(b => ({ ...b, competitors: [...b.competitors, data] }))
   }
-  function removeCompetitor(compId: string) {
-    setBrand(b => ({ ...b, competitors: b.competitors.filter(c => c.id !== compId) }))
+
+  async function removeCompetitor(socialAccountId: string) {
+    const res = await fetch(`/api/brands/${brand.id}/competitors/${socialAccountId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to remove competitor')
+    setBrand(b => ({ ...b, competitors: b.competitors.filter(c => c.social_account_id !== socialAccountId) }))
+  }
+
+  async function updateBrandName(name: string) {
+    const res = await fetch(`/api/brands/${brand.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (!res.ok) throw new Error('Failed to update brand')
+    setBrand(b => ({ ...b, name }))
+  }
+
+  async function deleteBrand() {
+    const res = await fetch(`/api/brands/${brand.id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to delete brand')
   }
 
   return (
-    <Ctx.Provider value={{ brand, connectAccount, disconnectAccount, addCompetitor, removeCompetitor }}>
+    <Ctx.Provider value={{ brand, orgName, connectAccount, disconnectAccount, addCompetitor, removeCompetitor, updateBrandName, deleteBrand }}>
       {children}
     </Ctx.Provider>
   )

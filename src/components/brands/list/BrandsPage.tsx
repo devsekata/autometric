@@ -1,83 +1,18 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useState, useMemo } from 'react'
 import { useParams } from 'next/navigation'
-import { Brand, PLATFORM_CONFIG } from '@/lib/brands/types'
+import { Brand, Platform, SocialAccount } from '@/lib/brands/types'
+import BrandGroup from './BrandGroup'
+import ChannelGroup from './ChannelGroup'
+import StatusGroup, { AccountEntry } from './StatusGroup'
 import CreateBrandModal from '../modals/CreateBrandModal'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+const ACTIVE_PLATFORMS: Platform[] = ['instagram', 'tiktok', 'facebook']
 
-function fmt(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
-  return String(n)
-}
-
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function BrandAvatar({ name, color }: { name: string; color: string }) {
-  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-  return (
-    <div
-      style={{ width: 32, height: 32, background: color, borderRadius: 9, fontSize: 12 }}
-      className="flex items-center justify-center flex-shrink-0 font-bold text-white leading-none select-none"
-    >
-      {initials}
-    </div>
-  )
-}
-
-function PlatformIcon({ platform }: { platform: Brand['accounts'][0]['platform'] }) {
-  const cfg = PLATFORM_CONFIG[platform]
-  return (
-    <div
-      title={cfg.label}
-      style={{ width: 22, height: 22, borderRadius: 5, background: cfg.bg, fontSize: 7.5, fontWeight: 900, color: cfg.textColor }}
-      className="flex items-center justify-center leading-none select-none flex-shrink-0"
-    >
-      {cfg.short}
-    </div>
-  )
-}
-
-function CompetitorDot({ name, color }: { name: string; color: string }) {
-  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-  return (
-    <div
-      title={name}
-      style={{ width: 22, height: 22, background: color, fontSize: 8 }}
-      className="rounded-full flex items-center justify-center font-bold text-white leading-none border-2 border-white flex-shrink-0"
-    >
-      {initials}
-    </div>
-  )
-}
-
-function StatusBadge({ accounts }: { accounts: Brand['accounts'] }) {
-  if (accounts.length === 0) {
-    return (
-      <span
-        style={PJB}
-        className="inline-flex items-center gap-1 h-[22px] px-2.5 rounded-full text-[10.5px] font-semibold bg-[#f3f4f6] text-[#9ca3af]"
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-[#d1d5db] flex-shrink-0" />
-        No accounts
-      </span>
-    )
-  }
-  return (
-    <span
-      style={PJB}
-      className="inline-flex items-center gap-1 h-[22px] px-2.5 rounded-full text-[10.5px] font-semibold bg-[#ecfdf5] text-[#059669]"
-    >
-      <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] flex-shrink-0" />
-      Active
-    </span>
-  )
-}
+type GroupBy      = 'brand' | 'channel' | 'status'
+type StatusFilter = 'all' | 'connected' | 'disconnected'
 
 interface Props {
   orgId: string
@@ -85,41 +20,77 @@ interface Props {
   initialBrands: Brand[]
 }
 
-export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
-  const params = useParams()
-  const orgSlug = params?.orgSlug as string
-  const [brands, setBrands] = useState<Brand[]>(initialBrands)
-  const [showCreate, setShowCreate] = useState(false)
+const GROUP_OPTIONS: { value: GroupBy; label: string; icon: string }[] = [
+  { value: 'brand',   label: 'Brand',   icon: 'storefront' },
+  { value: 'channel', label: 'Channel', icon: 'hub'        },
+  { value: 'status',  label: 'Status',  icon: 'radio_button_checked' },
+]
 
-  const totalAccounts    = brands.reduce((s, b) => s + b.accounts.length, 0)
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all',          label: 'All'          },
+  { value: 'connected',    label: 'Connected'    },
+  { value: 'disconnected', label: 'Disconnected' },
+]
+
+export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
+  const params  = useParams()
+  const orgSlug = params?.orgSlug as string
+
+  const [brands,          setBrands]          = useState<Brand[]>(initialBrands)
+  const [showCreate,      setShowCreate]       = useState(false)
+  const [search,          setSearch]           = useState('')
+  const [groupBy,         setGroupBy]          = useState<GroupBy>('brand')
+  const [statusFilter,    setStatusFilter]     = useState<StatusFilter>('all')
+  const [showGroupMenu,   setShowGroupMenu]    = useState(false)
+  const [showStatusMenu,  setShowStatusMenu]   = useState(false)
+
+  const filteredBrands = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return q ? brands.filter(b => b.name.toLowerCase().includes(q)) : brands
+  }, [brands, search])
+
+  const totalChannels    = brands.reduce((s, b) => s + b.accounts.filter(a => ACTIVE_PLATFORMS.includes(a.platform)).length, 0)
   const totalCompetitors = brands.reduce((s, b) => s + b.competitors.length, 0)
-  const totalFollowers   = brands.reduce((s, b) => s + b.accounts.reduce((ss, a) => ss + a.followers, 0), 0)
+  const totalConnected   = brands.reduce((s, b) => s + b.accounts.filter(a => ACTIVE_PLATFORMS.includes(a.platform) && a.connected).length, 0)
+
+  const connectedEntries = useMemo<AccountEntry[]>(() =>
+    filteredBrands.flatMap(b =>
+      b.accounts.filter(a => ACTIVE_PLATFORMS.includes(a.platform) && a.connected).map(a => ({ brand: b, account: a }))
+    ), [filteredBrands])
+
+  const disconnectedEntries = useMemo<AccountEntry[]>(() =>
+    filteredBrands.flatMap(b =>
+      b.accounts.filter(a => ACTIVE_PLATFORMS.includes(a.platform) && !a.connected).map(a => ({ brand: b, account: a }))
+    ), [filteredBrands])
+
+  const currentGroup  = GROUP_OPTIONS.find(o => o.value === groupBy)!
+  const currentStatus = STATUS_OPTIONS.find(o => o.value === statusFilter)!
+
+  const hasFilter = search || statusFilter !== 'all'
 
   return (
-    <div>
+    <div className="min-h-screen bg-white">
 
-      {/* ── Header ── */}
-      <div className="bg-white px-8 pt-8 pb-6 border-b border-[#e5e7eb]">
+      {/* ── Page header ── */}
+      <div className="px-6 pt-7 pb-5 border-b border-[#f0f0f0]">
         <div className="flex items-center justify-between">
           <div>
-            <h1 style={PJB} className="text-[26px] font-bold text-[#111827] tracking-[-0.03em] leading-none">
-              Brands
-            </h1>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[13px] text-[#9ca3af]">
-                <span style={PJB} className="font-bold text-[#374151]">{brands.length}</span> brands
-              </span>
-              <span className="text-[#d1d5db] select-none">·</span>
-              <span className="text-[13px] text-[#9ca3af]">
-                <span style={PJB} className="font-bold text-[#374151]">{fmt(totalFollowers)}</span> total followers
-              </span>
-              <span className="text-[#d1d5db] select-none">·</span>
-              <span className="text-[13px] text-[#9ca3af]">
-                <span style={PJB} className="font-bold text-[#374151]">{totalAccounts}</span> accounts
-              </span>
-              <span className="text-[#d1d5db] select-none">·</span>
-              <span className="text-[13px] text-[#9ca3af]">
-                <span style={PJB} className="font-bold text-[#374151]">{totalCompetitors}</span> competitors
+            <h1 style={PJB} className="text-[22px] font-bold text-[#111827] tracking-tight">Brands</h1>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {[
+                { val: brands.length,    label: 'brands'      },
+                { val: totalChannels,    label: 'channels'    },
+                { val: totalCompetitors, label: 'competitors' },
+              ].map((s, i) => (
+                <span key={i} className="flex items-center gap-1 text-[12.5px] text-[#9ca3af]">
+                  {i > 0 && <span className="text-[#e5e7eb] mr-1">·</span>}
+                  <span style={PJB} className="font-bold text-[#374151]">{s.val}</span> {s.label}
+                </span>
+              ))}
+              <span className="text-[#e5e7eb]">·</span>
+              <span className="flex items-center gap-1 text-[12.5px] text-[#9ca3af]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                <span style={PJB} className="font-bold text-[#374151]">{totalConnected}</span> connected
               </span>
             </div>
           </div>
@@ -127,7 +98,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
           <button
             onClick={() => setShowCreate(true)}
             style={PJB}
-            className="flex items-center gap-2 h-10 px-5 bg-[#3d7e96] hover:bg-[#2d6e85] active:bg-[#1e6278] text-white text-[13.5px] font-semibold rounded-lg transition-colors shadow-[0_2px_10px_rgba(61,126,150,0.28)]"
+            className="flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-[#3d7e96] hover:bg-[#2d6e85] transition-colors shadow-sm"
           >
             <span className="material-symbols-outlined text-[16px]">add</span>
             New Brand
@@ -135,128 +106,154 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
         </div>
       </div>
 
-      {/* ── Table ── */}
-      <div className="px-8 pt-6 pb-10">
-        {brands.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24">
-            <span className="material-symbols-outlined text-[52px] text-[#d1d5db] mb-4">storefront</span>
-            <p style={PJB} className="text-[17px] font-bold text-[#374151]">No brands yet</p>
-            <p className="text-[13px] text-[#9ca3af] mt-1 mb-6">Create your first brand to start tracking performance</p>
+      {/* ── Toolbar ── */}
+      <div className="sticky top-0 z-10 bg-white border-b border-[#ebebeb] px-6 py-2 flex items-center gap-2 flex-wrap">
+
+        {/* Group By pill */}
+        <div className="relative">
+          <button
+            onClick={() => { setShowGroupMenu(m => !m); setShowStatusMenu(false) }}
+            style={PJB}
+            className={`flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] font-medium transition-colors ${
+              showGroupMenu ? 'border-[#3d7e96] bg-[#f0f7fa] text-[#3d7e96]' : 'border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f9fafb]'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px]">{currentGroup.icon}</span>
+            Group: {currentGroup.label}
+            <span className="material-symbols-outlined text-[14px] text-[#9ca3af]">arrow_drop_down</span>
+          </button>
+
+          {showGroupMenu && (
+            <div className="absolute left-0 top-[calc(100%+4px)] bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-20 min-w-[150px]">
+              {GROUP_OPTIONS.map(o => (
+                <button key={o.value} onClick={() => { setGroupBy(o.value); setShowGroupMenu(false) }}
+                  style={PJB}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12.5px] font-medium text-left transition-colors ${
+                    groupBy === o.value ? 'bg-[#f0f7fa] text-[#3d7e96]' : 'text-[#374151] hover:bg-[#f9fafb]'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[14px]">{o.icon}</span>
+                  {o.label}
+                  {groupBy === o.value && <span className="material-symbols-outlined text-[13px] ml-auto">check</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Status pill (hidden when group by status) */}
+        {groupBy !== 'status' && (
+          <div className="relative">
             <button
-              onClick={() => setShowCreate(true)}
+              onClick={() => { setShowStatusMenu(m => !m); setShowGroupMenu(false) }}
               style={PJB}
-              className="flex items-center gap-2 h-9 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] text-white text-[13px] font-semibold rounded-lg transition-colors"
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] font-medium transition-colors ${
+                statusFilter !== 'all' || showStatusMenu
+                  ? 'border-[#3d7e96] bg-[#f0f7fa] text-[#3d7e96]'
+                  : 'border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f9fafb]'
+              }`}
             >
+              <span className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: statusFilter === 'connected' ? '#10b981' : statusFilter === 'disconnected' ? '#ef4444' : '#d1d5db' }} />
+              {currentStatus.label}
+              <span className="material-symbols-outlined text-[14px] text-[#9ca3af]">arrow_drop_down</span>
+            </button>
+
+            {showStatusMenu && (
+              <div className="absolute left-0 top-[calc(100%+4px)] bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-20 min-w-[150px]">
+                {STATUS_OPTIONS.map(o => (
+                  <button key={o.value} onClick={() => { setStatusFilter(o.value); setShowStatusMenu(false) }}
+                    style={PJB}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12.5px] font-medium text-left transition-colors ${
+                      statusFilter === o.value ? 'bg-[#f0f7fa] text-[#3d7e96]' : 'text-[#374151] hover:bg-[#f9fafb]'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: o.value === 'connected' ? '#10b981' : o.value === 'disconnected' ? '#ef4444' : '#d1d5db' }} />
+                    {o.label}
+                    {statusFilter === o.value && <span className="material-symbols-outlined text-[13px] ml-auto">check</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {hasFilter && (
+          <button onClick={() => { setSearch(''); setStatusFilter('all') }}
+            style={PJB} className="flex items-center gap-1 h-8 px-2.5 text-[12px] font-medium text-[#9ca3af] hover:text-[#374151] hover:bg-[#f9fafb] rounded-md transition-colors">
+            <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
+            Clear
+          </button>
+        )}
+
+        {/* Search — pojok kanan */}
+        <div className="relative ml-auto">
+          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-[#c4c9d4] pointer-events-none">search</span>
+          <input type="text" placeholder="Search brands…" value={search} onChange={e => setSearch(e.target.value)}
+            style={PJB}
+            className="h-8 w-[200px] pl-8 pr-3 text-[12.5px] border border-[#e5e7eb] rounded-md bg-white focus:outline-none focus:border-[#3d7e96] focus:ring-1 focus:ring-[#3d7e96]/20 placeholder:text-[#d1d5db] transition"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#9ca3af] hover:text-[#374151]">
+              <span className="material-symbols-outlined text-[14px]">close</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div
+        className="relative"
+        onClick={() => { setShowGroupMenu(false); setShowStatusMenu(false) }}
+      >
+        {brands.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-32">
+            <span className="material-symbols-outlined text-[48px] text-[#e5e7eb] mb-4">storefront</span>
+            <p style={PJB} className="text-[16px] font-bold text-[#374151]">No brands yet</p>
+            <p className="text-[13px] text-[#9ca3af] mt-1 mb-5">Create your first brand to start tracking</p>
+            <button onClick={() => setShowCreate(true)} style={PJB}
+              className="flex items-center gap-1.5 h-9 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] text-white text-[13px] font-semibold rounded-lg transition-colors">
               <span className="material-symbols-outlined text-[15px]">add</span>
               New Brand
             </button>
           </div>
-        ) : (
-          <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
-
-            {/* Table head */}
-            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] bg-[#f9fafb] border-b-2 border-[#e5e7eb] px-5 py-2.5">
-              {['Brand', 'Total Followers', 'Platforms', 'Competitors', 'Created', 'Status'].map((h, i) => (
-                <span key={i} style={PJB} className="text-[10.5px] font-bold uppercase tracking-widest text-[#9ca3af]">
-                  {h}
-                </span>
-              ))}
-            </div>
-
-            {/* Table rows */}
-            {brands.map((brand, idx) => {
-              const brandFollowers = brand.accounts.reduce((s, a) => s + a.followers, 0)
-              return (
-                <Link
-                  key={brand.id}
-                  href={`/organizations/${orgSlug}/brands/${brand.id}/overview`}
-                  className={`grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] items-center px-5 py-3.5 hover:bg-[#f5fafc] transition-colors group ${
-                    idx < brands.length - 1 ? 'border-b border-[#f3f4f6]' : ''
-                  }`}
-                >
-                  {/* Brand */}
-                  <div className="flex items-center gap-3 min-w-0 pr-6">
-                    <BrandAvatar name={brand.name} color={brand.color} />
-                    <span style={PJB} className="text-[13.5px] font-semibold text-[#111827] truncate group-hover:text-[#3d7e96] transition-colors">
-                      {brand.name}
-                    </span>
-                  </div>
-
-                  {/* Total Followers */}
-                  <div className="pr-4">
-                    {brandFollowers === 0 ? (
-                      <span className="text-[13px] text-[#6b7280]">—</span>
-                    ) : (
-                      <div className="flex items-baseline gap-1">
-                        <span style={PJB} className="text-[14px] font-bold text-[#111827] tabular-nums leading-none">
-                          {fmt(brandFollowers)}
-                        </span>
-                        <span className="text-[10px] text-[#6b7280]">followers</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Platforms */}
-                  <div className="flex items-center gap-1 pr-4">
-                    {brand.accounts.length === 0 ? (
-                      <span className="text-[13px] text-[#6b7280]">—</span>
-                    ) : (
-                      <>
-                        {brand.accounts.slice(0, 4).map(acc => (
-                          <PlatformIcon key={acc.id} platform={acc.platform} />
-                        ))}
-                        {brand.accounts.length > 4 && (
-                          <span className="text-[11px] font-semibold text-[#6b7280] ml-0.5">
-                            +{brand.accounts.length - 4}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Competitors */}
-                  <div className="flex items-center gap-1 pr-4">
-                    {brand.competitors.length === 0 ? (
-                      <span className="text-[13px] text-[#6b7280]">—</span>
-                    ) : (
-                      <>
-                        <div className="flex -space-x-1.5">
-                          {brand.competitors.slice(0, 4).map(c => (
-                            <CompetitorDot key={c.id} name={c.name} color={c.color} />
-                          ))}
-                        </div>
-                        {brand.competitors.length > 4 && (
-                          <span className="text-[11px] font-semibold text-[#6b7280] ml-1">
-                            +{brand.competitors.length - 4}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Created */}
-                  <span style={PJB} className="text-[12.5px] font-medium text-[#374151] tabular-nums pr-4">
-                    {formatDate(brand.created_at)}
-                  </span>
-
-                  {/* Status */}
-                  <div>
-                    <StatusBadge accounts={brand.accounts} />
-                  </div>
-                </Link>
-              )
-            })}
+        ) : filteredBrands.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-28">
+            <span className="material-symbols-outlined text-[40px] text-[#e5e7eb] mb-3">search_off</span>
+            <p style={PJB} className="text-[14px] font-bold text-[#374151]">No results</p>
+            <p className="text-[12.5px] text-[#9ca3af] mt-1">Try adjusting your search or filters</p>
           </div>
+        ) : groupBy === 'brand' ? (
+          filteredBrands.map(brand => (
+            <BrandGroup key={brand.id} brand={brand} orgSlug={orgSlug} statusFilter={statusFilter} defaultOpen={false}
+              onAccountAdded={(brandId, account) => {
+                setBrands(prev => prev.map(b =>
+                  b.id === brandId ? { ...b, accounts: [...b.accounts, account] } : b
+                ))
+              }}
+            />
+          ))
+        ) : groupBy === 'channel' ? (
+          ACTIVE_PLATFORMS.map(platform => {
+            const brandsOnPlatform = filteredBrands.filter(b => b.accounts.some(a => a.platform === platform))
+            if (brandsOnPlatform.length === 0) return null
+            return (
+              <ChannelGroup key={platform} platform={platform} brands={brandsOnPlatform}
+                orgSlug={orgSlug} statusFilter={statusFilter} defaultOpen={false} />
+            )
+          })
+        ) : (
+          <>
+            <StatusGroup statusType="connected"    entries={connectedEntries}    orgSlug={orgSlug} defaultOpen={false} />
+            <StatusGroup statusType="disconnected" entries={disconnectedEntries} orgSlug={orgSlug} defaultOpen={false} />
+          </>
         )}
       </div>
 
-      {/* ── Modal ── */}
       {showCreate && (
-        <CreateBrandModal
-          orgId={orgId}
-          onClose={() => setShowCreate(false)}
-          onCreated={brand => setBrands(prev => [brand, ...prev])}
-        />
+        <CreateBrandModal orgId={orgId} onClose={() => setShowCreate(false)}
+          onCreated={brand => setBrands(prev => [brand, ...prev])} />
       )}
 
     </div>

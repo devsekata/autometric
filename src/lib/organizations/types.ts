@@ -3,7 +3,7 @@ export interface Organization {
   slug: string
   name: string
   created_at: string
-  role: 'OWNER' | 'ADMIN' | 'VIEWER'
+  role: 'ADMIN' | 'MEMBER'
   member_count: number
   brand_count: number
   members_preview: { name: string }[]

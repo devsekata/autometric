@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
-import { getBrandById } from '@/lib/brands/dummy'
+import { getOrgBasicBySlug } from '@/lib/organizations/queries'
+import { getBrandById } from '@/lib/brands/queries'
 import { BrandDetailProvider } from '@/components/brands/detail/BrandDetailContext'
 import BrandDetailShell from '@/components/brands/detail/BrandDetailShell'
 
@@ -10,11 +11,16 @@ interface Props {
 
 export default async function BrandDetailLayout({ children, params }: Props) {
   const { orgSlug, brandId } = await params
-  const brand = getBrandById(brandId)
-  if (!brand) notFound()
+
+  const [org, brand] = await Promise.all([
+    getOrgBasicBySlug(orgSlug),
+    getBrandById(brandId),
+  ])
+
+  if (!org || !brand) notFound()
 
   return (
-    <BrandDetailProvider initial={brand}>
+    <BrandDetailProvider initial={brand} orgName={org.name}>
       <BrandDetailShell orgSlug={orgSlug}>
         {children}
       </BrandDetailShell>

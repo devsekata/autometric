@@ -1,10 +1,12 @@
-import { getOrgBySlug } from '@/lib/organizations/dummy'
+import { notFound } from 'next/navigation'
+import { getOrgBasicBySlug } from '@/lib/organizations/queries'
 
 interface Props { params: Promise<{ orgSlug: string }> }
 
 export default async function ReportsPage({ params }: Props) {
   const { orgSlug } = await params
-  const org = getOrgBySlug(orgSlug)!
+  const org = await getOrgBasicBySlug(orgSlug)
+  if (!org) notFound()
 
   return (
     <div>
