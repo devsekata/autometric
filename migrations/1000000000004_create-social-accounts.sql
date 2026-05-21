@@ -1,13 +1,13 @@
 -- Up Migration
--- Global registry of all social media accounts ever tracked.
--- oauth_token is populated when a brand connects via Graph API.
--- Competitors reuse the same row — if token exists, fetch from API; otherwise scrape.
 CREATE TABLE social_accounts (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   platform_id      UUID NOT NULL REFERENCES platforms (id) ON DELETE RESTRICT,
+  platform_user_id VARCHAR(255),
   username         VARCHAR(255) NOT NULL,
   oauth_token      TEXT,
   token_expires_at TIMESTAMPTZ,
+  avatar_url       TEXT,
+  profile_url      TEXT,
   connected        BOOLEAN NOT NULL DEFAULT false,
   connected_at     TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),

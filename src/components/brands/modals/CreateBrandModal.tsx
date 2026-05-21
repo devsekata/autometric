@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Brand, Platform, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
+import Image from 'next/image'
+import { Brand, Platform, SocialAccount, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
+import { useOAuthConnect, CONNECT_OPTIONS, triggerInitialFetch } from '@/hooks/useOAuthConnect'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -15,12 +17,15 @@ interface Props {
 interface PendingItem {
   platform: Platform
   username: string
+  avatarUrl?: string | null
+  oauthConnected?: boolean
+  methodId?: string
 }
 
 type Step = 1 | 2 | 3
 
 function StepIndicator({ step }: { step: Step }) {
-  const steps: { n: number; label: string }[] = [
+  const steps = [
     { n: 1, label: 'Brand Name' },
     { n: 2, label: 'Connect Accounts' },
     { n: 3, label: 'Add Competitors' },
@@ -87,11 +92,13 @@ function AddedList({ items, onRemove, emptyLabel }: {
   return (
     <div className="flex flex-col gap-1.5 max-h-[108px] overflow-y-auto">
       {items.map((item, i) => (
-        <div key={i} className="flex items-center gap-2 px-3 h-8 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
-          <PlatformIcon platform={item.platform} size={16} />
-          <span style={PJB} className="text-[12.5px] text-[#111827] flex-1 truncate">{item.username}</span>
-          <button type="button" onClick={() => onRemove(i)}
-            className="text-[#9ca3af] hover:text-[#6b7280] transition-colors">
+        <div key={i} className="flex items-center gap-2 px-3 h-9 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
+          {item.avatarUrl
+            ? <img src={item.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover flex-shrink-0" />
+            : <PlatformIcon platform={item.platform} size={16} />
+          }
+          <span style={PJB} className="text-[12.5px] text-[#111827] flex-1 truncate">@{item.username}</span>
+          <button type="button" onClick={() => onRemove(i)} className="text-[#9ca3af] hover:text-[#6b7280] transition-colors">
             <span className="material-symbols-outlined text-[15px]">close</span>
           </button>
         </div>
@@ -112,11 +119,11 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   const nameRef = useRef<HTMLInputElement>(null)
 
   // Step 2
-  const [accounts,     setAccounts]     = useState<PendingItem[]>([])
-  const [acctPlatform, setAcctPlatform] = useState<Platform>('instagram')
-  const [acctUsername, setAcctUsername] = useState('')
-  const [acctErr,      setAcctErr]      = useState('')
-  const acctRef = useRef<HTMLInputElement>(null)
+  const [accounts,    setAccounts]    = useState<PendingItem[]>([])
+  const [tiktokInput, setTiktokInput] = useState('')
+  const [tiktokOpen,  setTiktokOpen]  = useState(false)
+  const { loading: oauthLoading, error: oauthError, clearError: clearOAuthError, connect, pending, save, reset } = useOAuthConnect(brandId)
+  const igConnected = accounts.some(a => a.platform === 'instagram' && a.oauthConnected)
 
   // Step 3
   const [competitors,  setCompetitors]  = useState<PendingItem[]>([])
@@ -126,7 +133,6 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   const compRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { nameRef.current?.focus() }, [])
-  useEffect(() => { if (step === 2) acctRef.current?.focus() }, [step])
   useEffect(() => { if (step === 3) compRef.current?.focus() }, [step])
 
   const initials = name.trim().split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?'
@@ -154,13 +160,32 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   }
 
   // ── Step 2 helpers ──────────────────────────────────────────────
-  function addAccount() {
-    const u = acctUsername.trim()
-    if (!u) { setAcctErr('Enter a username.'); return }
-    setAccounts(prev => [...prev, { platform: acctPlatform, username: u }])
-    setAcctUsername('')
-    setAcctErr('')
-    acctRef.current?.focus()
+  function connectAccount(opt: typeof CONNECT_OPTIONS[0]) {
+    clearOAuthError()
+    connect(opt.method)
+  }
+
+  function confirmAccount(opt: typeof CONNECT_OPTIONS[0]) {
+    save((account) => {
+      setAccounts(prev => [
+        ...prev.filter(a => a.platform !== account.platform),
+        { platform: account.platform, username: account.username, avatarUrl: account.avatar_url, oauthConnected: true, methodId: opt.id },
+      ])
+      reset()
+    })
+  }
+
+  function addTiktokAccount() {
+    const u = tiktokInput.trim().replace(/^@/, '')
+    if (!u) return
+    setAccounts(prev => [...prev.filter(a => a.platform !== 'tiktok'), { platform: 'tiktok', username: u, methodId: 'tiktok' }])
+    setTiktokInput('')
+    setTiktokOpen(false)
+    clearOAuthError()
+  }
+
+  function removeAccount(platform: Platform) {
+    setAccounts(prev => prev.filter(a => a.platform !== platform))
   }
 
   async function handleStep2(skip: boolean) {
@@ -169,6 +194,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
     try {
       if (!skip) {
         for (const a of accounts) {
+          if (a.oauthConnected) continue
           const res = await fetch(`/api/brands/${brandId}/accounts`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -217,10 +243,10 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
           }
         }
       }
-      // Fetch final brand with all added data
       const res  = await fetch(`/api/brands/${brandId}`)
       const json = await res.json()
       if (res.ok) onCreated(json.data)
+      if (brandId && igConnected) triggerInitialFetch(brandId, 'instagram')
       onClose()
     } catch {
       setError('Something went wrong.')
@@ -257,7 +283,6 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 <p className="text-[11px] text-[#9ca3af] mt-0.5">0 accounts · 0 competitors</p>
               </div>
             </div>
-
             <div className="flex flex-col gap-1.5">
               <label style={PJB} className="text-[11px] font-bold uppercase tracking-widest text-[#6b7280]">
                 Brand name
@@ -278,51 +303,133 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
               />
               {nameErr && <p className="text-[12px] text-red-500">{nameErr}</p>}
             </div>
-
             {error && <p className="text-[12px] text-red-500">{error}</p>}
           </div>
         )}
 
+        {/* ── Step 2: Confirm Account ── */}
+        {step === 2 && pending && (
+          <div className="px-6 py-6 flex flex-col gap-4">
+            <div>
+              <p style={PJB} className="text-[13px] font-semibold text-[#111827]">Confirm account</p>
+              <p className="text-[12px] text-[#9ca3af] mt-0.5">Connect this account to your brand?</p>
+            </div>
+            <div className="flex items-center gap-4 w-full bg-[#f9fafb] rounded-xl px-4 py-3.5 border border-[#f3f4f6]">
+              {pending.payload.avatarUrl ? (
+                <Image src={pending.payload.avatarUrl} alt={pending.payload.username} width={44} height={44}
+                  className="rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-[#e5e7eb] flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-[22px] text-[#9ca3af]">person</span>
+                </div>
+              )}
+              <div className="flex flex-col min-w-0">
+                <span style={PJB} className="text-[13px] font-semibold text-[#111827] truncate">
+                  @{pending.payload.username}
+                </span>
+                <span style={PJB} className="text-[11px] text-[#9ca3af] capitalize">{pending.payload.platform}</span>
+              </div>
+              <div className="ml-auto shrink-0">
+                <PlatformIcon platform={pending.payload.platform as Platform} size={24} />
+              </div>
+            </div>
+            {oauthError && <p className="text-[12px] text-red-500">{oauthError}</p>}
+          </div>
+        )}
+
         {/* ── Step 2: Connect Accounts ── */}
-        {step === 2 && (
-          <div className="px-6 py-5 flex flex-col gap-4">
+        {step === 2 && !pending && (
+          <div className="px-6 py-5 flex flex-col gap-3">
             <div>
               <p style={PJB} className="text-[13px] font-semibold text-[#111827]">Connect social accounts</p>
-              <p className="text-[12px] text-[#9ca3af] mt-0.5">Select a platform and enter the account username.</p>
+              <p className="text-[12px] text-[#9ca3af] mt-0.5">Connect the platforms you want to track for this brand.</p>
             </div>
 
-            <PlatformPicker selected={acctPlatform} onSelect={p => { setAcctPlatform(p); setAcctErr('') }} />
+            <div className="flex flex-col gap-2">
+              {CONNECT_OPTIONS.map(opt => {
+                const connected    = accounts.find(a => a.platform === opt.platform && a.methodId === opt.id)
+                const platformTaken = !connected && accounts.some(a => a.platform === opt.platform)
 
-            <div className="flex gap-2">
-              <div className="flex-1 flex flex-col gap-1">
-                <input
-                  ref={acctRef}
-                  type="text"
-                  value={acctUsername}
-                  onChange={e => { setAcctUsername(e.target.value); setAcctErr('') }}
-                  onKeyDown={e => e.key === 'Enter' && addAccount()}
-                  placeholder={`@username on ${PLATFORM_CONFIG[acctPlatform].label}`}
-                  className={`h-9 px-3 text-[13px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
-                    acctErr
-                      ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                      : 'border-[#e5e7eb] focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10'
-                  }`}
-                />
-                {acctErr && <p className="text-[11px] text-red-500">{acctErr}</p>}
-              </div>
-              <button type="button" onClick={addAccount} style={PJB}
-                className="h-9 px-3.5 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[13px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0 self-start">
-                Add
-              </button>
+                return (
+                  <div key={opt.id} className={`rounded-xl border transition-colors ${
+                    connected
+                      ? 'border-emerald-200 bg-emerald-50/30'
+                      : platformTaken
+                        ? 'border-[#e5e7eb] opacity-40 pointer-events-none'
+                        : 'border-[#e5e7eb] bg-white'
+                  }`}>
+                    <div className="flex items-center gap-3 px-4 h-[54px]">
+                      <PlatformIcon platform={opt.platform} size={30} />
+
+                      <span style={PJB} className="text-[13px] font-semibold text-[#111827] flex-1 leading-tight">
+                        {opt.label}
+                      </span>
+
+                      {connected ? (
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {connected.avatarUrl && (
+                            <img src={connected.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
+                          )}
+                          <span style={PJB} className="text-[11.5px] text-[#374151] max-w-[72px] truncate">
+                            @{connected.username}
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                            Connected
+                          </span>
+                          <button type="button" onClick={() => removeAccount(opt.platform)}
+                            className="text-[#9ca3af] hover:text-red-400 transition-colors ml-0.5">
+                            <span className="material-symbols-outlined text-[15px]">close</span>
+                          </button>
+                        </div>
+                      ) : platformTaken ? (
+                        <span style={PJB} className="text-[11px] text-[#9ca3af] flex-shrink-0">Already connected</span>
+                      ) : opt.method === 'manual' ? (
+                        <button type="button" onClick={() => setTiktokOpen(o => !o)} style={PJB}
+                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#3d7e96] flex-shrink-0">
+                          Connect
+                          <span className="material-symbols-outlined text-[15px]">
+                            {tiktokOpen ? 'expand_less' : 'chevron_right'}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={oauthLoading}
+                          onClick={() => connectAccount(opt)}
+                          style={PJB}
+                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#3d7e96] disabled:opacity-40 flex-shrink-0"
+                        >
+                          Connect
+                          <span className="material-symbols-outlined text-[15px]">chevron_right</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* TikTok inline username input */}
+                    {opt.method === 'manual' && tiktokOpen && !connected && !platformTaken && (
+                      <div className="border-t border-[#f3f4f6] px-4 py-3 flex gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={tiktokInput}
+                          onChange={e => setTiktokInput(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && addTiktokAccount()}
+                          placeholder="@username on TikTok"
+                          className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10 transition-all"
+                        />
+                        <button type="button" onClick={addTiktokAccount} style={PJB}
+                          className="h-8 px-3 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[12.5px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0">
+                          Add
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            <AddedList
-              items={accounts}
-              onRemove={i => setAccounts(prev => prev.filter((_, idx) => idx !== i))}
-              emptyLabel="No accounts added yet."
-            />
-
-            {error && <p className="text-[12px] text-red-500">{error}</p>}
+            {oauthError && <p className="text-[12px] text-red-500">{oauthError}</p>}
+            {error      && <p className="text-[12px] text-red-500">{error}</p>}
           </div>
         )}
 
@@ -386,7 +493,23 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
             </>
           )}
 
-          {step === 2 && (
+          {step === 2 && pending && (
+            <>
+              <button type="button" onClick={reset} disabled={oauthLoading} style={PJB}
+                className="h-8 px-3.5 text-[13px] font-medium text-[#6b7280] hover:text-[#111827] hover:bg-[#f9fafb] rounded-lg transition-colors disabled:opacity-40">
+                Ganti Akun
+              </button>
+              <button type="button" disabled={oauthLoading} style={PJB}
+                onClick={() => confirmAccount(CONNECT_OPTIONS.find(o => o.method === pending.method) ?? CONNECT_OPTIONS[0])}
+                className="h-8 px-4 bg-[#111827] hover:bg-[#1f2937] disabled:opacity-50 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-2">
+                {oauthLoading ? (
+                  <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Menghubungkan...</>
+                ) : 'Connect'}
+              </button>
+            </>
+          )}
+
+          {step === 2 && !pending && (
             <>
               <button type="button" onClick={() => handleStep2(true)} disabled={loading} style={PJB}
                 className="h-8 px-3.5 text-[13px] font-medium text-[#6b7280] hover:text-[#111827] hover:bg-[#f9fafb] rounded-lg transition-colors disabled:opacity-40">

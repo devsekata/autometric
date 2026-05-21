@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { verifyBrandAccess, connectSocialAccount } from '@/lib/brands/queries'
+import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
 import { PLATFORM_LIST } from '@/lib/brands/types'
 
 type Params = { params: Promise<{ brandId: string }> }
@@ -17,8 +18,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!orgId) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
 
     const body = await req.json()
-    const platform = typeof body?.platform === 'string' ? body.platform.trim() : ''
-    const username  = typeof body?.username  === 'string' ? body.username.trim().replace(/^@/, '') : ''
+    const platform       = typeof body?.platform       === 'string' ? body.platform.trim() : ''
+    const username       = typeof body?.username       === 'string' ? body.username.trim().replace(/^@/, '') : ''
+    const oauthToken     = typeof body?.oauthToken     === 'string' ? body.oauthToken     : null
+    const tokenExpiresAt = typeof body?.tokenExpiresAt === 'string' ? body.tokenExpiresAt : null
+    const avatarUrl      = typeof body?.avatarUrl      === 'string' ? body.avatarUrl      : null
+    const profileUrl     = typeof body?.profileUrl     === 'string' ? body.profileUrl     : null
+    const platformUserId = typeof body?.platformUserId === 'string' ? body.platformUserId : null
 
     if (!platform || !PLATFORM_LIST.includes(platform as never)) {
       return NextResponse.json({ error: 'Valid platform is required.' }, { status: 400 })
@@ -27,8 +33,16 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Username is required.' }, { status: 400 })
     }
 
-    const account = await connectSocialAccount(brandId, platform, username)
-    return NextResponse.json({ data: account }, { status: 201 })
+    let finalAvatarUrl = avatarUrl
+    if (avatarUrl && !avatarUrl.includes('res.cloudinary.com')) {
+      const slug = username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+      finalAvatarUrl = await uploadAvatarFromUrl(avatarUrl, `${platform}/${slug}`) ?? avatarUrl
+    }
+
+    const { is_new, ...account } = await connectSocialAccount(brandId, platform, username, {
+      oauthToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
+    })
+    return NextResponse.json({ data: account, is_new }, { status: 201 })
   } catch (err) {
     console.error('[POST /api/brands/[brandId]/accounts]', err)
     return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })

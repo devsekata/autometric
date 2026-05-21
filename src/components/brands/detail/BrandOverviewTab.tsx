@@ -1,7 +1,7 @@
 'use client'
 
 import { useBrandDetail } from './BrandDetailContext'
-import { PLATFORM_CONFIG, getColorFromId } from '@/lib/brands/types'
+import { PLATFORM_CONFIG } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
@@ -45,10 +45,16 @@ export default function BrandOverviewTab() {
         ) : (
           brand.accounts.map(acc => (
             <div key={acc.id} className="flex items-center gap-3 px-6 py-3 hover:bg-[#fafafa] transition-colors">
-              <PlatformIcon platform={acc.platform} size={26} />
-              <span className="flex-1 text-[13px] text-[#374151] font-medium">{acc.username}</span>
+              <PlatformIcon platform={acc.platform} size={22} />
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                {acc.avatar_url
+                  ? <img src={acc.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+                  : <PlatformIcon platform={acc.platform} size={20} />
+                }
+                <span className="text-[13px] text-[#374151] font-medium truncate">{acc.username}</span>
+              </div>
               {acc.connected_at && (
-                <span className="text-[11.5px] text-[#9ca3af]">Connected {formatDate(acc.connected_at)}</span>
+                <span className="text-[11.5px] text-[#9ca3af] flex-shrink-0">Connected {formatDate(acc.connected_at)}</span>
               )}
             </div>
           ))

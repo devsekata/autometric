@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Brand, getColorFromId } from '@/lib/brands/types'
+import { Brand } from '@/lib/brands/types'
 import PlatformIcon from './PlatformIcon'
+import BrandAvatar from './BrandAvatar'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -18,8 +19,6 @@ interface Props {
 export default function BrandCard({ brand, onDelete }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const color = getColorFromId(brand.id)
-  const initials = brand.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -34,10 +33,7 @@ export default function BrandCard({ brand, onDelete }: Props) {
 
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div style={{ width: 40, height: 40, background: color, borderRadius: Math.round(40 * 0.26), fontSize: 15 }}
-            className="flex items-center justify-center flex-shrink-0 font-bold text-white leading-none select-none">
-            {initials}
-          </div>
+          <BrandAvatar brand={brand} size={40} />
           <div className="min-w-0">
             <h3 style={PJB} className="text-[15px] font-bold text-[#111827] truncate leading-tight">{brand.name}</h3>
             <p className="text-[11px] text-[#b0b8c4] mt-0.5">{formatDate(brand.created_at)}</p>

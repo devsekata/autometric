@@ -1,5 +1,5 @@
 -- Up Migration
-CREATE TYPE member_role   AS ENUM ('OWNER', 'ADMIN', 'VIEWER');
+CREATE TYPE member_role   AS ENUM ('ADMIN', 'MEMBER');
 CREATE TYPE member_status AS ENUM ('ACTIVE', 'PENDING', 'CANCELLED');
 
 CREATE TABLE organization_members (
@@ -7,7 +7,7 @@ CREATE TABLE organization_members (
   organization_id  UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
   user_id          UUID REFERENCES users (id) ON DELETE SET NULL,
   email            VARCHAR(255) NOT NULL,
-  role             member_role   NOT NULL DEFAULT 'VIEWER',
+  role             member_role   NOT NULL DEFAULT 'MEMBER',
   status           member_status NOT NULL DEFAULT 'PENDING',
   invited_by       UUID REFERENCES users (id) ON DELETE SET NULL,
   joined_at        TIMESTAMPTZ,

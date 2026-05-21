@@ -76,7 +76,7 @@ export default function BrandDetailRightPanel() {
               const cfg  = PLATFORM_CONFIG[acc.platform]
               if (!logo) return null
               return (
-                <a key={acc.id} href={getProfileUrl(acc.platform, acc.username)}
+                <a key={acc.id} href={acc.profile_url ?? getProfileUrl(acc.platform, acc.username)}
                   target="_blank" rel="noopener noreferrer"
                   title={`${cfg.label} · ${acc.username}`}
                   className="hover:opacity-70 transition-opacity flex-shrink-0">

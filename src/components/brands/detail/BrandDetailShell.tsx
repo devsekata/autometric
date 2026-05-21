@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useBrandDetail } from './BrandDetailContext'
-import { getColorFromId } from '@/lib/brands/types'
+import BrandAvatar from '../BrandAvatar'
 import BrandDetailRightPanel from './BrandDetailRightPanel'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
@@ -23,8 +23,6 @@ interface Props {
 export default function BrandDetailShell({ orgSlug, children }: Props) {
   const { brand } = useBrandDetail()
   const pathname  = usePathname()
-  const color     = getColorFromId(brand.id)
-  const initials  = brand.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -37,10 +35,7 @@ export default function BrandDetailShell({ orgSlug, children }: Props) {
         </Link>
 
         <div className="flex items-center gap-4 mb-5">
-          <div style={{ width: 44, height: 44, background: color, borderRadius: 12, fontSize: 15 }}
-            className="flex items-center justify-center flex-shrink-0 font-bold text-white leading-none select-none">
-            {initials}
-          </div>
+          <BrandAvatar brand={brand} size={44} />
           <div>
             <h1 style={PJB} className="text-[22px] font-bold text-[#111827] tracking-[-0.03em] leading-none">
               {brand.name}

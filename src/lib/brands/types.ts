@@ -47,6 +47,7 @@ export interface Brand {
   id: string
   organization_id: string
   name: string
+  profile_url: string | null
   created_at: string
   accounts: SocialAccount[]
   competitors: CompetitorAccount[]

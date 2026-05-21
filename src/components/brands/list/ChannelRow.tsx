@@ -26,7 +26,13 @@ export default function ChannelRow({ account, competitors, brandCreatedAt }: Pro
         <span style={PJB} className="text-[13px] font-medium text-[#374151]">{cfg.label}</span>
       </div>
 
-      <span style={PJB} className="text-[13px] font-medium text-[#111827] truncate pr-4">{account.username}</span>
+      <div className="flex items-center gap-2 pr-4 min-w-0">
+        {account.avatar_url
+          ? <img src={account.avatar_url} alt="" className="w-5 h-5 rounded-full object-cover flex-shrink-0" />
+          : <PlatformIcon platform={account.platform} size={18} />
+        }
+        <span style={PJB} className="text-[13px] font-medium text-[#111827] truncate">{account.username}</span>
+      </div>
 
       <div className="pr-4"><CompetitorAvatars competitors={competitors} /></div>
 

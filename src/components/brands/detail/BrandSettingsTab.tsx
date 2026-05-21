@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useBrandDetail } from './BrandDetailContext'
-import { getColorFromId } from '@/lib/brands/types'
+import BrandAvatar from '../BrandAvatar'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -18,9 +18,7 @@ export default function BrandSettingsTab() {
   const [saving,      setSaving]      = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
 
-  const color    = getColorFromId(brand.id)
-  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '—'
-  const isDirty  = name.trim() !== brand.name
+  const isDirty = name.trim() !== brand.name
 
   async function handleSave() {
     if (!name.trim()) return
@@ -49,10 +47,7 @@ export default function BrandSettingsTab() {
         </div>
 
         <div className="flex items-center gap-3 mb-6">
-          <div style={{ width: 48, height: 48, background: color, borderRadius: 12, fontSize: 16 }}
-            className="flex items-center justify-center font-bold text-white leading-none select-none flex-shrink-0">
-            {initials}
-          </div>
+          <BrandAvatar brand={{ ...brand, name }} size={48} />
           <div>
             <p style={PJB} className="text-[16px] font-bold text-[#111827]">{name || 'Brand name'}</p>
             <p className="text-[12px] text-[#9ca3af] mt-0.5">{brand.accounts.length} channels · {brand.competitors.length} competitors</p>

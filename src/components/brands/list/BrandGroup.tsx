@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Brand, Platform, SocialAccount, getColorFromId } from '@/lib/brands/types'
+import { Brand, Platform, SocialAccount } from '@/lib/brands/types'
+import BrandAvatar from '../BrandAvatar'
 import ChannelRow from './ChannelRow'
 import ConnectAccountModal from '../modals/ConnectAccountModal'
 
@@ -12,15 +13,6 @@ const ACTIVE_PLATFORMS: Platform[] = ['instagram', 'tiktok', 'facebook']
 const COL_HEADERS = ['CHANNEL', 'USERNAME', 'COMPETITORS', 'STATUS', 'CONNECTED AT', 'CREATED AT']
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
-function BrandAvatar({ name, color }: { name: string; color: string }) {
-  const initials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-  return (
-    <div style={{ width: 20, height: 20, background: color, borderRadius: 5, fontSize: 8 }}
-      className="flex items-center justify-center font-bold text-white leading-none select-none flex-shrink-0">
-      {initials}
-    </div>
-  )
-}
 
 interface Props {
   brand: Brand
@@ -43,7 +35,6 @@ export default function BrandGroup({ brand, orgSlug, statusFilter, defaultOpen =
     return true
   })
   const disconnectedCount = allAccounts.filter(a => !a.connected).length
-  const color = getColorFromId(brand.id)
 
   return (
     <div className="border-b border-[#e5e7eb] last:border-0">
@@ -55,7 +46,7 @@ export default function BrandGroup({ brand, orgSlug, statusFilter, defaultOpen =
           expand_more
         </span>
 
-        <BrandAvatar name={brand.name} color={color} />
+        <BrandAvatar brand={brand} size={20} />
 
         <Link href={`/organizations/${orgSlug}/brands/${brand.id}/overview`}
           onClick={e => e.stopPropagation()} style={PJB}
@@ -108,20 +99,11 @@ export default function BrandGroup({ brand, orgSlug, statusFilter, defaultOpen =
 
       {showAddChannel && (
         <ConnectAccountModal
+          brandId={brand.id}
           brandName={brand.name}
           usedPlatforms={usedPlatforms}
           onClose={() => setShowAddChannel(false)}
-          onConnected={async (platform, username) => {
-            const res  = await fetch(`/api/brands/${brand.id}/accounts`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ platform, username }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error ?? 'Failed to connect account.')
-            onAccountAdded(brand.id, json.data)
-            setShowAddChannel(false)
-          }}
+          onConnected={(account) => { onAccountAdded(brand.id, account); setShowAddChannel(false) }}
         />
       )}
     </div>

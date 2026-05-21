@@ -229,7 +229,9 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
             <BrandGroup key={brand.id} brand={brand} orgSlug={orgSlug} statusFilter={statusFilter} defaultOpen={false}
               onAccountAdded={(brandId, account) => {
                 setBrands(prev => prev.map(b =>
-                  b.id === brandId ? { ...b, accounts: [...b.accounts, account] } : b
+                  b.id === brandId
+                    ? { ...b, profile_url: b.profile_url ?? account.avatar_url, accounts: [...b.accounts, account] }
+                    : b
                 ))
               }}
             />

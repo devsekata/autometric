@@ -1,9 +1,13 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['remindful-lucid-caliber.ngrok-free.dev'],
   images: {
     remotePatterns: [
       { hostname: 'lh3.googleusercontent.com' },
+      { hostname: 'res.cloudinary.com' },
+      { hostname: '**.fbcdn.net' },
+      { hostname: '**.cdninstagram.com' },
     ],
   },
   async headers() {

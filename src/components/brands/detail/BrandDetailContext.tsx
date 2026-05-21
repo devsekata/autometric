@@ -1,12 +1,12 @@
 'use client'
 
 import { createContext, useContext, useState } from 'react'
-import { Brand, Platform } from '@/lib/brands/types'
+import { Brand, Platform, SocialAccount } from '@/lib/brands/types'
 
 interface BrandDetailCtx {
   brand: Brand
   orgName: string
-  connectAccount: (platform: Platform, username: string) => Promise<void>
+  addAccount: (account: SocialAccount) => void
   disconnectAccount: (accountId: string) => Promise<void>
   addCompetitor: (platform: Platform, username: string) => Promise<void>
   removeCompetitor: (socialAccountId: string) => Promise<void>
@@ -27,15 +27,12 @@ export function BrandDetailProvider({
 }) {
   const [brand, setBrand] = useState<Brand>(initial)
 
-  async function connectAccount(platform: Platform, username: string) {
-    const res = await fetch(`/api/brands/${brand.id}/accounts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform, username }),
-    })
-    if (!res.ok) throw new Error('Failed to connect account')
-    const { data } = await res.json()
-    setBrand(b => ({ ...b, accounts: [...b.accounts, data] }))
+  function addAccount(account: SocialAccount) {
+    setBrand(b => ({
+      ...b,
+      profile_url: b.profile_url ?? account.avatar_url,
+      accounts: [...b.accounts, account],
+    }))
   }
 
   async function disconnectAccount(accountId: string) {
@@ -77,7 +74,7 @@ export function BrandDetailProvider({
   }
 
   return (
-    <Ctx.Provider value={{ brand, orgName, connectAccount, disconnectAccount, addCompetitor, removeCompetitor, updateBrandName, deleteBrand }}>
+    <Ctx.Provider value={{ brand, orgName, addAccount, disconnectAccount, addCompetitor, removeCompetitor, updateBrandName, deleteBrand }}>
       {children}
     </Ctx.Provider>
   )
