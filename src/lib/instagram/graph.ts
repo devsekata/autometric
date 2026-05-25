@@ -88,24 +88,77 @@ export async function fetchIgInsightsLifetime(igUserId: string, accessToken: str
 }
 
 const MEDIA_FIELDS = [
-  'id', 'caption', 'media_type', 'permalink', 'timestamp',
+  'id', 'caption', 'media_type', 'media_product_type', 'permalink', 'timestamp',
   'media_url', 'thumbnail_url', 'video_duration', 'children{id}',
 ].join(',')
 
 function getMediaInsightMetrics(mediaType: string): string {
   if (mediaType === 'REELS') {
+    // follows & profile_visits not available for REELS per Instagram API docs
     return [
-      'plays', 'reach', 'saved', 'shares', 'total_interactions',
+      'reach', 'saved', 'shares', 'total_interactions',
       'ig_reels_avg_watch_time', 'ig_reels_video_view_total_time',
-      'comments', 'likes',
+      'comments', 'likes', 'reposts', 'views',
     ].join(',')
   }
-  const base = [
+  return [
     'reach', 'saved', 'likes', 'comments',
     'shares', 'total_interactions', 'follows', 'profile_visits',
-  ]
-  if (mediaType === 'VIDEO') base.push('video_views')
-  return base.join(',')
+    'views', 'reposts',
+  ].join(',')
+}
+
+const TAGGED_FIELDS = [
+  'id', 'caption', 'media_type', 'permalink', 'timestamp',
+  'username', 'like_count', 'comments_count',
+  'media_url', 'thumbnail_url',
+].join(',')
+
+export async function fetchAllIgTaggedPosts(igUserId: string, accessToken: string, daysSince = 30, maxItems = 20) {
+  const cutoff = Date.now() - daysSince * 24 * 60 * 60 * 1000
+  const all: Record<string, unknown>[] = []
+
+  // /tags pagination does not include next URL — must use after cursor manually
+  let after: string | null = null
+
+  while (all.length < maxItems) {
+    const params = new URLSearchParams({
+      fields:       TAGGED_FIELDS,
+      limit:        '10',
+      access_token: accessToken,
+    })
+    if (after) params.set('after', after)
+
+    const res  = await fetch(`${GRAPH}/${igUserId}/tags?${params}`)
+    const data = await res.json() as {
+      data?:   Record<string, unknown>[]
+      paging?: { cursors?: { after?: string }; next?: string }
+      error?:  unknown
+    }
+
+    if (data.error) {
+      console.error(`[fetchAllIgTaggedPosts] igUserId=${igUserId}:`, JSON.stringify(data.error))
+      break
+    }
+
+    const items = data.data ?? []
+    let reachedCutoff = false
+
+    for (const item of items) {
+      if (item.timestamp && new Date(item.timestamp as string).getTime() < cutoff) {
+        reachedCutoff = true
+        break
+      }
+      all.push(item)
+      if (all.length >= maxItems) break
+    }
+
+    const nextCursor = data.paging?.cursors?.after
+    if (reachedCutoff || !nextCursor || !data.paging?.next) break
+    after = nextCursor
+  }
+
+  return all
 }
 
 export async function fetchIgMedia(igUserId: string, accessToken: string) {
@@ -124,7 +177,13 @@ export async function fetchAllIgMedia(igUserId: string, accessToken: string, day
 
   while (url) {
     const res  = await fetch(url)
-    const data = await res.json() as { data?: Record<string, unknown>[]; paging?: { next?: string } }
+    const data = await res.json() as { data?: Record<string, unknown>[]; paging?: { next?: string }; error?: unknown }
+
+    if (data.error) {
+      console.error(`[fetchAllIgMedia] igUserId=${igUserId}:`, JSON.stringify(data.error))
+      break
+    }
+
     const items = data.data ?? []
 
     let reachedCutoff = false
@@ -147,12 +206,16 @@ export async function fetchAllIgComments(mediaId: string, accessToken: string) {
 
   let url: string | null =
     `${GRAPH}/${mediaId}/comments` +
-    `?fields=id,text,username,timestamp,like_count,replies_count` +
+    `?fields=id,text,username,from{id,username},timestamp,like_count,replies{id},hidden,parent_id` +
     `&limit=50&access_token=${accessToken}`
 
   while (url) {
     const res  = await fetch(url)
-    const data = await res.json() as { data?: Record<string, unknown>[]; paging?: { next?: string } }
+    const data = await res.json() as { data?: Record<string, unknown>[]; paging?: { next?: string }; error?: unknown }
+    if (data.error) {
+      console.error(`[fetchAllIgComments] mediaId=${mediaId}:`, JSON.stringify(data.error))
+      break
+    }
     all.push(...(data.data ?? []))
     url = data.paging?.next ?? null
   }
@@ -165,7 +228,11 @@ export async function fetchIgMediaInsights(mediaId: string, accessToken: string,
   const res = await fetch(
     `${GRAPH}/${mediaId}/insights?metric=${metrics}&access_token=${accessToken}`
   )
-  return res.json()
+  const json = await res.json()
+  if (json.error) {
+    console.error(`[fetchIgMediaInsights] ${mediaType} ${mediaId}:`, JSON.stringify(json.error))
+  }
+  return json
 }
 
 export async function fetchIgFollowerCountHistory(igUserId: string, accessToken: string, days = 30) {
@@ -182,14 +249,43 @@ export async function fetchIgFollowerCountHistory(igUserId: string, accessToken:
   return stripPaging(await res.json())
 }
 
-export async function fetchIgComments(mediaId: string, accessToken: string) {
+const STORY_FIELDS = [
+  'id', 'username', 'media_type', 'permalink', 'timestamp', 'media_url', 'thumbnail_url',
+].join(',')
+
+const STORY_INSIGHT_METRICS = [
+  'reach', 'replies', 'shares', 'follows',
+  'profile_visits', 'profile_activity',
+  'reposts', 'total_interactions', 'total_views', 'facebook_views',
+].join(',')
+
+export async function fetchIgStories(igUserId: string, accessToken: string) {
   const res = await fetch(
-    `${GRAPH}/${mediaId}/comments` +
-    `?fields=id,text,username,timestamp,like_count,replies_count` +
-    `&limit=50` +
-    `&access_token=${accessToken}`
+    `${GRAPH}/${igUserId}/stories?fields=${STORY_FIELDS}&access_token=${accessToken}`
   )
-  return stripPaging(await res.json())
+  const json = await res.json()
+  if (json.error) {
+    console.error(`[fetchIgStories] igUserId=${igUserId}:`, JSON.stringify(json.error))
+  }
+  return json
+}
+
+export async function fetchIgStoryInsights(mediaId: string, accessToken: string) {
+  const [mainRes, navRes] = await Promise.all([
+    fetch(`${GRAPH}/${mediaId}/insights?metric=${STORY_INSIGHT_METRICS}&access_token=${accessToken}`),
+    fetch(`${GRAPH}/${mediaId}/insights?metric=navigation&breakdown=story_navigation_action_type&access_token=${accessToken}`),
+  ])
+
+  const [mainJson, navJson] = await Promise.all([mainRes.json(), navRes.json()])
+
+  if (mainJson.error) {
+    console.error(`[fetchIgStoryInsights] mediaId=${mediaId}:`, JSON.stringify(mainJson.error))
+  }
+  if (navJson.error) {
+    console.error(`[fetchIgStoryInsights navigation] mediaId=${mediaId}:`, JSON.stringify(navJson.error))
+  }
+
+  return { data: [...(mainJson.data ?? []), ...(navJson.data ?? [])] }
 }
 
 export async function fetchIgFollowsUnfollows(igUserId: string, accessToken: string) {

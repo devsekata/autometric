@@ -28,8 +28,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     const mediaWithInsights = await Promise.all(
       items.map(async (media) => {
-        const insights = await fetchIgMediaInsights(media.id, oauth_token, media.media_type)
-        return { ...media, insights }
+        const isReel      = media.media_type === 'REELS' || (media.media_product_type as string) === 'REELS'
+        const effectiveType = isReel ? 'REELS' : media.media_type
+        const insights    = await fetchIgMediaInsights(media.id, oauth_token, effectiveType)
+        return { ...media, is_reel: isReel, insights }
       })
     )
 

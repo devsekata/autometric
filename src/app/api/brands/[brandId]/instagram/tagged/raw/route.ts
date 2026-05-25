@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { verifyBrandAccess, getConnectedIgAccount } from '@/lib/brands/queries'
-import { fetchAllIgMedia, fetchAllIgComments } from '@/lib/instagram/graph'
+import { fetchAllIgTaggedPosts } from '@/lib/instagram/graph'
 
 type Params = { params: Promise<{ brandId: string }> }
 
-// GET /api/brands/[brandId]/instagram/comments/raw
+// GET /api/brands/[brandId]/instagram/tagged/raw
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const session = await auth()
@@ -22,23 +22,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
     }
 
     const { platform_user_id, oauth_token } = account
-
     const snapshotDays = parseInt(process.env.IG_SNAPSHOT_DAYS ?? '60', 10)
-    const mediaItems   = await fetchAllIgMedia(platform_user_id, oauth_token, snapshotDays)
-
-    type MediaItem = { id: string; timestamp?: string; permalink?: string }
-    const posts = await Promise.all(
-      (mediaItems as MediaItem[]).map(async (media) => {
-        const comments = await fetchAllIgComments(media.id, oauth_token)
-        return {
-          media_id:      media.id,
-          posted_at:     media.timestamp ?? null,
-          permalink:     media.permalink ?? null,
-          comment_count: comments.length,
-          comments,
-        }
-      })
-    )
+    const posts = await fetchAllIgTaggedPosts(platform_user_id, oauth_token, snapshotDays)
 
     return NextResponse.json({
       fetched_at:    new Date().toISOString(),
@@ -47,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       posts,
     })
   } catch (err) {
-    console.error('[GET /api/brands/[brandId]/instagram/comments/raw]', err)
+    console.error('[GET /api/brands/[brandId]/instagram/tagged/raw]', err)
     return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
   }
 }

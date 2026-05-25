@@ -4,10 +4,9 @@ import { useState } from 'react'
 import { Platform, SocialAccount } from '@/lib/brands/types'
 
 export const CONNECT_OPTIONS = [
-  { id: 'facebook',  platform: 'facebook'  as Platform, label: 'Facebook',                     method: 'facebook-page' },
-  { id: 'ig-fb',     platform: 'instagram' as Platform, label: 'Instagram via Facebook login',  method: 'facebook'      },
-  { id: 'ig-ig',     platform: 'instagram' as Platform, label: 'Instagram via Instagram login', method: 'instagram'     },
-  { id: 'tiktok',    platform: 'tiktok'    as Platform, label: 'TikTok',                        method: 'tiktok'        },
+  { id: 'facebook',  platform: 'facebook'  as Platform, label: 'Facebook',                    method: 'facebook-page' },
+  { id: 'ig-fb',     platform: 'instagram' as Platform, label: 'Instagram via Facebook login', method: 'facebook'      },
+  { id: 'tiktok',    platform: 'tiktok'    as Platform, label: 'TikTok',                       method: 'tiktok'        },
 ]
 
 export type ConnectOption = typeof CONNECT_OPTIONS[0]
@@ -76,8 +75,9 @@ async function persistConnection(
 export function triggerInitialFetch(brandId: string, platform: string) {
   if (platform !== 'instagram') return
   Promise.allSettled([
-    fetch(`/api/brands/${brandId}/instagram/snapshot`,       { method: 'POST' }),
-    fetch(`/api/brands/${brandId}/instagram/media/snapshot`, { method: 'POST' }),
+    fetch(`/api/brands/${brandId}/instagram/snapshot`,        { method: 'POST' }),
+    fetch(`/api/brands/${brandId}/instagram/media/snapshot`,  { method: 'POST' }),
+    fetch(`/api/brands/${brandId}/instagram/tagged/snapshot`, { method: 'POST' }),
   ])
 }
 

@@ -13,15 +13,27 @@ import {
 type Params = { params: Promise<{ brandId: string }> }
 
 type MediaItem = {
-  id:             string
-  caption?:       string
-  media_type:     string
-  permalink?:     string
-  timestamp?:     string
-  video_duration?: number
-  media_url?:     string
-  thumbnail_url?: string
-  children?:      { data: Array<{ id: string }> }
+  id:                 string
+  caption?:           string
+  media_type:         string
+  media_product_type?: string
+  permalink?:         string
+  timestamp?:         string
+  media_url?:         string
+  thumbnail_url?:     string
+  children?:          { data: Array<{ id: string }> }
+}
+
+function parseDurationFromMediaUrl(mediaUrl?: string): number | null {
+  if (!mediaUrl) return null
+  try {
+    const efg = new URL(mediaUrl).searchParams.get('efg')
+    if (!efg) return null
+    const decoded = JSON.parse(atob(efg))
+    return typeof decoded.duration_s === 'number' ? decoded.duration_s : null
+  } catch {
+    return null
+  }
 }
 
 // POST /api/brands/[brandId]/instagram/media/snapshot
@@ -42,20 +54,25 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
     const { id: socialAccountId, platform_user_id, oauth_token } = account
 
-    const items = (await fetchAllIgMedia(platform_user_id, oauth_token, 30)) as MediaItem[]
+    const snapshotDays = parseInt(process.env.IG_SNAPSHOT_DAYS ?? '60', 10)
+    const items = (await fetchAllIgMedia(platform_user_id, oauth_token, snapshotDays)) as MediaItem[]
 
     const snapshots: IgMediaSnapshotItem[] = []
     const comments:  IgCommentItem[]       = []
 
     await Promise.all(
       items.map(async (media) => {
+        // media_product_type='REELS' is the reliable signal — Instagram sometimes
+        // returns media_type='VIDEO' for reels, which causes wrong metrics to be fetched.
+        const isReel = media.media_type === 'REELS' || media.media_product_type === 'REELS'
+        const effectiveType = isReel ? 'REELS' : media.media_type
+
         const [insightsRaw, rawComments] = await Promise.all([
-          fetchIgMediaInsights(media.id, oauth_token, media.media_type),
+          fetchIgMediaInsights(media.id, oauth_token, effectiveType),
           fetchAllIgComments(media.id, oauth_token),
         ])
 
-        const m      = extractMediaInsights(insightsRaw?.data ?? [])
-        const isReel = media.media_type === 'REELS'
+        const m = extractMediaInsights(insightsRaw?.data ?? [])
 
         snapshots.push({
           socialAccountId,
@@ -70,14 +87,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
           shares:                 m.shares               ?? null,
           totalInteractions:      m.total_interactions   ?? null,
           likes:                  m.likes                ?? null,
-          impressions:            isReel ? null : (m.impressions    ?? null),
           follows:                isReel ? null : (m.follows        ?? null),
           profileVisits:          isReel ? null : (m.profile_visits ?? null),
-          videoViews:             m.video_views          ?? null,
-          reelPlays:              isReel ? (m.plays ?? null) : null,
+          views:                  m.views                ?? null,
+          reposts:                m.reposts              ?? null,
           reelAvgWatchTime:       isReel ? (m.ig_reels_avg_watch_time        ?? null) : null,
           reelVideoViewTotalTime: isReel ? (m.ig_reels_video_view_total_time ?? null) : null,
-          videoDuration:          media.video_duration   ?? null,
+          videoDuration:          parseDurationFromMediaUrl(media.media_url),
           carouselMediaCount:     media.children?.data?.length ?? null,
           coverImage:             media.thumbnail_url    ?? media.media_url ?? null,
         })
@@ -92,8 +108,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
             commentTime:     (c.timestamp as string) ?? null,
             commentText:     (c.text as string)      ?? null,
             commentUsername: (c.username as string)  ?? null,
-            likesCount:      (c.like_count as number)    ?? 0,
-            repliesCount:    (c.replies_count as number) ?? 0,
+            likesCount:      (c.like_count as number) ?? 0,
+            repliesCount:    (c.replies as { data?: unknown[] })?.data?.length ?? 0,
+            hidden:          (c.hidden as boolean)   ?? null,
+            parentId:        (c.parent_id as string) ?? null,
           })
         }
       })

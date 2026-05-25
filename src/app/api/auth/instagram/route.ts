@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 const APP_ID = process.env.INSTAGRAM_APP_ID!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
 const REDIRECT_URI = `${APP_URL}/api/auth/instagram/callback`
-const SCOPES = 'instagram_business_basic,instagram_business_manage_insights'
+const SCOPES = 'instagram_business_basic,instagram_business_manage_insights,instagram_business_manage_comments'
 
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url)

@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { verifyBrandAccess, connectSocialAccount } from '@/lib/brands/queries'
 import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
 import { PLATFORM_LIST } from '@/lib/brands/types'
+import { initialIgSync } from '@/lib/instagram/sync'
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -42,6 +43,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     const { is_new, ...account } = await connectSocialAccount(brandId, platform, username, {
       oauthToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
     })
+
+    if (is_new && platform === 'instagram' && platformUserId && oauthToken) {
+      initialIgSync(account.id, platformUserId, oauthToken, brandId)
+        .catch(err => console.error('[initialIgSync]', err))
+    }
+
     return NextResponse.json({ data: account, is_new }, { status: 201 })
   } catch (err) {
     console.error('[POST /api/brands/[brandId]/accounts]', err)

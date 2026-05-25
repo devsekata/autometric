@@ -6,6 +6,7 @@ const REDIRECT_URI = `${APP_URL}/api/auth/facebook/callback`
 const SCOPES = [
   'instagram_basic',
   'instagram_manage_insights',
+  'instagram_manage_comments',
   'pages_show_list',
   'pages_read_engagement',
   'business_management',
