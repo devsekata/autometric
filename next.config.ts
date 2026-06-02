@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
       { hostname: 'res.cloudinary.com' },
       { hostname: '**.fbcdn.net' },
       { hostname: '**.cdninstagram.com' },
+      { hostname: '**.tiktokcdn.com' },
     ],
   },
   async headers() {

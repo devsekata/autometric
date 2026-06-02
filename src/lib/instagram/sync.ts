@@ -43,7 +43,7 @@ export async function initialIgSync(
   const days = 30
 
   await Promise.allSettled([
-    // 1. Profile snapshot
+    // 1. Profile snapshot (today)
     (async () => {
       const [profile, insightsDay, insightsLifetime, followsAndUnfollows] = await Promise.all([
         fetchIgProfile(platformUserId, oauthToken),
@@ -51,6 +51,7 @@ export async function initialIgSync(
         fetchIgInsightsLifetime(platformUserId, oauthToken),
         fetchIgFollowsUnfollows(platformUserId, oauthToken),
       ])
+
       await saveIgSnapshot({ socialAccountId, profile, insightsDay, insightsLifetime, followsAndUnfollows })
     })(),
 
@@ -130,7 +131,7 @@ export async function initialIgSync(
         taggedBy:     (p.username   as string) ?? null,
         likeCount:    (p.like_count     as number) ?? null,
         commentCount: (p.comments_count as number) ?? null,
-        coverImage:   (p.thumbnail_url  as string) ?? (p.media_url as string) ?? null,
+        coverImage:   (p.thumbnail_url  as string) ?? null,
       }))
       await saveIgTaggedPosts(items)
     })(),

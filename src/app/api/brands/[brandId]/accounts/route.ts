@@ -4,6 +4,8 @@ import { verifyBrandAccess, connectSocialAccount } from '@/lib/brands/queries'
 import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
 import { PLATFORM_LIST } from '@/lib/brands/types'
 import { initialIgSync } from '@/lib/instagram/sync'
+import { initialTtSync } from '@/lib/tiktok/sync'
+import { initialFbSync } from '@/lib/facebook/sync'
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -19,13 +21,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!orgId) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
 
     const body = await req.json()
-    const platform       = typeof body?.platform       === 'string' ? body.platform.trim() : ''
-    const username       = typeof body?.username       === 'string' ? body.username.trim().replace(/^@/, '') : ''
-    const oauthToken     = typeof body?.oauthToken     === 'string' ? body.oauthToken     : null
-    const tokenExpiresAt = typeof body?.tokenExpiresAt === 'string' ? body.tokenExpiresAt : null
-    const avatarUrl      = typeof body?.avatarUrl      === 'string' ? body.avatarUrl      : null
-    const profileUrl     = typeof body?.profileUrl     === 'string' ? body.profileUrl     : null
-    const platformUserId = typeof body?.platformUserId === 'string' ? body.platformUserId : null
+    const platform        = typeof body?.platform       === 'string' ? body.platform.trim() : ''
+    const username        = typeof body?.username       === 'string' ? body.username.trim().replace(/^@/, '') : ''
+    const oauthToken      = typeof body?.oauthToken     === 'string' ? body.oauthToken     : null
+    const tokenExpiresAt  = typeof body?.tokenExpiresAt === 'string' ? body.tokenExpiresAt : null
+    const avatarUrl       = typeof body?.avatarUrl      === 'string' ? body.avatarUrl      : null
+    const profileUrl      = typeof body?.profileUrl     === 'string' ? body.profileUrl     : null
+    const platformUserId  = typeof body?.platformUserId === 'string' ? body.platformUserId : null
+    const skipInitialSync = body?.skipInitialSync === true
 
     if (!platform || !PLATFORM_LIST.includes(platform as never)) {
       return NextResponse.json({ error: 'Valid platform is required.' }, { status: 400 })
@@ -44,9 +47,19 @@ export async function POST(req: NextRequest, { params }: Params) {
       oauthToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
     })
 
-    if (is_new && platform === 'instagram' && platformUserId && oauthToken) {
+    if (!skipInitialSync && is_new && platform === 'instagram' && platformUserId && oauthToken) {
       initialIgSync(account.id, platformUserId, oauthToken, brandId)
         .catch(err => console.error('[initialIgSync]', err))
+    }
+
+    if (!skipInitialSync && platform === 'tiktok' && oauthToken) {
+      initialTtSync(account.id, oauthToken, brandId)
+        .catch(err => console.error('[initialTtSync]', err))
+    }
+
+    if (!skipInitialSync && platform === 'facebook' && platformUserId && oauthToken) {
+      initialFbSync(account.id, platformUserId, oauthToken, brandId)
+        .catch(err => console.error('[initialFbSync]', err))
     }
 
     return NextResponse.json({ data: account, is_new }, { status: 201 })

@@ -4,7 +4,7 @@ import crypto from 'crypto'
 const CLIENT_KEY   = process.env.TIKTOK_CLIENT_KEY!
 const APP_URL      = process.env.NEXT_PUBLIC_APP_URL!
 const REDIRECT_URI = `${APP_URL}/api/auth/tiktok/callback`
-const SCOPES       = 'user.info.basic,user.info.profile'
+const SCOPES       = 'user.info.basic,user.info.profile,user.info.stats,video.list'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)

@@ -9,6 +9,8 @@ const SCOPES = [
   'instagram_manage_comments',
   'pages_show_list',
   'pages_read_engagement',
+  'pages_read_user_content',
+  'read_insights',
   'business_management',
 ].join(',')
 

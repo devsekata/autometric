@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
 
     return popupPage(null, {
       platform:       'tiktok',
+      platformUserId: user.open_id ?? null,
       username:       handle,
       avatarUrl:      user.avatar_url ?? null,
       profileUrl:     `https://www.tiktok.com/@${handle}`,

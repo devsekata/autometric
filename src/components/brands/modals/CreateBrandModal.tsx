@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { Brand, Platform, SocialAccount, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
-import { useOAuthConnect, CONNECT_OPTIONS, triggerInitialFetch } from '@/hooks/useOAuthConnect'
+import { useOAuthConnect, CONNECT_OPTIONS } from '@/hooks/useOAuthConnect'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -124,6 +124,8 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   const [tiktokOpen,  setTiktokOpen]  = useState(false)
   const { loading: oauthLoading, error: oauthError, clearError: clearOAuthError, connect, pending, save, reset } = useOAuthConnect(brandId)
   const igConnected = accounts.some(a => a.platform === 'instagram' && a.oauthConnected)
+  const ttConnected = accounts.some(a => a.platform === 'tiktok'    && a.oauthConnected)
+  const fbConnected = accounts.some(a => a.platform === 'facebook'  && a.oauthConnected)
 
   // Step 3
   const [competitors,  setCompetitors]  = useState<PendingItem[]>([])
@@ -172,7 +174,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
         { platform: account.platform, username: account.username, avatarUrl: account.avatar_url, oauthConnected: true, methodId: opt.id },
       ])
       reset()
-    })
+    }, { skipInitialSync: true })
   }
 
   function addTiktokAccount() {
@@ -246,7 +248,18 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
       const res  = await fetch(`/api/brands/${brandId}`)
       const json = await res.json()
       if (res.ok) onCreated(json.data)
-      if (brandId && igConnected) triggerInitialFetch(brandId, 'instagram')
+      if (brandId && igConnected) {
+        fetch(`/api/brands/${brandId}/instagram/initial-sync`, { method: 'POST' })
+          .catch(err => console.error('[ig initial-sync]', err))
+      }
+      if (brandId && ttConnected) {
+        fetch(`/api/brands/${brandId}/tiktok/initial-sync`, { method: 'POST' })
+          .catch(err => console.error('[tt initial-sync]', err))
+      }
+      if (brandId && fbConnected) {
+        fetch(`/api/brands/${brandId}/facebook/initial-sync`, { method: 'POST' })
+          .catch(err => console.error('[fb initial-sync]', err))
+      }
       onClose()
     } catch {
       setError('Something went wrong.')

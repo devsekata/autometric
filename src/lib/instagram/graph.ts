@@ -41,6 +41,7 @@ const INSIGHTS_DAY_METRICS = [
   'views',
 ].join(',')
 
+
 const INSIGHTS_LIFETIME_METRICS = [
   'engaged_audience_demographics',
   'follower_demographics',
@@ -110,29 +111,27 @@ function getMediaInsightMetrics(mediaType: string): string {
 
 const TAGGED_FIELDS = [
   'id', 'caption', 'media_type', 'permalink', 'timestamp',
-  'username', 'like_count', 'comments_count',
-  'media_url', 'thumbnail_url',
+  'username', 'like_count', 'comments_count', 'thumbnail_url',
 ].join(',')
 
-export async function fetchAllIgTaggedPosts(igUserId: string, accessToken: string, daysSince = 30, maxItems = 20) {
+export async function fetchAllIgTaggedPosts(igUserId: string, accessToken: string, daysSince = 30, maxItems = 200) {
   const cutoff = Date.now() - daysSince * 24 * 60 * 60 * 1000
   const all: Record<string, unknown>[] = []
 
-  // /tags pagination does not include next URL — must use after cursor manually
-  let after: string | null = null
+  // Single-pass: request all fields directly from /tags with small limit per page.
+  // Must follow 'next' URL directly — API returns v25.0 cursors that break if reconstructed with v21.0.
+  const firstParams = new URLSearchParams({
+    fields:       TAGGED_FIELDS,
+    limit:        '5',
+    access_token: accessToken,
+  })
+  let nextUrl: string | null = `${GRAPH}/${igUserId}/tags?${firstParams}`
 
-  while (all.length < maxItems) {
-    const params = new URLSearchParams({
-      fields:       TAGGED_FIELDS,
-      limit:        '10',
-      access_token: accessToken,
-    })
-    if (after) params.set('after', after)
-
-    const res  = await fetch(`${GRAPH}/${igUserId}/tags?${params}`)
+  while (nextUrl && all.length < maxItems) {
+    const res  = await fetch(nextUrl)
     const data = await res.json() as {
       data?:   Record<string, unknown>[]
-      paging?: { cursors?: { after?: string }; next?: string }
+      paging?: { next?: string }
       error?:  unknown
     }
 
@@ -141,10 +140,8 @@ export async function fetchAllIgTaggedPosts(igUserId: string, accessToken: strin
       break
     }
 
-    const items = data.data ?? []
     let reachedCutoff = false
-
-    for (const item of items) {
+    for (const item of data.data ?? []) {
       if (item.timestamp && new Date(item.timestamp as string).getTime() < cutoff) {
         reachedCutoff = true
         break
@@ -153,11 +150,10 @@ export async function fetchAllIgTaggedPosts(igUserId: string, accessToken: strin
       if (all.length >= maxItems) break
     }
 
-    const nextCursor = data.paging?.cursors?.after
-    if (reachedCutoff || !nextCursor || !data.paging?.next) break
-    after = nextCursor
+    nextUrl = (!reachedCutoff && data.paging?.next) ? data.paging.next : null
   }
 
+  console.log(`[fetchAllIgTaggedPosts] igUserId=${igUserId} fetched=${all.length}`)
   return all
 }
 
@@ -235,19 +231,6 @@ export async function fetchIgMediaInsights(mediaId: string, accessToken: string,
   return json
 }
 
-export async function fetchIgFollowerCountHistory(igUserId: string, accessToken: string, days = 30) {
-  const until = wibMidnight(0)
-  const since = until - days * 86400
-
-  const res = await fetch(
-    `${GRAPH}/${igUserId}/insights` +
-    `?metric=follower_count` +
-    `&period=day` +
-    `&since=${since}&until=${until}` +
-    `&access_token=${accessToken}`
-  )
-  return stripPaging(await res.json())
-}
 
 const STORY_FIELDS = [
   'id', 'username', 'media_type', 'permalink', 'timestamp', 'media_url', 'thumbnail_url',

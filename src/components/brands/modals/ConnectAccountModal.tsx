@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Image from 'next/image'
 import { Platform, SocialAccount } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
-import { useOAuthConnect, CONNECT_OPTIONS, triggerInitialFetch } from '@/hooks/useOAuthConnect'
+import { useOAuthConnect, CONNECT_OPTIONS } from '@/hooks/useOAuthConnect'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -150,8 +150,7 @@ export default function ConnectAccountModal({ brandId, brandName, usedPlatforms 
           {sessionConnected.length > 0 && (
             <button type="button" style={PJB}
               onClick={() => {
-                for (const { account, is_new } of sessionConnected) {
-                  if (is_new) triggerInitialFetch(brandId, account.platform)
+                for (const { account } of sessionConnected) {
                   onConnected(account)
                 }
                 onClose()

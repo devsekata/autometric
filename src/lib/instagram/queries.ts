@@ -77,11 +77,11 @@ export async function getIgLatestDemographics(socialAccountId: string): Promise<
 }
 
 interface IgSnapshotPayload {
-  socialAccountId:     string
-  profile:             Record<string, unknown>
-  insightsDay:         Record<string, unknown>
-  followsAndUnfollows: Record<string, unknown>
-  insightsLifetime:    Record<string, Record<string, unknown>>
+  socialAccountId:      string
+  profile:              Record<string, unknown>
+  insightsDay:          Record<string, unknown>
+  followsAndUnfollows:  Record<string, unknown>
+  insightsLifetime:     Record<string, Record<string, unknown>>
 }
 
 type DayMetricItem = { name: string; total_value?: { value: number } }

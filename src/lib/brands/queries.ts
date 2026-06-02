@@ -97,6 +97,46 @@ export async function getConnectedIgAccount(brandId: string): Promise<{
   return rows[0] ?? null
 }
 
+export async function getConnectedTtAccount(brandId: string): Promise<{
+  id: string
+  oauth_token: string
+} | null> {
+  const { rows } = await pool.query<{ id: string; oauth_token: string }>(
+    `SELECT sa.id, sa.oauth_token
+     FROM brand_social_accounts bsa
+     JOIN social_accounts sa ON sa.id = bsa.social_account_id
+     JOIN platforms p        ON p.id  = sa.platform_id
+     WHERE bsa.brand_id = $1
+       AND p.key        = 'tiktok'
+       AND sa.connected = true
+       AND sa.oauth_token IS NOT NULL
+     LIMIT 1`,
+    [brandId]
+  )
+  return rows[0] ?? null
+}
+
+export async function getConnectedFbAccount(brandId: string): Promise<{
+  id: string
+  platform_user_id: string
+  oauth_token: string
+} | null> {
+  const { rows } = await pool.query<{ id: string; platform_user_id: string; oauth_token: string }>(
+    `SELECT sa.id, sa.platform_user_id, sa.oauth_token
+     FROM brand_social_accounts bsa
+     JOIN social_accounts sa ON sa.id = bsa.social_account_id
+     JOIN platforms p        ON p.id  = sa.platform_id
+     WHERE bsa.brand_id = $1
+       AND p.key        = 'facebook'
+       AND sa.connected = true
+       AND sa.platform_user_id IS NOT NULL
+       AND sa.oauth_token      IS NOT NULL
+     LIMIT 1`,
+    [brandId]
+  )
+  return rows[0] ?? null
+}
+
 export async function createBrand(orgId: string, name: string): Promise<Brand> {
   const { rows } = await pool.query<{
     id: string; organization_id: string; name: string; profile_url: string | null; created_at: string

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { verifyBrandAccess, getConnectedIgAccount } from '@/lib/brands/queries'
-import { fetchIgProfile, fetchIgInsightsDay, fetchIgInsightsLifetime, fetchIgFollowsUnfollows, fetchIgFollowerCountHistory } from '@/lib/instagram/graph'
+import { fetchIgProfile, fetchIgInsightsDay, fetchIgInsightsLifetime, fetchIgFollowsUnfollows } from '@/lib/instagram/graph'
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -22,22 +22,20 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     const { platform_user_id, oauth_token } = account
 
-    const [profile, insightsDay, insightsLifetime, followsUnfollows, followerHistory] = await Promise.all([
+    const [profile, insightsDay, insightsLifetime, followsUnfollows] = await Promise.all([
       fetchIgProfile(platform_user_id, oauth_token),
       fetchIgInsightsDay(platform_user_id, oauth_token),
       fetchIgInsightsLifetime(platform_user_id, oauth_token),
       fetchIgFollowsUnfollows(platform_user_id, oauth_token),
-      fetchIgFollowerCountHistory(platform_user_id, oauth_token),
     ])
 
     return NextResponse.json({
       data: {
-        fetched_at:             new Date().toISOString(),
+        fetched_at:            new Date().toISOString(),
         profile,
-        insights_day:           insightsDay,
-        follows_and_unfollows:  followsUnfollows,
-        insights_lifetime:      insightsLifetime,
-        follower_count_history: followerHistory,
+        insights_day:          insightsDay,
+        follows_and_unfollows: followsUnfollows,
+        insights_lifetime:     insightsLifetime,
       }
     })
   } catch (err) {

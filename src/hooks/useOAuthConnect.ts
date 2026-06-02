@@ -53,32 +53,25 @@ function openOAuthPopup(url: string, onPayload: (p: OAuthPayload) => void, onErr
 async function persistConnection(
   brandId: string,
   payload: OAuthPayload,
+  skipInitialSync = false,
 ): Promise<{ account: SocialAccount; is_new: boolean } | null> {
   const res  = await fetch(`/api/brands/${brandId}/accounts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      platform:       payload.platform,
-      platformUserId: payload.platformUserId,
-      username:       payload.username,
-      avatarUrl:      payload.avatarUrl,
-      profileUrl:     payload.profileUrl,
-      oauthToken:     payload.oauthToken,
-      tokenExpiresAt: payload.tokenExpiresAt,
+      platform:        payload.platform,
+      platformUserId:  payload.platformUserId,
+      username:        payload.username,
+      avatarUrl:       payload.avatarUrl,
+      profileUrl:      payload.profileUrl,
+      oauthToken:      payload.oauthToken,
+      tokenExpiresAt:  payload.tokenExpiresAt,
+      skipInitialSync,
     }),
   })
   const json = await res.json()
   if (!res.ok) return null
   return { account: json.data as SocialAccount, is_new: json.is_new as boolean }
-}
-
-export function triggerInitialFetch(brandId: string, platform: string) {
-  if (platform !== 'instagram') return
-  Promise.allSettled([
-    fetch(`/api/brands/${brandId}/instagram/snapshot`,        { method: 'POST' }),
-    fetch(`/api/brands/${brandId}/instagram/media/snapshot`,  { method: 'POST' }),
-    fetch(`/api/brands/${brandId}/instagram/tagged/snapshot`, { method: 'POST' }),
-  ])
 }
 
 export function useOAuthConnect(brandId: string | null) {
@@ -102,7 +95,6 @@ export function useOAuthConnect(brandId: string | null) {
           try {
             const result = await persistConnection(brandId, payload)
             if (!result) { setError('Failed to connect account.'); return }
-            if (result.is_new) triggerInitialFetch(brandId, payload.platform)
             onDirectSave(result.account)
           } catch {
             setError('Failed to connect account.')
@@ -122,11 +114,11 @@ export function useOAuthConnect(brandId: string | null) {
     setError('')
   }
 
-  async function save(onSaved: (account: SocialAccount, is_new: boolean) => void) {
+  async function save(onSaved: (account: SocialAccount, is_new: boolean) => void, options?: { skipInitialSync?: boolean }) {
     if (!brandId || !pending) return
     setLoading(true); setError('')
     try {
-      const result = await persistConnection(brandId, pending.payload)
+      const result = await persistConnection(brandId, pending.payload, options?.skipInitialSync ?? false)
       if (!result) { setError('Failed to connect account.'); return }
       onSaved(result.account, result.is_new)
     } catch {
