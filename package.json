@@ -10,7 +10,8 @@
     "migrate:up": "dotenv -e .env.local -- node-pg-migrate up --migration-file-language sql",
     "migrate:down": "dotenv -e .env.local -- node-pg-migrate down --migration-file-language sql",
     "migrate:create": "dotenv -e .env.local -- node-pg-migrate create --migration-file-language sql",
-    "reset:data": "dotenv -e .env.local -- node scripts/reset-data.js"
+    "reset:data": "dotenv -e .env.local -- node scripts/reset-data.js",
+    "seed:admin": "dotenv -e .env.local -- npx tsx seeds/admin.ts"
   },
   "keywords": [],
   "author": "",
@@ -25,6 +26,7 @@
     "dotenv": "^17.4.2",
     "next": "^16.2.6",
     "next-auth": "^5.0.0-beta.31",
+    "node-cron": "^4.2.1",
     "node-pg-migrate": "^8.0.4",
     "nodemailer": "^7.0.13",
     "pg": "^8.20.0",
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
     "dotenv-cli": "^11.0.0"
