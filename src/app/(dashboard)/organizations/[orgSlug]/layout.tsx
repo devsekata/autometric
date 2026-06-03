@@ -14,11 +14,11 @@ export default async function OrgLayout({ children, params }: Props) {
   const userId      = session?.user?.id ?? ''
 
   const org = await getOrgBySlugForUser(orgSlug, userId)
-  if (!org) notFound()
+  if (!org) return notFound()
 
   return (
     <>
-      <OrgTracker orgSlug={orgSlug} />
+      <OrgTracker orgSlug={orgSlug} role={org.role} />
       {children}
     </>
   )
