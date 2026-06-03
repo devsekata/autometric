@@ -7,7 +7,8 @@ import WelcomePage from '@/components/organizations/WelcomePage'
 
 export default async function HomePage() {
   const session = await auth()
-  if (!session) redirect('/login')
+  if (!session)                       redirect('/login')
+  if (session.user?.role === 'ADMIN') redirect('/admin')
 
   const userId      = session.user?.id ?? ''
   const cookieStore = await cookies()

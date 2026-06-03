@@ -34,15 +34,23 @@ type MediaItem = {
   children?: { data: Array<{ id: string }> }
 }
 
+export type IgSyncResult = {
+  ig_profile:  { count: number; error: string | null }
+  ig_posts:    { count: number; error: string | null }
+  ig_stories:  { count: number; error: string | null }
+  ig_tagged:   { count: number; error: string | null }
+  ig_comments: { count: number; error: string | null }
+}
+
 export async function initialIgSync(
   socialAccountId: string,
   platformUserId:  string,
   oauthToken:      string,
   brandId:         string,
-): Promise<void> {
+): Promise<IgSyncResult> {
   const days = 30
 
-  await Promise.allSettled([
+  const [profileResult, mediaResult, taggedResult, storiesResult] = await Promise.allSettled([
     // 1. Profile snapshot (today)
     (async () => {
       const [profile, insightsDay, insightsLifetime, followsAndUnfollows] = await Promise.all([
@@ -53,6 +61,7 @@ export async function initialIgSync(
       ])
 
       await saveIgSnapshot({ socialAccountId, profile, insightsDay, insightsLifetime, followsAndUnfollows })
+      return 1
     })(),
 
     // 2. Media + comments snapshot
@@ -116,6 +125,7 @@ export async function initialIgSync(
       )
 
       await Promise.all([saveIgMediaSnapshots(snapshots), saveIgComments(comments)])
+      return { posts: snapshots.length, comments: comments.length }
     })(),
 
     // 3. Tagged posts snapshot
@@ -134,6 +144,7 @@ export async function initialIgSync(
         coverImage:   (p.thumbnail_url  as string) ?? null,
       }))
       await saveIgTaggedPosts(items)
+      return items.length
     })(),
 
     // 4. Stories snapshot
@@ -181,8 +192,31 @@ export async function initialIgSync(
       )
 
       await saveIgStories(items)
+      return items.length
     })(),
   ])
 
+  const errMsg = (r: PromiseSettledResult<unknown>) =>
+    r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : null
+
+  const result: IgSyncResult = {
+    ig_profile:  profileResult.status === 'fulfilled'
+      ? { count: 1, error: null }
+      : { count: 0, error: errMsg(profileResult) },
+    ig_posts:    mediaResult.status === 'fulfilled'
+      ? { count: (mediaResult.value as { posts: number }).posts,       error: null }
+      : { count: 0, error: errMsg(mediaResult) },
+    ig_comments: mediaResult.status === 'fulfilled'
+      ? { count: (mediaResult.value as { comments: number }).comments, error: null }
+      : { count: 0, error: errMsg(mediaResult) },
+    ig_tagged:   taggedResult.status === 'fulfilled'
+      ? { count: taggedResult.value  as number, error: null }
+      : { count: 0, error: errMsg(taggedResult) },
+    ig_stories:  storiesResult.status === 'fulfilled'
+      ? { count: storiesResult.value as number, error: null }
+      : { count: 0, error: errMsg(storiesResult) },
+  }
+
   console.log(`[initialIgSync] brandId=${brandId} socialAccountId=${socialAccountId} done`)
+  return result
 }

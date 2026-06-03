@@ -2,9 +2,10 @@ import bcrypt from 'bcryptjs'
 import pool from '@/lib/db'
 
 type ValidateResult = {
-  id: string
+  id:    string
   email: string
-  name: string
+  name:  string
+  role:  'ADMIN' | 'USER'
 } | null
 
 export async function validateCredentials(
@@ -12,7 +13,7 @@ export async function validateCredentials(
   password: string
 ): Promise<ValidateResult> {
   const result = await pool.query(
-    'SELECT id, email, name, password_hash FROM users WHERE email = $1',
+    'SELECT id, email, name, role, password_hash FROM users WHERE email = $1',
     [email]
   )
 
@@ -24,5 +25,5 @@ export async function validateCredentials(
   const valid = await bcrypt.compare(password, user.password_hash)
   if (!valid) return null
 
-  return { id: user.id, email: user.email, name: user.name }
+  return { id: user.id, email: user.email, name: user.name, role: user.role }
 }

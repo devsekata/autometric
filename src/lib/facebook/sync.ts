@@ -22,12 +22,17 @@ type FbPostRaw = {
   shares?:         { count?: number }
 }
 
+export type FbSyncResult = {
+  fb_profile: { count: number; error: string | null }
+  fb_posts:   { count: number; error: string | null }
+}
+
 export async function initialFbSync(
   socialAccountId: string,
   platformUserId:  string,   // page_id
   oauthToken:      string,
   brandId:         string,
-): Promise<void> {
+): Promise<FbSyncResult> {
   const days = 30
 
   const results = await Promise.allSettled([
@@ -38,6 +43,7 @@ export async function initialFbSync(
         fetchFbPageInsightsDay(platformUserId, oauthToken),
       ])
       await saveFbSnapshot({ socialAccountId, profile, insightsDay })
+      return 1
     })(),
 
     // 2. Posts + per-post insights + comments
@@ -102,14 +108,21 @@ export async function initialFbSync(
       )
 
       await Promise.all([saveFbPostSnapshots(snapshots), saveFbComments(comments)])
+      return snapshots.length
     })(),
   ])
 
-  for (const [i, r] of results.entries()) {
-    if (r.status === 'rejected') {
-      console.error(`[initialFbSync] task ${i} FAILED:`, r.reason)
-    }
-  }
+  const [profileResult, postsResult] = results
+  const errMsg = (r: PromiseSettledResult<unknown>) =>
+    r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : null
 
   console.log(`[initialFbSync] brandId=${brandId} socialAccountId=${socialAccountId} done`)
+  return {
+    fb_profile: profileResult.status === 'fulfilled'
+      ? { count: 1, error: null }
+      : { count: 0, error: errMsg(profileResult) },
+    fb_posts:   postsResult.status === 'fulfilled'
+      ? { count: postsResult.value as number, error: null }
+      : { count: 0, error: errMsg(postsResult) },
+  }
 }

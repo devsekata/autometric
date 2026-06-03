@@ -79,13 +79,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return true
     },
     async jwt({ token, user, account }) {
-      if (user?.id) token.id = user.id
+      if (user?.id)   token.id   = user.id
+      if ((user as { role?: string })?.role) token.role = (user as { role: string }).role
       if (account?.provider === 'google' && token.email) {
         try {
           const dbUser = await getDbUserByEmail(token.email)
           if (dbUser) {
-            token.id = dbUser.id
+            token.id   = dbUser.id
             token.name = dbUser.name
+            token.role = dbUser.role
           }
         } catch (e) {
           console.error('[auth] getDbUserByEmail error:', e)
@@ -94,8 +96,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return token
     },
     session({ session, token }) {
-      if (token.id) session.user.id = token.id as string
+      if (token.id)   session.user.id   = token.id as string
       if (token.name) session.user.name = token.name
+      session.user.role = (token.role as 'ADMIN' | 'USER') ?? 'USER'
       return session
     },
   },

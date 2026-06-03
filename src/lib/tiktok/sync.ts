@@ -4,11 +4,16 @@ import {
   TtProfileSnapshotPayload, TtVideoSnapshotItem,
 } from './queries'
 
+export type TtSyncResult = {
+  tt_profile: { count: number; error: string | null }
+  tt_videos:  { count: number; error: string | null }
+}
+
 export async function initialTtSync(
   socialAccountId: string,
   accessToken:     string,
   brandId:         string,
-): Promise<void> {
+): Promise<TtSyncResult> {
   console.log(`[initialTtSync] START brandId=${brandId} socialAccountId=${socialAccountId}`)
 
   const results = await Promise.allSettled([
@@ -37,6 +42,7 @@ export async function initialTtSync(
       console.log('[initialTtSync] saving profile payload:', JSON.stringify(payload))
       await saveTtProfileSnapshot(payload)
       console.log('[initialTtSync] profile saved OK')
+      return 1
     })(),
 
     // 2. Videos snapshot
@@ -60,14 +66,21 @@ export async function initialTtSync(
       }))
       await saveTtVideoSnapshots(items)
       console.log(`[initialTtSync] videos saved OK (${items.length} items)`)
+      return items.length
     })(),
   ])
 
-  for (const [i, r] of results.entries()) {
-    if (r.status === 'rejected') {
-      console.error(`[initialTtSync] task ${i} FAILED:`, r.reason)
-    }
-  }
+  const [profileResult, videosResult] = results
+  const errMsg = (r: PromiseSettledResult<unknown>) =>
+    r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : null
 
   console.log(`[initialTtSync] DONE brandId=${brandId} socialAccountId=${socialAccountId}`)
+  return {
+    tt_profile: profileResult.status === 'fulfilled'
+      ? { count: 1, error: null }
+      : { count: 0, error: errMsg(profileResult) },
+    tt_videos:  videosResult.status === 'fulfilled'
+      ? { count: videosResult.value as number, error: null }
+      : { count: 0, error: errMsg(videosResult) },
+  }
 }

@@ -39,7 +39,7 @@ export async function getDbUserIdByEmail(email: string): Promise<string | null> 
   return result.rows[0]?.id ?? null
 }
 
-export async function getDbUserByEmail(email: string): Promise<{ id: string; name: string } | null> {
-  const result = await pool.query('SELECT id, name FROM users WHERE email = $1', [email])
+export async function getDbUserByEmail(email: string): Promise<{ id: string; name: string; role: 'ADMIN' | 'USER' } | null> {
+  const result = await pool.query('SELECT id, name, role FROM users WHERE email = $1', [email])
   return result.rows[0] ?? null
 }
