@@ -15,10 +15,12 @@ function runInitialSync(
   fn: () => Promise<Record<string, { count: number; error: string | null }>>,
   meta: { platform: string; socialAccountId: string; brandId: string; orgId: string }
 ) {
+  console.log(`[runInitialSync] START platform=${meta.platform} socialAccountId=${meta.socialAccountId}`)
   const runId     = randomUUID()
   const startedAt = new Date()
 
   fn().then(async (result) => {
+    console.log(`[runInitialSync] SYNC DONE platform=${meta.platform} keys=${Object.keys(result).join(',')}`)
     const finishedAt = new Date()
     await logSyncEntries(
       Object.entries(result).map(([category, { count, error }]) => ({
