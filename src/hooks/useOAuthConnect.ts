@@ -18,6 +18,7 @@ export interface OAuthPayload {
   avatarUrl:      string | null
   profileUrl:     string
   oauthToken:     string
+  refreshToken:   string | null
   tokenExpiresAt: string
 }
 
@@ -65,6 +66,7 @@ async function persistConnection(
       avatarUrl:       payload.avatarUrl,
       profileUrl:      payload.profileUrl,
       oauthToken:      payload.oauthToken,
+      refreshToken:    payload.refreshToken ?? null,
       tokenExpiresAt:  payload.tokenExpiresAt,
       skipInitialSync,
     }),

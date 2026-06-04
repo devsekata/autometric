@@ -7,41 +7,54 @@ import { PLATFORM_LIST } from '@/lib/brands/types'
 import { initialIgSync } from '@/lib/instagram/sync'
 import { initialTtSync } from '@/lib/tiktok/sync'
 import { initialFbSync } from '@/lib/facebook/sync'
-import { logSyncEntries, SyncEntry } from '@/lib/monitoring/logger'
+import { logSyncEntries } from '@/lib/monitoring/logger'
 
 type Params = { params: Promise<{ brandId: string }> }
 
-async function runAndLog(
+function runInitialSync(
   fn: () => Promise<Record<string, { count: number; error: string | null }>>,
-  platform: string,
-  socialAccountId: string,
-  brandId: string,
-  orgId: string,
+  meta: { platform: string; socialAccountId: string; brandId: string; orgId: string }
 ) {
   const runId     = randomUUID()
   const startedAt = new Date()
-  try {
-    const result    = await fn()
+
+  fn().then(async (result) => {
     const finishedAt = new Date()
-    const entries: SyncEntry[] = Object.entries(result).map(([category, { count, error }]) => ({
-      runId, jobName: 'initial-sync', platform, category,
-      socialAccountId, brandId, orgId,
-      status:        error ? 'failed' : 'success',
-      recordsSynced: error ? null : count,
-      errorMessage:  error ?? null,
-      startedAt, finishedAt,
-    }))
-    await logSyncEntries(entries).catch(e => console.error('[runAndLog] log failed:', e))
-  } catch (err) {
+    await logSyncEntries(
+      Object.entries(result).map(([category, { count, error }]) => ({
+        runId,
+        jobName:         'initial-sync',
+        platform:        meta.platform,
+        category,
+        socialAccountId: meta.socialAccountId,
+        brandId:         meta.brandId,
+        orgId:           meta.orgId,
+        status:          error ? 'failed' : 'success',
+        recordsSynced:   error ? null : count,
+        errorMessage:    error ?? null,
+        startedAt,
+        finishedAt,
+      }))
+    ).catch(e => console.error('[runInitialSync] log failed:', e))
+  }).catch(async (err) => {
     const finishedAt = new Date()
     const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[runInitialSync] ${meta.platform} failed:`, err)
     await logSyncEntries([{
-      runId, jobName: 'initial-sync', platform, category: 'unknown',
-      socialAccountId, brandId, orgId,
-      status: 'failed', recordsSynced: null, errorMessage: msg,
-      startedAt, finishedAt,
-    }]).catch(e => console.error('[runAndLog] log failed:', e))
-  }
+      runId,
+      jobName:         'initial-sync',
+      platform:        meta.platform,
+      category:        'unknown',
+      socialAccountId: meta.socialAccountId,
+      brandId:         meta.brandId,
+      orgId:           meta.orgId,
+      status:          'failed',
+      recordsSynced:   null,
+      errorMessage:    msg,
+      startedAt,
+      finishedAt,
+    }]).catch(e => console.error('[runInitialSync] log failed:', e))
+  })
 }
 
 // POST /api/brands/[brandId]/accounts
@@ -83,25 +96,18 @@ export async function POST(req: NextRequest, { params }: Params) {
       oauthToken, refreshToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
     })
 
+    const meta = { platform, socialAccountId: account.id, brandId, orgId }
+
     if (!skipInitialSync && is_new && platform === 'instagram' && platformUserId && oauthToken) {
-      runAndLog(
-        () => initialIgSync(account.id, platformUserId, oauthToken, brandId),
-        platform, account.id, brandId, orgId
-      )
+      runInitialSync(() => initialIgSync(account.id, platformUserId, oauthToken, brandId), meta)
     }
 
     if (!skipInitialSync && platform === 'tiktok' && oauthToken) {
-      runAndLog(
-        () => initialTtSync(account.id, oauthToken, brandId),
-        platform, account.id, brandId, orgId
-      )
+      runInitialSync(() => initialTtSync(account.id, oauthToken, brandId), meta)
     }
 
     if (!skipInitialSync && platform === 'facebook' && platformUserId && oauthToken) {
-      runAndLog(
-        () => initialFbSync(account.id, platformUserId, oauthToken, brandId),
-        platform, account.id, brandId, orgId
-      )
+      runInitialSync(() => initialFbSync(account.id, platformUserId, oauthToken, brandId), meta)
     }
 
     return NextResponse.json({ data: account, is_new }, { status: 201 })

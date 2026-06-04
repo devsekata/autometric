@@ -40,16 +40,22 @@ async function ensureFreshToken(acct: SchedulerAccount): Promise<string> {
   const nowMs      = Date.now()
 
   if (platform === 'tiktok') {
+    if (expiresMs < nowMs) {
+      throw new Error('TikTok token expired — reconnect required')
+    }
     const needsRefresh = expiresMs - nowMs < TIKTOK_REFRESH_THRESHOLD_MS
     if (!needsRefresh) return oauthToken
     if (!refreshToken) {
-      throw new Error(`TikTok token expired but no refresh_token stored — reconnect required`)
+      throw new Error('TikTok token expiring but no refresh_token stored — reconnect required')
     }
     console.log(`[scheduler] refreshing TikTok token for socialAccountId=${socialAccountId}`)
     return refreshTiktokToken(socialAccountId, refreshToken)
   }
 
   if (platform === 'instagram') {
+    if (expiresMs < nowMs) {
+      throw new Error('Instagram token expired — reconnect required')
+    }
     const needsRefresh = expiresMs - nowMs < INSTAGRAM_REFRESH_THRESHOLD_MS
     if (!needsRefresh) return oauthToken
     console.log(`[scheduler] refreshing Instagram token for socialAccountId=${socialAccountId}`)
