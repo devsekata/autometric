@@ -45,6 +45,9 @@ export async function GET(req: NextRequest) {
       `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${APP_SECRET}&access_token=${shortToken}`
     )
     const longData    = await longRes.json()
+    if (!longData.access_token) {
+      console.error('[Instagram callback] Long-lived token exchange failed:', JSON.stringify(longData))
+    }
     const accessToken: string = longData.access_token ?? shortToken
     const expiresIn:   number = longData.expires_in   ?? 3600
 
