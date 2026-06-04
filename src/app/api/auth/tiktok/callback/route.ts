@@ -44,8 +44,9 @@ export async function GET(req: NextRequest) {
       return popupPage(msg)
     }
 
-    const accessToken: string = tokenData.access_token
-    const expiresIn:   number = tokenData.expires_in ?? 86400
+    const accessToken:  string = tokenData.access_token
+    const refreshToken: string = tokenData.refresh_token ?? ''
+    const expiresIn:    number = tokenData.expires_in ?? 86400
 
     // Fetch user profile — username requires user.info.profile scope
     const profileRes = await fetch(
@@ -69,6 +70,7 @@ export async function GET(req: NextRequest) {
       avatarUrl:      user.avatar_url ?? null,
       profileUrl:     `https://www.tiktok.com/@${handle}`,
       oauthToken:     accessToken,
+      refreshToken,
       tokenExpiresAt,
     })
   } catch (err) {

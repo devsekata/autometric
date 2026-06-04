@@ -194,6 +194,7 @@ export async function connectSocialAccount(
   username: string,
   extra?: {
     oauthToken?: string | null
+    refreshToken?: string | null
     tokenExpiresAt?: string | null
     avatarUrl?: string | null
     profileUrl?: string | null
@@ -213,25 +214,27 @@ export async function connectSocialAccount(
       id: string; username: string; avatar_url: string | null; profile_url: string | null; connected: boolean; connected_at: string | null; is_new: boolean
     }>(
       `INSERT INTO social_accounts
-         (platform_id, username, oauth_token, token_expires_at, avatar_url, profile_url, platform_user_id, connected, connected_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
+         (platform_id, username, oauth_token, refresh_token, token_expires_at, avatar_url, profile_url, platform_user_id, connected, connected_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, NOW())
        ON CONFLICT (platform_id, username) DO UPDATE
-         SET connected = true,
-             connected_at = NOW(),
-             oauth_token = COALESCE(EXCLUDED.oauth_token, social_accounts.oauth_token),
-             token_expires_at = COALESCE(EXCLUDED.token_expires_at, social_accounts.token_expires_at),
-             avatar_url = COALESCE(EXCLUDED.avatar_url, social_accounts.avatar_url),
-             profile_url = COALESCE(EXCLUDED.profile_url, social_accounts.profile_url),
-             platform_user_id = COALESCE(EXCLUDED.platform_user_id, social_accounts.platform_user_id)
+         SET connected         = true,
+             connected_at      = NOW(),
+             oauth_token       = COALESCE(EXCLUDED.oauth_token,       social_accounts.oauth_token),
+             refresh_token     = COALESCE(EXCLUDED.refresh_token,     social_accounts.refresh_token),
+             token_expires_at  = COALESCE(EXCLUDED.token_expires_at,  social_accounts.token_expires_at),
+             avatar_url        = COALESCE(EXCLUDED.avatar_url,        social_accounts.avatar_url),
+             profile_url       = COALESCE(EXCLUDED.profile_url,       social_accounts.profile_url),
+             platform_user_id  = COALESCE(EXCLUDED.platform_user_id,  social_accounts.platform_user_id)
        RETURNING id, username, avatar_url, profile_url, connected, connected_at, (xmax = 0) AS is_new`,
       [
         pRows[0].id,
         username,
-        extra?.oauthToken ?? null,
-        extra?.tokenExpiresAt ?? null,
-        extra?.avatarUrl ?? null,
-        extra?.profileUrl ?? null,
-        extra?.platformUserId ?? null,
+        extra?.oauthToken      ?? null,
+        extra?.refreshToken    ?? null,
+        extra?.tokenExpiresAt  ?? null,
+        extra?.avatarUrl       ?? null,
+        extra?.profileUrl      ?? null,
+        extra?.platformUserId  ?? null,
       ]
     )
     const sa = saRows[0]
@@ -302,6 +305,11 @@ export async function addCompetitor(
   brandId: string,
   platformKey: string,
   username: string,
+  profile?: {
+    avatarUrl?: string | null
+    profileUrl?: string | null
+    platformUserId?: string | null
+  },
 ): Promise<CompetitorAccount> {
   const client = await pool.connect()
   try {
@@ -315,11 +323,20 @@ export async function addCompetitor(
     const { rows: saRows } = await client.query<{
       id: string; username: string; avatar_url: string | null; profile_url: string | null
     }>(
-      `INSERT INTO social_accounts (platform_id, username)
-       VALUES ($1, $2)
-       ON CONFLICT (platform_id, username) DO UPDATE SET username = EXCLUDED.username
+      `INSERT INTO social_accounts (platform_id, username, avatar_url, profile_url, platform_user_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (platform_id, username) DO UPDATE
+         SET avatar_url        = COALESCE(EXCLUDED.avatar_url,        social_accounts.avatar_url),
+             profile_url       = COALESCE(EXCLUDED.profile_url,       social_accounts.profile_url),
+             platform_user_id  = COALESCE(EXCLUDED.platform_user_id,  social_accounts.platform_user_id)
        RETURNING id, username, avatar_url, profile_url`,
-      [pRows[0].id, username]
+      [
+        pRows[0].id,
+        username,
+        profile?.avatarUrl ?? null,
+        profile?.profileUrl ?? null,
+        profile?.platformUserId ?? null,
+      ]
     )
     const sa = saRows[0]
 

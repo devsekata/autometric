@@ -24,6 +24,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     const platform        = typeof body?.platform       === 'string' ? body.platform.trim() : ''
     const username        = typeof body?.username       === 'string' ? body.username.trim().replace(/^@/, '') : ''
     const oauthToken      = typeof body?.oauthToken     === 'string' ? body.oauthToken     : null
+    const refreshToken    = typeof body?.refreshToken   === 'string' ? body.refreshToken   : null
     const tokenExpiresAt  = typeof body?.tokenExpiresAt === 'string' ? body.tokenExpiresAt : null
     const avatarUrl       = typeof body?.avatarUrl      === 'string' ? body.avatarUrl      : null
     const profileUrl      = typeof body?.profileUrl     === 'string' ? body.profileUrl     : null
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     const { is_new, ...account } = await connectSocialAccount(brandId, platform, username, {
-      oauthToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
+      oauthToken, refreshToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
     })
 
     if (!skipInitialSync && is_new && platform === 'instagram' && platformUserId && oauthToken) {

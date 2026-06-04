@@ -3,12 +3,16 @@ import pool from '@/lib/db'
 import { initialIgSync } from '@/lib/instagram/sync'
 import { initialTtSync } from '@/lib/tiktok/sync'
 import { initialFbSync } from '@/lib/facebook/sync'
+import { refreshTiktokToken } from '@/lib/tiktok/refresh'
+import { refreshInstagramToken } from '@/lib/instagram/refresh'
 import { logSyncEntries, SyncEntry } from '@/lib/monitoring/logger'
 
 type SchedulerAccount = {
   socialAccountId: string
   platformUserId:  string | null
   oauthToken:      string
+  refreshToken:    string | null
+  tokenExpiresAt:  string | null
   platform:        string
   brandId:         string
   orgId:           string
@@ -23,6 +27,38 @@ export type SchedulerSummary = {
   errors?:  string[]
 }
 
+// Thresholds: refresh if token expires within this many ms
+const TIKTOK_REFRESH_THRESHOLD_MS    = 2  * 60 * 60 * 1000  // 2 hours
+const INSTAGRAM_REFRESH_THRESHOLD_MS = 7  * 24 * 60 * 60 * 1000  // 7 days
+
+async function ensureFreshToken(acct: SchedulerAccount): Promise<string> {
+  const { platform, oauthToken, refreshToken, tokenExpiresAt, socialAccountId } = acct
+
+  if (!tokenExpiresAt) return oauthToken
+
+  const expiresMs  = new Date(tokenExpiresAt).getTime()
+  const nowMs      = Date.now()
+
+  if (platform === 'tiktok') {
+    const needsRefresh = expiresMs - nowMs < TIKTOK_REFRESH_THRESHOLD_MS
+    if (!needsRefresh) return oauthToken
+    if (!refreshToken) {
+      throw new Error(`TikTok token expired but no refresh_token stored — reconnect required`)
+    }
+    console.log(`[scheduler] refreshing TikTok token for socialAccountId=${socialAccountId}`)
+    return refreshTiktokToken(socialAccountId, refreshToken)
+  }
+
+  if (platform === 'instagram') {
+    const needsRefresh = expiresMs - nowMs < INSTAGRAM_REFRESH_THRESHOLD_MS
+    if (!needsRefresh) return oauthToken
+    console.log(`[scheduler] refreshing Instagram token for socialAccountId=${socialAccountId}`)
+    return refreshInstagramToken(socialAccountId, oauthToken)
+  }
+
+  return oauthToken
+}
+
 export async function runScheduler(
   jobName: 'daily-sync' | 'manual-sync' = 'daily-sync'
 ): Promise<SchedulerSummary> {
@@ -35,6 +71,8 @@ export async function runScheduler(
       sa.id               AS "socialAccountId",
       sa.platform_user_id AS "platformUserId",
       sa.oauth_token      AS "oauthToken",
+      sa.refresh_token    AS "refreshToken",
+      sa.token_expires_at AS "tokenExpiresAt",
       p.key               AS platform,
       b.id                AS "brandId",
       b.organization_id   AS "orgId"
@@ -52,14 +90,16 @@ export async function runScheduler(
   for (const acct of accounts) {
     const startedAt = new Date()
     try {
+      const token = await ensureFreshToken(acct)
+
       let result: Record<string, { count: number; error: string | null }>
 
       if (acct.platform === 'instagram' && acct.platformUserId) {
-        result = await initialIgSync(acct.socialAccountId, acct.platformUserId, acct.oauthToken, acct.brandId)
+        result = await initialIgSync(acct.socialAccountId, acct.platformUserId, token, acct.brandId)
       } else if (acct.platform === 'tiktok') {
-        result = await initialTtSync(acct.socialAccountId, acct.oauthToken, acct.brandId)
+        result = await initialTtSync(acct.socialAccountId, token, acct.brandId)
       } else if (acct.platform === 'facebook' && acct.platformUserId) {
-        result = await initialFbSync(acct.socialAccountId, acct.platformUserId, acct.oauthToken, acct.brandId)
+        result = await initialFbSync(acct.socialAccountId, acct.platformUserId, token, acct.brandId)
       } else {
         continue
       }
