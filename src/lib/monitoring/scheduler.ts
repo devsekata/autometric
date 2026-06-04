@@ -53,11 +53,15 @@ async function ensureFreshToken(acct: SchedulerAccount): Promise<string> {
   }
 
   if (platform === 'instagram') {
-    if (expiresMs < nowMs) {
+    const timeLeftMs = expiresMs - nowMs
+    if (timeLeftMs < 0) {
       throw new Error('Instagram token expired — reconnect required')
     }
-    const needsRefresh = expiresMs - nowMs < INSTAGRAM_REFRESH_THRESHOLD_MS
-    if (!needsRefresh) return oauthToken
+    // Short-lived tokens (<2 days) cannot be refreshed with ig_refresh_token — need reconnect
+    if (timeLeftMs < 2 * 24 * 60 * 60 * 1000) {
+      throw new Error('Instagram token is short-lived and cannot be refreshed — reconnect required')
+    }
+    if (timeLeftMs > INSTAGRAM_REFRESH_THRESHOLD_MS) return oauthToken
     console.log(`[scheduler] refreshing Instagram token for socialAccountId=${socialAccountId}`)
     return refreshInstagramToken(socialAccountId, oauthToken)
   }
