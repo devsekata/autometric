@@ -128,9 +128,24 @@ export async function runScheduler(
         })
       }
     } catch (err) {
+      const finishedAt = new Date()
       const msg = err instanceof Error ? err.message : String(err)
       errors.push(`${acct.platform}/${acct.socialAccountId}: ${msg}`)
       console.error(`[scheduler] account ${acct.socialAccountId} threw:`, err)
+      allEntries.push({
+        runId,
+        jobName,
+        platform:        acct.platform,
+        category:        'unknown',
+        socialAccountId: acct.socialAccountId,
+        brandId:         acct.brandId,
+        orgId:           acct.orgId,
+        status:          'failed',
+        recordsSynced:   null,
+        errorMessage:    msg,
+        startedAt,
+        finishedAt,
+      })
     }
   }
 
