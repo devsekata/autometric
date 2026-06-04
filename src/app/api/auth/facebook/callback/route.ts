@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
       new URLSearchParams({ grant_type: 'fb_exchange_token', client_id: APP_ID, client_secret: APP_SECRET, fb_exchange_token: shortToken })
     )
     const longData   = await longRes.json()
+    console.log('[Facebook callback] Long-lived token exchange response:', JSON.stringify({ access_token: !!longData.access_token, expires_in: longData.expires_in, error: longData.error }))
     if (!longData.access_token) {
       console.error('[Facebook callback] Long-lived token exchange failed:', JSON.stringify(longData))
     }
