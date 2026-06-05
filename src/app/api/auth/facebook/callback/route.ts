@@ -95,8 +95,6 @@ export async function GET(req: NextRequest) {
       return popupPage('No Facebook Pages found. Make sure you manage a Facebook Page.')
     }
 
-    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
-
     // ── Facebook Page mode ──
     if (mode === 'facebook') {
       const options = await Promise.all(pages.map(async (page) => {
@@ -110,7 +108,7 @@ export async function GET(req: NextRequest) {
           avatarUrl:      picSrc,
           profileUrl:     page.link ?? `https://www.facebook.com/${page.id}`,
           oauthToken:     page.access_token,
-          tokenExpiresAt,
+          tokenExpiresAt: null, // Page Access Token tidak expire
         }
       }))
 
