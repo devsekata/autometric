@@ -44,13 +44,13 @@ export async function GET(req: NextRequest) {
     const longRes = await fetch(
       `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${APP_SECRET}&access_token=${shortToken}`
     )
-    const longData    = await longRes.json()
-    console.log('[Instagram callback] Long-lived token exchange response:', JSON.stringify({ access_token: !!longData.access_token, expires_in: longData.expires_in, error: longData.error }))
+    const longData = await longRes.json()
     if (!longData.access_token) {
       console.error('[Instagram callback] Long-lived token exchange failed:', JSON.stringify(longData))
+      return popupPage('Instagram token exchange failed. Please connect via Facebook login instead.')
     }
-    const accessToken: string = longData.access_token ?? shortToken
-    const expiresIn:   number = longData.expires_in   ?? 3600
+    const accessToken: string = longData.access_token
+    const expiresIn:   number = longData.expires_in
 
     // Fetch Instagram profile
     const profileRes = await fetch(

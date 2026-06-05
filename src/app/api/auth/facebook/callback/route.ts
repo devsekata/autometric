@@ -12,7 +12,7 @@ type Option = {
   avatarUrl: string | null
   profileUrl: string
   oauthToken: string
-  tokenExpiresAt: string
+  tokenExpiresAt: string | null
 }
 
 function esc(s: string) {
@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
           avatarUrl:      ig.profile_picture_url ?? null,
           profileUrl:     `https://www.instagram.com/${ig.username}`,
           oauthToken:     page.access_token,
-          tokenExpiresAt,
+          tokenExpiresAt: null, // Page Access Token tidak expire
         })
       }
     }

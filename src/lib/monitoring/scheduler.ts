@@ -31,6 +31,28 @@ export type SchedulerSummary = {
 const TIKTOK_REFRESH_THRESHOLD_MS    = 2  * 60 * 60 * 1000  // 2 hours
 const INSTAGRAM_REFRESH_THRESHOLD_MS = 7  * 24 * 60 * 60 * 1000  // 7 days
 
+// Deteksi error yang berasal dari token invalid/revoked (bukan error API sementara)
+function isTokenError(msg: string): boolean {
+  const m = msg.toLowerCase()
+  return (
+    m.includes('reconnect required') ||
+    m.includes('oauthexception') ||
+    m.includes('invalid oauth') ||
+    m.includes('error validating access token') ||
+    m.includes('token has expired') ||
+    m.includes('session has expired') ||
+    m.includes('token refresh failed')
+  )
+}
+
+async function markAccountDisconnected(socialAccountId: string): Promise<void> {
+  await pool.query(
+    `UPDATE social_accounts SET connected = false WHERE id = $1`,
+    [socialAccountId]
+  )
+  console.log(`[scheduler] marked account ${socialAccountId} as disconnected`)
+}
+
 async function ensureFreshToken(acct: SchedulerAccount): Promise<string> {
   const { platform, oauthToken, refreshToken, tokenExpiresAt, socialAccountId } = acct
 
@@ -40,16 +62,16 @@ async function ensureFreshToken(acct: SchedulerAccount): Promise<string> {
   const nowMs      = Date.now()
 
   if (platform === 'tiktok') {
-    if (expiresMs < nowMs) {
-      throw new Error('TikTok token expired — reconnect required')
+    const expired      = expiresMs < nowMs
+    const nearExpiry   = expiresMs - nowMs < TIKTOK_REFRESH_THRESHOLD_MS
+    if (expired || nearExpiry) {
+      if (!refreshToken) {
+        throw new Error('TikTok token expired and no refresh_token stored — reconnect required')
+      }
+      console.log(`[scheduler] refreshing TikTok token for socialAccountId=${socialAccountId}`)
+      return refreshTiktokToken(socialAccountId, refreshToken)
     }
-    const needsRefresh = expiresMs - nowMs < TIKTOK_REFRESH_THRESHOLD_MS
-    if (!needsRefresh) return oauthToken
-    if (!refreshToken) {
-      throw new Error('TikTok token expiring but no refresh_token stored — reconnect required')
-    }
-    console.log(`[scheduler] refreshing TikTok token for socialAccountId=${socialAccountId}`)
-    return refreshTiktokToken(socialAccountId, refreshToken)
+    return oauthToken
   }
 
   if (platform === 'instagram') {
@@ -131,6 +153,12 @@ export async function runScheduler(
           finishedAt,
         })
       }
+
+      // Kalau ada kategori yang gagal karena token dicabut Meta, tandai disconnected
+      const tokenRevoked = Object.values(result).some(({ error }) => error && isTokenError(error))
+      if (tokenRevoked) {
+        await markAccountDisconnected(acct.socialAccountId).catch(() => {})
+      }
     } catch (err) {
       const finishedAt = new Date()
       const msg = err instanceof Error ? err.message : String(err)
@@ -150,6 +178,11 @@ export async function runScheduler(
         startedAt,
         finishedAt,
       })
+
+      // Token errors dari ensureFreshToken → tandai disconnected
+      if (isTokenError(msg)) {
+        await markAccountDisconnected(acct.socialAccountId).catch(() => {})
+      }
     }
   }
 
