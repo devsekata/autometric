@@ -45,15 +45,36 @@ export default function BrandCompetitorsTab() {
       ) : (
         brand.competitors.map(comp => (
           <div key={comp.social_account_id} className="flex items-center gap-4 py-3.5 border-b border-[#f3f4f6] hover:bg-[#fafafa] transition-colors group">
-            <PlatformIcon platform={comp.platform} size={32} />
+            <div className="relative flex-shrink-0">
+              {comp.avatar_url ? (
+                <img src={comp.avatar_url} alt={comp.username}
+                  className="w-9 h-9 rounded-full object-cover bg-[#f3f4f6]" />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-[#f3f4f6] flex items-center justify-center">
+                  <PlatformIcon platform={comp.platform} size={20} />
+                </div>
+              )}
+              <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white flex items-center justify-center">
+                <PlatformIcon platform={comp.platform} size={12} />
+              </div>
+            </div>
             <div className="flex-1 min-w-0">
               <p style={PJB} className="text-[13.5px] font-bold text-[#111827]">{comp.username}</p>
               <p className="text-[12px] text-[#9ca3af] mt-0.5 capitalize">{comp.platform}</p>
             </div>
-            <button onClick={() => removeCompetitor(comp.social_account_id)} title="Remove competitor"
-              className="w-8 h-8 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-[#fee2e2] transition-all text-[#9ca3af] hover:text-[#ef4444] flex-shrink-0">
-              <span className="material-symbols-outlined text-[16px]">delete</span>
-            </button>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+              {comp.profile_url && (
+                <a href={comp.profile_url} target="_blank" rel="noopener noreferrer"
+                  title="View profile"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#e0f0f5] transition-colors text-[#9ca3af] hover:text-[#3d7e96]">
+                  <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                </a>
+              )}
+              <button onClick={() => removeCompetitor(comp.social_account_id)} title="Remove competitor"
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#fee2e2] transition-colors text-[#9ca3af] hover:text-[#ef4444]">
+                <span className="material-symbols-outlined text-[16px]">delete</span>
+              </button>
+            </div>
           </div>
         ))
       )}

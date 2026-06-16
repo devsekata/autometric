@@ -21,7 +21,10 @@ export default function CompetitorAvatars({ competitors }: Props) {
             title={c.username}
             style={{ zIndex: shown.length - i, width: 22, height: 22 }}
             className="rounded-full border-2 border-white bg-[#f3f4f6] flex items-center justify-center flex-shrink-0 overflow-hidden">
-            <PlatformIcon platform={c.platform} size={14} />
+            {c.avatar_url
+              ? <img src={c.avatar_url} alt={c.username} className="w-full h-full object-cover" />
+              : <PlatformIcon platform={c.platform} size={14} />
+            }
           </div>
         ))}
       </div>

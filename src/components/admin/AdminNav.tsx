@@ -6,8 +6,9 @@ import { usePathname } from 'next/navigation'
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
 const NAV_ITEMS = [
-  { href: '/admin',           label: 'Monitoring', icon: 'monitor_heart' },
-  { href: '/admin/scheduler', label: 'Scheduler',  icon: 'schedule'      },
+  { href: '/admin',                      label: 'Monitoring',           icon: 'monitor_heart' },
+  { href: '/admin/scheduler',            label: 'Scheduler',            icon: 'schedule'      },
+  { href: '/admin/competitor-scheduler', label: 'Competitor Scheduler', icon: 'groups'        },
 ] as const
 
 export default function AdminNav() {

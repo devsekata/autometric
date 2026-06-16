@@ -27,8 +27,8 @@ export default function CompetitorModal({ brandName, onClose, onAdded }: Props) 
     setLoading(true)
     try {
       await onAdded(platform, trimmed)
-    } catch {
-      setError('Something went wrong.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
       setLoading(false)
     }

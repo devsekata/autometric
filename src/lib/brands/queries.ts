@@ -321,7 +321,7 @@ export async function addCompetitor(
     if (!pRows[0]) throw new Error(`Unknown platform: ${platformKey}`)
 
     const { rows: saRows } = await client.query<{
-      id: string; username: string; avatar_url: string | null; profile_url: string | null
+      id: string; username: string; avatar_url: string | null; profile_url: string | null; is_new: boolean
     }>(
       `INSERT INTO social_accounts (platform_id, username, avatar_url, profile_url, platform_user_id)
        VALUES ($1, $2, $3, $4, $5)
@@ -329,7 +329,7 @@ export async function addCompetitor(
          SET avatar_url        = COALESCE(EXCLUDED.avatar_url,        social_accounts.avatar_url),
              profile_url       = COALESCE(EXCLUDED.profile_url,       social_accounts.profile_url),
              platform_user_id  = COALESCE(EXCLUDED.platform_user_id,  social_accounts.platform_user_id)
-       RETURNING id, username, avatar_url, profile_url`,
+       RETURNING id, username, avatar_url, profile_url, (xmax = 0) AS is_new`,
       [
         pRows[0].id,
         username,
@@ -353,6 +353,7 @@ export async function addCompetitor(
       username: sa.username,
       avatar_url: sa.avatar_url,
       profile_url: sa.profile_url,
+      is_new_account: sa.is_new,
     }
   } catch (err) {
     await client.query('ROLLBACK')
@@ -360,6 +361,39 @@ export async function addCompetitor(
   } finally {
     client.release()
   }
+}
+
+// Backfill avatar / profile_url / platform_user_id after an async competitor sync
+// (used by platforms whose profile is fetched in the background, e.g. Facebook via Apify).
+export async function updateSocialAccountProfile(
+  socialAccountId: string,
+  profile: { avatarUrl?: string | null; profileUrl?: string | null; platformUserId?: string | null },
+): Promise<void> {
+  await pool.query(
+    `UPDATE social_accounts
+        SET avatar_url       = COALESCE($2, avatar_url),
+            profile_url      = COALESCE($3, profile_url),
+            platform_user_id = COALESCE($4, platform_user_id)
+      WHERE id = $1`,
+    [socialAccountId, profile.avatarUrl ?? null, profile.profileUrl ?? null, profile.platformUserId ?? null],
+  )
+}
+
+export async function listBrandCompetitors(brandId: string): Promise<CompetitorAccount[]> {
+  const { rows } = await pool.query<CompetitorAccount>(
+    `SELECT
+       csa.id          AS social_account_id,
+       cp.key          AS platform,
+       csa.username,
+       csa.avatar_url,
+       csa.profile_url
+     FROM brand_competitors bc
+     JOIN social_accounts csa ON csa.id = bc.social_account_id
+     JOIN platforms cp        ON cp.id  = csa.platform_id
+     WHERE bc.brand_id = $1`,
+    [brandId],
+  )
+  return rows
 }
 
 export async function removeCompetitor(brandId: string, socialAccountId: string): Promise<void> {

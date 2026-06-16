@@ -5,6 +5,12 @@ node_modules/
 .next/
 out/
 
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Local debug dumps (from scripts/dev)
+*.dump.json
+
 # Environment
 .env.local
 .env.*.local
