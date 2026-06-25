@@ -2,6 +2,7 @@ import Link from 'next/link'
 import OrgSwitcher from './OrgSwitcher'
 import OrgNav from './OrgNav'
 import UserMenu from './UserMenu'
+import SidebarToggle from './SidebarToggle'
 import { Organization } from '@/lib/organizations/types'
 
 interface Props {
@@ -12,11 +13,12 @@ interface Props {
 
 export default function Sidebar({ fallbackOrgSlug, hasOrgs, initialOrgs }: Props) {
   return (
-    <aside className="fixed inset-y-0 left-0 w-[280px] flex flex-col bg-white border-r-2 border-[#e2e8f0] z-10">
-      <div className="h-16 flex items-center px-4 border-b border-[#e5e7eb] flex-shrink-0">
-        <Link href="/">
+    <aside className="h-screen w-[280px] flex flex-col bg-white border-r-2 border-[#e2e8f0]">
+      <div className="h-16 flex items-center justify-between gap-2 px-4 border-b border-[#e5e7eb] flex-shrink-0">
+        <Link href="/" className="min-w-0">
           <img src="/auometric-logo-long.png" alt="Autometric" className="w-full max-w-[168px] h-auto" />
         </Link>
+        <SidebarToggle />
       </div>
 
       {hasOrgs ? (

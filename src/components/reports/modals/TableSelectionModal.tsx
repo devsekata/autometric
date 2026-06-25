@@ -1,0 +1,102 @@
+'use client'
+
+import { useState } from 'react'
+import { TABLE_TYPES, TableConfig } from '@/lib/reports/data/tableTypes'
+
+const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+
+/** Replicates report_2's TableSelectionModal: type list + visible-column picker. */
+export default function TableSelectionModal({
+  open, initial, onClose, onConfirm,
+}: {
+  open: boolean
+  initial: TableConfig | null
+  onClose: () => void
+  onConfirm: (config: TableConfig) => void
+}) {
+  const [type, setType] = useState(initial?.type ?? 'performance')
+  const [columns, setColumns] = useState<string[]>(
+    initial?.columns ?? TABLE_TYPES['performance'].columns.map(c => c.id),
+  )
+
+  if (!open) return null
+
+  const changeType = (id: string) => { setType(id); setColumns(TABLE_TYPES[id].columns.map(c => c.id)) }
+  const toggle = (id: string) => setColumns(prev => (prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-[#0f172a]/50 backdrop-blur-sm" />
+      <div onClick={e => e.stopPropagation()} className="relative w-full max-w-[720px] h-[520px] rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.30)] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="p-4 px-6 border-b border-[#f0f1f2] flex justify-between items-center">
+          <div>
+            <h3 style={PJ} className="font-bold text-[16px] text-[#0f172a]">Configure Data Table</h3>
+            <p className="text-[12px] text-[#94a3b8] mt-0.5">Select a template and customize metrics.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-[#94a3b8] hover:text-[#334155] hover:bg-[#f1f5f9] transition-colors">
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+
+        <div className="flex-1 flex min-h-0">
+          {/* Type list */}
+          <div className="w-[40%] border-r border-[#f0f1f2] bg-[#fafbfb] overflow-y-auto p-2 space-y-1.5">
+            {Object.values(TABLE_TYPES).map(t => {
+              const active = type === t.id
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => changeType(t.id)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${active ? 'bg-[#f2f8f5] border-[#1e4f49] ring-1 ring-[#1e4f49]' : 'border-transparent hover:bg-white hover:border-[#e5e7eb]'}`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`material-symbols-outlined text-[17px] ${active ? 'text-[#1e4f49]' : 'text-[#9ca3af]'}`}>{t.icon}</span>
+                    <span style={PJ} className={`text-[13px] font-bold ${active ? 'text-[#1e4f49]' : 'text-[#475569]'}`}>{t.label}</span>
+                  </div>
+                  <p className="text-[10.5px] text-[#94a3b8] leading-tight">{t.description}</p>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Columns */}
+          <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex justify-between items-center mb-3">
+              <h4 style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Visible Columns</h4>
+              <button onClick={() => setColumns(TABLE_TYPES[type].columns.map(c => c.id))} className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+                Reset to Default
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {TABLE_TYPES[type].columns.map(col => {
+                const on = columns.includes(col.id)
+                return (
+                  <label key={col.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#f2f8f5] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#1e4f49] border-[#1e4f49]' : 'border-[#cbd5e1] bg-white'}`}>
+                      {on && <span className="material-symbols-outlined text-[12px] text-white">check</span>}
+                    </span>
+                    <input type="checkbox" className="hidden" checked={on} onChange={() => toggle(col.id)} />
+                    <span style={PJ} className={`text-[12px] font-medium ${on ? 'text-[#1e4f49]' : 'text-[#64748b]'}`}>{col.label}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 px-6 border-t border-[#f0f1f2] flex justify-end gap-2">
+          <button onClick={onClose} style={PJ} className="px-4 py-2.5 text-[12.5px] font-semibold text-[#6b7280] hover:bg-[#f3f4f6] rounded-lg transition-colors">Cancel</button>
+          <button
+            onClick={() => onConfirm({ type, columns })}
+            disabled={columns.length === 0}
+            style={PJ}
+            className="px-5 py-2.5 bg-[#1e4f49] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#163a35] disabled:opacity-50 transition-colors"
+          >
+            Insert Table
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

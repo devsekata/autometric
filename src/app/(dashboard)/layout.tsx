@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import Providers from '@/components/layout/Providers'
 import Sidebar from '@/components/layout/Sidebar'
+import DashboardShell from '@/components/layout/DashboardShell'
 import AuthGuard from '@/components/layout/AuthGuard'
 import { listOrgsForUser } from '@/lib/organizations/queries'
 
@@ -23,12 +24,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <Providers session={session}>
       <AuthGuard />
-      <div className="flex min-h-screen bg-[#f9fafb]">
-        <Sidebar fallbackOrgSlug={fallbackSlug} hasOrgs={hasOrgs} initialOrgs={orgs} />
-        <main className="flex-1 ml-[280px] min-w-0">
-          {children}
-        </main>
-      </div>
+      <DashboardShell
+        sidebar={<Sidebar fallbackOrgSlug={fallbackSlug} hasOrgs={hasOrgs} initialOrgs={orgs} />}
+        fallbackOrgSlug={fallbackSlug}
+        hasOrgs={hasOrgs}
+      >
+        {children}
+      </DashboardShell>
     </Providers>
   )
 }
