@@ -122,7 +122,7 @@ export default function RegisterForm({ onSwitch }: Props) {
             password: form.password,
             redirect: false,
           })
-          if (!result?.error) router.push('/dashboard')
+          if (!result?.error) router.push('/')
         }}
       />
     )

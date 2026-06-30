@@ -1,0 +1,19 @@
+# Autometric dashboard (Next.js standalone).
+# Redeploy:  git pull && docker compose up -d --build
+#
+# Note: the Postgres DB runs on a separate host (see DATABASE_URL in .env.local),
+# not as a service here, so the default bridge network is enough.
+# Runtime env (secrets, DB creds, OAuth keys) is injected from .env.local at run
+# time — that file is gitignored and must already exist on the server.
+
+services:
+  app:
+    build:
+      context: .
+    image: autometric-app
+    container_name: autometric-app
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env.local
+    restart: unless-stopped

@@ -4,6 +4,6 @@ import AuthPage from '@/components/auth/AuthPage'
 
 export default async function LoginPage() {
   const session = await auth()
-  if (session?.user) redirect('/dashboard')
+  if (session?.user) redirect('/')
   return <AuthPage />
 }

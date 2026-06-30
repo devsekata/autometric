@@ -13,6 +13,7 @@ const GoogleIcon = () => (
 
 export default function GoogleButton({ label }: { label: string }) {
   async function handleClick() {
+    const callbackUrl = '/'
     try {
       const csrfToken = await getCsrfToken()
       const res = await fetch('/api/auth/signin/google', {
@@ -23,13 +24,13 @@ export default function GoogleButton({ label }: { label: string }) {
         },
         body: new URLSearchParams({
           csrfToken: csrfToken ?? '',
-          callbackUrl: '/dashboard',
+          callbackUrl,
         }),
       })
       const { url } = await res.json()
       if (url) window.location.replace(url)
     } catch {
-      window.location.href = '/api/auth/signin/google?callbackUrl=%2Fdashboard'
+      window.location.href = `/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}`
     }
   }
 

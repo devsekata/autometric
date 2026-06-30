@@ -2,7 +2,7 @@ import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import Google from 'next-auth/providers/google'
 import { validateCredentials } from '@/lib/auth/validateCredentials'
-import { handleGoogleSignIn, getDbUserIdByEmail } from '@/lib/auth/handleGoogleSignIn'
+import { handleGoogleSignIn, getDbUserIdByEmail, getDbUserByEmail } from '@/lib/auth/handleGoogleSignIn'
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -72,26 +72,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
-      const isOnDashboard = nextUrl.pathname.startsWith('/dashboard')
+      const isOnOrganizations = nextUrl.pathname.startsWith('/organizations')
       const isOnLogin = nextUrl.pathname.startsWith('/login')
-      if (isOnDashboard && !isLoggedIn) return false
-      if (isOnLogin && isLoggedIn) return Response.redirect(new URL('/dashboard', nextUrl))
+      if (isOnOrganizations && !isLoggedIn) return false
+      if (isOnLogin && isLoggedIn) return Response.redirect(new URL('/', nextUrl))
       return true
     },
     async jwt({ token, user, account }) {
-      if (user?.id) token.id = user.id
+      if (user?.id)   token.id   = user.id
+      if ((user as { role?: string })?.role) token.role = (user as { role: string }).role
       if (account?.provider === 'google' && token.email) {
         try {
-          const id = await getDbUserIdByEmail(token.email)
-          if (id) token.id = id
+          const dbUser = await getDbUserByEmail(token.email)
+          if (dbUser) {
+            token.id   = dbUser.id
+            token.name = dbUser.name
+            token.role = dbUser.role
+          }
         } catch (e) {
-          console.error('[auth] getDbUserIdByEmail error:', e)
+          console.error('[auth] getDbUserByEmail error:', e)
         }
       }
       return token
     },
     session({ session, token }) {
-      if (token.id) session.user.id = token.id as string
+      if (token.id)   session.user.id   = token.id as string
+      if (token.name) session.user.name = token.name
+      session.user.role = (token.role as 'ADMIN' | 'USER') ?? 'USER'
       return session
     },
   },
