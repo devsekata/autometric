@@ -8,13 +8,14 @@ import { PJ, InsightsBlock } from './parts'
 
 function hue(id: number) { return (id * 47) % 360 }
 
-function PostCard({ id, tag, metrics, postMetrics, count }: { id: number; tag?: 'TOP' | 'LOW'; metrics: Record<string, string>; postMetrics: string[]; count: number }) {
+function PostCard({ id, tag, image, metrics, postMetrics, count }: { id: number; tag?: 'TOP' | 'LOW'; image: string; metrics: Record<string, string>; postMetrics: string[]; count: number }) {
   const labelFs = count === 4 ? '1.05cqw' : count === 6 ? '0.9cqw' : '0.78cqw'
   const h = hue(id)
   return (
     <div className="h-full flex flex-col rounded-[1cqw] overflow-hidden bg-white border border-[#e8ebee]" style={{ boxShadow: '0 1cqh 2cqh -1.4cqh rgba(16,24,40,0.18)' }}>
-      {/* Image placeholder */}
+      {/* Image (gradient shows as fallback if the URL fails) */}
       <div className="relative flex-1 min-h-0 flex items-center justify-center" style={{ background: `linear-gradient(135deg, hsl(${h} 45% 88%), hsl(${(h + 40) % 360} 45% 80%))` }}>
+        <img src={image} alt="" className="absolute inset-0 w-full h-full object-contain" onError={e => { e.currentTarget.style.display = 'none' }} />
         <span className="material-symbols-outlined" style={{ fontSize: '3cqw', color: 'rgba(255,255,255,0.85)' }}>image</span>
         {tag && (
           <span style={{ position: 'absolute', top: '0.6cqh', left: '0.5cqw', fontSize: '0.8cqw', fontWeight: 800, color: '#fff', padding: '0.2cqh 0.7cqw', borderRadius: '999px', background: tag === 'TOP' ? '#16a34a' : '#e11d48', ...PJ }}>{tag}</span>
@@ -81,7 +82,7 @@ export default function VisualSlide({
         )}
         <div className="h-full" style={{ display: 'grid', gridTemplateColumns: cols, gap: count === 4 ? '1.2cqw' : count === 6 ? '0.9cqw' : '0.7cqw' }}>
           {posts.map((p, i) => (
-            <PostCard key={i} id={p.id} tag={p.tag} metrics={p.metrics} postMetrics={slide.postMetrics} count={count} />
+            <PostCard key={i} id={p.id} tag={p.tag} image={p.image} metrics={p.metrics} postMetrics={slide.postMetrics} count={count} />
           ))}
         </div>
       </div>

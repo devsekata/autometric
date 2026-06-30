@@ -8,7 +8,7 @@ import { PJ } from './ui'
 
 export default function SlidesReview({
   slides, colors, isExporting, cover, chromeFor,
-  onAdd, onOpen, onRename, onDelete, onExport, onEditCover,
+  onAdd, onOpen, onRename, onDelete, onExport, onSaveTemplate, onEditCover,
 }: {
   slides: ContentSlide[]
   colors: CoverColors
@@ -19,24 +19,70 @@ export default function SlidesReview({
   onOpen: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
-  onExport: () => void
+  onExport: (mode: 'export' | 'export-save') => void
+  onSaveTemplate: () => void
   onEditCover: () => void
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div>
       {/* Toolbar */}
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-end gap-2.5 mb-6">
         <button
-          onClick={onExport}
+          onClick={onSaveTemplate}
           disabled={isExporting}
           style={PJ}
-          className="flex items-center gap-2 bg-[#1e4f49] hover:bg-[#163a35] disabled:opacity-60 text-white text-[13px] font-bold px-5 py-2.5 rounded-xl shadow-[0_4px_14px_rgba(30,79,73,0.30)] transition-colors"
+          className="flex items-center gap-2 bg-white hover:bg-[#f2f8f5] disabled:opacity-60 text-[#1e4f49] text-[13px] font-bold px-5 py-2.5 rounded-xl border border-[#1e4f49]/30 hover:border-[#1e4f49] transition-colors"
         >
-          <span className="material-symbols-outlined text-[18px]">download</span>
-          {isExporting ? 'Exporting…' : 'Export PPTX'}
+          <span className="material-symbols-outlined text-[18px]">bookmark_add</span>
+          Save Template
         </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setMenuOpen(o => !o)}
+            disabled={isExporting}
+            style={PJ}
+            className="flex items-center gap-2 bg-[#1e4f49] hover:bg-[#163a35] disabled:opacity-60 text-white text-[13px] font-bold pl-5 pr-4 py-2.5 rounded-xl shadow-[0_4px_14px_rgba(30,79,73,0.30)] transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            {isExporting ? 'Exporting…' : 'Export PPTX'}
+            <span className={`material-symbols-outlined text-[18px] transition-transform ${menuOpen ? 'rotate-180' : ''}`}>expand_more</span>
+          </button>
+
+          {menuOpen && !isExporting && (
+            <>
+              {/* click-outside catcher */}
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl border border-[#e5e7eb] shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden z-20 py-1">
+                <button
+                  onClick={() => { setMenuOpen(false); onExport('export') }}
+                  style={PJ}
+                  className="w-full flex items-start gap-3 px-4 py-3 hover:bg-[#f2f8f5] transition-colors text-left"
+                >
+                  <span className="material-symbols-outlined text-[20px] text-[#1e4f49] mt-0.5">download</span>
+                  <span>
+                    <span className="block text-[13px] font-bold text-[#0f172a]">Export only</span>
+                    <span className="block text-[11.5px] text-[#94a3b8]">Download the .pptx to this device</span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(false); onExport('export-save') }}
+                  style={PJ}
+                  className="w-full flex items-start gap-3 px-4 py-3 hover:bg-[#f2f8f5] transition-colors text-left"
+                >
+                  <span className="material-symbols-outlined text-[20px] text-[#1e4f49] mt-0.5">cloud_upload</span>
+                  <span>
+                    <span className="block text-[13px] font-bold text-[#0f172a]">Export &amp; save</span>
+                    <span className="block text-[11.5px] text-[#94a3b8]">Download and store in your reports library</span>
+                  </span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex items-end justify-between mb-5">

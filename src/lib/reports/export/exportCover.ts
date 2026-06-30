@@ -19,6 +19,7 @@ export interface CoverConfig {
   colors: CoverColors
   mode: CoverMode
   template: CoverTemplate
+  font?: string
 }
 
 /** Rasterize an SVG string to a PNG data URL at the given pixel size. */
@@ -48,7 +49,36 @@ export function svgToPng(svgString: string, width: number, height: number): Prom
   })
 }
 
-const txtOpts = (box: TextBox, color: string) => ({
+/** Natural pixel dimensions of an image (data URL or URL). */
+export function imgDims(src: string): Promise<{ w: number; h: number }> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => resolve({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 })
+    img.onerror = () => resolve({ w: 1, h: 1 })
+    img.src = src
+  })
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySlide = any
+
+/**
+ * Places an image *contained* inside a box (preserves aspect — no stretch),
+ * aligned horizontally (left/center/right) and centered vertically. Avoids
+ * pptxgenjs `sizing` which is unreliable for base64 data URLs.
+ */
+export async function addContainImage(slide: AnySlide, data: string, bx: number, by: number, bw: number, bh: number, alignX: 'left' | 'center' | 'right' = 'left'): Promise<number> {
+  const { w: iw, h: ih } = await imgDims(data)
+  const ar = iw / ih
+  let dw = bw, dh = bw / ar
+  if (dh > bh) { dh = bh; dw = bh * ar }
+  const dx = alignX === 'center' ? bx + (bw - dw) / 2 : alignX === 'right' ? bx + (bw - dw) : bx
+  const dy = by + (bh - dh) / 2
+  slide.addImage({ data, x: dx, y: dy, w: dw, h: dh })
+  return dw
+}
+
+const txtOpts = (box: TextBox, color: string, font: string) => ({
   x: box.x * SLIDE.w,
   y: box.y * SLIDE.h,
   w: box.w * SLIDE.w,
@@ -58,7 +88,7 @@ const txtOpts = (box: TextBox, color: string) => ({
   align: box.align,
   bold: box.bold ?? false,
   color: noHash(color),
-  fontFace: 'Plus Jakarta Sans',
+  fontFace: font,
   lineSpacingMultiple: 1.15,
   margin: 0,
   valign: 'top' as const,
@@ -88,11 +118,12 @@ export async function addCoverSlide(pptx: Pptx, cfg: CoverConfig): Promise<void>
 
   const { layout } = cfg.template
   const textColor = cfg.template.textColor(cfg.colors, cfg.mode)
+  const font = cfg.font ?? 'Calibri'
 
   // Logo (or initials fallback drawn as a shape + letters).
   if (cfg.logoDataUrl) {
     const b = logoBoxIn(layout.logo)
-    slide.addImage({ data: cfg.logoDataUrl, ...b, sizing: { type: 'contain', w: b.w, h: b.h } })
+    await addContainImage(slide, cfg.logoDataUrl, b.x, b.y, b.w, b.h, layout.logo.align)
   } else {
     const b = logoBoxIn(layout.logo)
     const initials = cfg.brandName.slice(0, 2).toUpperCase()
@@ -100,16 +131,16 @@ export async function addCoverSlide(pptx: Pptx, cfg: CoverConfig): Promise<void>
     slide.addShape('ellipse', { x: b.x, y: b.y, w: d, h: d, fill: { color: noHash(cfg.colors.primary) } })
     slide.addText(initials, {
       x: b.x, y: b.y, w: d, h: d, align: 'center', valign: 'middle',
-      fontSize: Math.round(d * PT_PER_IN * 0.4), bold: true, color: 'FFFFFF', fontFace: 'Plus Jakarta Sans',
+      fontSize: Math.round(d * PT_PER_IN * 0.4), bold: true, color: 'FFFFFF', fontFace: font,
     })
   }
 
-  if (cfg.title) slide.addText(cfg.title, txtOpts(layout.title, textColor))
-  if (cfg.subtitle) slide.addText(cfg.subtitle, { ...txtOpts(layout.subtitle, textColor), bold: false })
-  if (cfg.period) slide.addText(cfg.period, { ...txtOpts(layout.period, textColor), bold: false })
+  if (cfg.title) slide.addText(cfg.title, txtOpts(layout.title, textColor, font))
+  if (cfg.subtitle) slide.addText(cfg.subtitle, { ...txtOpts(layout.subtitle, textColor, font), bold: false })
+  if (cfg.period) slide.addText(cfg.period, { ...txtOpts(layout.period, textColor, font), bold: false })
 }
 
-export async function exportCoverPptx(cfg: CoverConfig): Promise<void> {
+export async function exportCoverPptx(cfg: CoverConfig): Promise<{ blob: Blob; fileName: string }> {
   const { default: PptxGenJS } = await import('pptxgenjs')
   const pptx = new PptxGenJS()
   pptx.defineLayout({ name: 'AUTOMETRIC_16x9', width: SLIDE.w, height: SLIDE.h })
@@ -118,5 +149,7 @@ export async function exportCoverPptx(cfg: CoverConfig): Promise<void> {
   await addCoverSlide(pptx, cfg)
 
   const safe = (cfg.brandName || 'report').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-  await pptx.writeFile({ fileName: `${safe}-cover.pptx` })
+  const fileName = `${safe}-cover.pptx`
+  const blob = (await pptx.write({ outputType: 'blob' })) as Blob
+  return { blob, fileName }
 }

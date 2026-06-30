@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import BrandSwitcher from './BrandSwitcher'
 import {
-  BRANDS, PLATFORM_META, PLATFORM_FILTERS, PERIODS, fmtNum,
+  PLATFORM_META, PLATFORM_FILTERS, PERIODS, fmtNum,
   type PlatformFilter, type Period, type DashBrand,
 } from './data'
 
@@ -25,9 +26,27 @@ export default function DashboardChrome({ title, subtitle, children }: {
   subtitle: string
   children: (state: ChromeState) => React.ReactNode
 }) {
+  const pathname = usePathname()
+  const orgSlug = pathname?.split('/').filter(Boolean)[1] ?? '' // /organizations/<slug>/dashboard/...
+
   const [platform, setPlatform] = useState<PlatformFilter>('All')
   const [period, setPeriod] = useState<Period>('30 days')
-  const [brand, setBrand] = useState(BRANDS[0])
+  const [brands, setBrands] = useState<DashBrand[] | null>(null)
+  const [brand, setBrand] = useState<DashBrand | null>(null)
+
+  useEffect(() => {
+    if (!orgSlug) return
+    let cancelled = false
+    fetch(`/api/dashboard/brands?org=${encodeURIComponent(orgSlug)}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { brands: DashBrand[] }) => {
+        if (cancelled) return
+        setBrands(d.brands)
+        setBrand(prev => prev ?? d.brands[0] ?? null)
+      })
+      .catch(() => { if (!cancelled) setBrands([]) })
+    return () => { cancelled = true }
+  }, [orgSlug])
 
   return (
     <div className="min-h-screen bg-[#f7f8f9]">
@@ -64,8 +83,22 @@ export default function DashboardChrome({ title, subtitle, children }: {
       </header>
 
       <div className="px-7 py-6">
-        <div className="mb-6">
-          <BrandSwitcher value={brand} onChange={setBrand}>
+        {!brand ? (
+          brands === null ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <span className="material-symbols-outlined text-[34px] text-[#cbd1d8] animate-spin mb-2">progress_activity</span>
+              <p className="text-[13px] text-[#9ca3af]">Memuat brand…</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <span className="material-symbols-outlined text-[40px] text-[#d1d5db] mb-2">storefront</span>
+              <p className="text-[13px] text-[#6b7280]">Belum ada brand di organisasi ini.</p>
+            </div>
+          )
+        ) : (
+          <>
+            <div className="mb-6">
+              <BrandSwitcher value={brand} brands={brands ?? []} onChange={setBrand}>
             <div className="group flex items-center gap-4 pr-3 py-1">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-[19px] font-bold flex-shrink-0"
                 style={{ background: brand.color, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -91,10 +124,12 @@ export default function DashboardChrome({ title, subtitle, children }: {
                 </div>
               </div>
             </div>
-          </BrandSwitcher>
-        </div>
+              </BrandSwitcher>
+            </div>
 
-        {children({ brand, platform, period })}
+            {children({ brand, platform, period })}
+          </>
+        )}
       </div>
     </div>
   )

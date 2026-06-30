@@ -1,6 +1,7 @@
 // KPI scorecard metrics — the FULL list from report_2's MetricSelectionModal.
 // Values/deltas are deterministic (hash-seeded) instead of Math.random so the
 // preview is stable and matches export.
+import { groupInt } from './format'
 
 export interface KpiMetric {
   key: string
@@ -46,11 +47,11 @@ function valueFor(key: string, fmt: Fmt): string {
   const r = hash01(key)
   switch (fmt) {
     case 'pct': return (r * 5 + 1).toFixed(2) + '%'
-    case 'k500': return (Math.floor(r * 500) + 100) + 'k'
-    case 'kfollow': return (Math.floor(r * 100) + 10) + 'k'
-    case 'count': return (Math.floor(r * 10000) + 500).toLocaleString()
+    case 'k500': return groupInt((Math.floor(r * 500) + 100) * 1000)   // hundreds of thousands
+    case 'kfollow': return groupInt((Math.floor(r * 100) + 10) * 1000) // tens of thousands
+    case 'count': return groupInt(Math.floor(r * 10000) + 500)
     case 'time': return (r * 50 + 5).toFixed(1) + 's'
-    default: return (Math.floor(r * 5000) + 500).toLocaleString()
+    default: return groupInt(Math.floor(r * 5000) + 500)
   }
 }
 

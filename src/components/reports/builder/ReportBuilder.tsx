@@ -1,11 +1,13 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { BRANDS } from '@/components/dashboard/data'
 import { CoverColors, CoverMode, extractPalette, normalizeHex } from '@/lib/reports/cover/colors'
 import { COVER_TEMPLATES, getTemplate } from '@/lib/reports/cover/templates'
 import { exportCoverPptx } from '@/lib/reports/export/exportCover'
 import { exportReportPptx } from '@/lib/reports/export/exportReport'
+import { downloadBlob, saveExportToLibrary } from '@/lib/reports/export/clientSave'
 import {
   ContentSlide, SlideType, SlideChrome, ConfigBlock, ChartConfig, TableConfig, makeSlide,
 } from '@/lib/reports/data/slideModel'
@@ -25,13 +27,16 @@ let slideSeq = 0
 
 export default function ReportBuilder({
   orgName,
+  orgId,
   onExit,
   initialTemplateId,
 }: {
   orgName: string
+  orgId: string
   onExit?: () => void
   initialTemplateId?: string
 }) {
+  const router = useRouter()
   const [step, setStep] = useState<Step>('setup')
 
   // Setup state
@@ -40,6 +45,7 @@ export default function ReportBuilder({
   const [year, setYear] = useState(NOW.getFullYear())
   const [title, setTitle] = useState('Social Media Performance Report')
   const [subtitle, setSubtitle] = useState('Monthly Analytics & Insights')
+  const [font, setFont] = useState('Calibri')
 
   // Cover state
   const [templateId, setTemplateId] = useState(initialTemplateId ?? COVER_TEMPLATES[0].id)
@@ -52,6 +58,19 @@ export default function ReportBuilder({
   })
   const [isExporting, setIsExporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const coverCaptureRef = useRef<HTMLDivElement>(null)
+
+  // Rasterize the off-screen full-size cover to a PNG data URI for the history preview.
+  async function captureCover(): Promise<string | null> {
+    if (!coverCaptureRef.current) return null
+    try {
+      const { toPng } = await import('html-to-image')
+      return await toPng(coverCaptureRef.current, { cacheBust: true, pixelRatio: 1.6 })
+    } catch (e) {
+      console.error('[export] cover capture failed:', e)
+      return null
+    }
+  }
 
   // Slides state (Stage 2 — per-slide editing). Starts fresh: cover only.
   const [slides, setSlides] = useState<ContentSlide[]>([])
@@ -66,8 +85,8 @@ export default function ReportBuilder({
   const template = getTemplate(templateId)
   const kpiSlot = typeof configBlock === 'string' && configBlock.startsWith('kpi-') ? Number(configBlock.slice(4)) : null
 
-  function addSlide(type: SlideType) {
-    const s = makeSlide(type, ++slideSeq)
+  function addSlide(type: SlideType, channel = 'instagram') {
+    const s = makeSlide(type, ++slideSeq, channel)
     setSlides(prev => [...prev, s])
     return s
   }
@@ -81,9 +100,9 @@ export default function ReportBuilder({
     setActiveSlideId(id)
     setStep('editSlide')
   }
-  function pickSlideType(type: SlideType) {
+  function pickSlideType(type: SlideType, channel: string) {
     setPickerOpen(false)
-    openSlide(addSlide(type).id)
+    openSlide(addSlide(type, channel).id)
   }
   function applyChart(config: ChartConfig) {
     if (activeSlide && (configBlock === 'chart' || configBlock === 'chartA' || configBlock === 'chartB')) {
@@ -115,6 +134,7 @@ export default function ReportBuilder({
     totalPages: slides.length + 1,
     template,
     mode,
+    font,
   })
 
   function handleBrandChange(id: string) {
@@ -134,15 +154,32 @@ export default function ReportBuilder({
     reader.readAsDataURL(file)
   }
 
-  async function handleExport() {
+  async function handleExport(exportMode: 'export' | 'export-save' = 'export') {
     setIsExporting(true)
     try {
-      const cover = { brandName: brand.name, title, subtitle, period, logoDataUrl, colors, mode, template }
-      if (slides.length === 0) {
-        await exportCoverPptx(cover)
-      } else {
-        const chromes = slides.map((_, i) => chromeFor(i))
-        await exportReportPptx({ cover, slides, chromes, colors, brandName: brand.name })
+      const cover = { brandName: brand.name, title, subtitle, period, logoDataUrl, colors, mode, template, font }
+      const { blob, fileName } = slides.length === 0
+        ? await exportCoverPptx(cover)
+        : await exportReportPptx({ cover, slides, chromes: slides.map((_, i) => chromeFor(i)), colors, brandName: brand.name, font })
+
+      downloadBlob(blob, fileName)
+
+      if (exportMode === 'export-save') {
+        const coverImage = await captureCover()
+        const result = await saveExportToLibrary(orgId, blob, fileName, {
+          title,
+          brandName: brand.name,
+          period,
+          slideCount: slides.length + 1, // + cover
+          config: { subtitle, brandId, templateId, mode, colors, month, year },
+          coverImage,
+        })
+        if (result.ok) {
+          router.refresh()
+          alert('Saved to your organization’s reports library.')
+        } else {
+          alert(`Downloaded the file, but saving to the library failed:\n${result.error ?? 'Unknown error'}`)
+        }
       }
     } catch (err) {
       console.error(err)
@@ -152,8 +189,24 @@ export default function ReportBuilder({
     }
   }
 
+  function handleSaveTemplate() {
+    // TODO: persist the current report config (cover + slides + theme) as a reusable
+    // template (UI only for now — save wiring pending).
+    console.log('[template] save requested — wiring pending')
+  }
+
   return (
     <div className="min-h-screen bg-[#f7f8f9]">
+      {/* Off-screen full-size cover — rasterized to a PNG for the history preview */}
+      <div aria-hidden style={{ position: 'fixed', left: -10000, top: 0, width: 1200, pointerEvents: 'none', zIndex: -1 }}>
+        <div ref={coverCaptureRef}>
+          <CoverPreview
+            brandName={brand.name}
+            title={title} subtitle={subtitle} period={period}
+            logoDataUrl={logoDataUrl} colors={colors} mode={mode} template={template} font={font}
+          />
+        </div>
+      </div>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-[#e5e7eb] px-8 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3.5">
@@ -184,6 +237,7 @@ export default function ReportBuilder({
             brandId={brandId} onBrand={handleBrandChange}
             month={month} setMonth={setMonth} year={year} setYear={setYear}
             title={title} setTitle={setTitle} subtitle={subtitle} setSubtitle={setSubtitle}
+            font={font} setFont={setFont}
             onContinue={() => setStep('cover')}
           />
         )}
@@ -306,7 +360,7 @@ export default function ReportBuilder({
                     <CoverPreview
                       brandName={brand.name}
                       title={title} subtitle={subtitle} period={period}
-                      logoDataUrl={logoDataUrl} colors={colors} mode={mode} template={template}
+                      logoDataUrl={logoDataUrl} colors={colors} mode={mode} template={template} font={font}
                     />
                   </div>
 
@@ -342,6 +396,7 @@ export default function ReportBuilder({
             onRename={(id, t) => updateSlide({ ...slides.find(s => s.id === id)!, title: t })}
             onDelete={deleteSlide}
             onExport={handleExport}
+            onSaveTemplate={handleSaveTemplate}
             cover={
               <CoverPreview
                 brandName={brand.name}

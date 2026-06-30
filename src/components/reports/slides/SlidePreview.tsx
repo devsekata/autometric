@@ -2,6 +2,7 @@
 
 import { CoverColors, tint } from '@/lib/reports/cover/colors'
 import { ContentSlide, SlideChrome, ConfigBlock } from '@/lib/reports/data/slideModel'
+import { fontStack } from '@/lib/reports/data/fonts'
 import { PJ, Card, Title, ChannelBadge, Footer } from './parts'
 import SectionSlide from './SectionSlide'
 import DashboardSlide from './DashboardSlide'
@@ -32,17 +33,18 @@ export default function SlidePreview({
   const setField = (k: keyof ContentSlide, v: string) => onChange?.({ ...slide, [k]: v })
   const pageBg = tint(colors.primary, 0.965)
   const frame = flat ? 'relative w-full bg-white overflow-hidden' : 'relative w-full bg-white rounded-xl overflow-hidden ring-1 ring-black/5'
+  const rootStyle = { aspectRatio: '16 / 9', containerType: 'size', ['--report-font']: fontStack(chrome.font) } as React.CSSProperties
 
   if (slide.type === 'section') {
     return (
-      <div className={frame} style={{ aspectRatio: '16 / 9', containerType: 'size' }}>
+      <div className={frame} style={rootStyle}>
         <SectionSlide slide={slide} colors={colors} chrome={chrome} editable={editable} onChange={onChange} />
       </div>
     )
   }
 
   return (
-    <div className={frame} style={{ aspectRatio: '16 / 9', containerType: 'size' }}>
+    <div className={frame} style={rootStyle}>
       <div className="absolute inset-0 flex flex-col" style={{ padding: '4cqh 4cqw', gap: '2cqh', background: pageBg, fontFamily: PJ.fontFamily }}>
         {/* Decorative elements (report_2-style) */}
         <div className="absolute rounded-full pointer-events-none" style={{ top: '-10cqh', right: '-6cqw', width: '26cqw', height: '26cqw', background: `radial-gradient(circle, ${tint(colors.primary, 0.7)} 0%, transparent 70%)`, opacity: 0.5 }} />

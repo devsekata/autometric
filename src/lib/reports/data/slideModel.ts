@@ -42,6 +42,7 @@ export interface SlideChrome {
   totalPages: number
   template: CoverTemplate  // selected cover template (used by Section Heading)
   mode: CoverMode
+  font: string             // report font name (e.g. 'Calibri')
 }
 
 const SLIDE_DEFAULTS: Record<SlideType, Partial<ContentSlide>> = {
@@ -53,7 +54,7 @@ const SLIDE_DEFAULTS: Record<SlideType, Partial<ContentSlide>> = {
   overview: { title: 'Overview Slide' },
 }
 
-export function makeSlide(type: SlideType, seq: number): ContentSlide {
+export function makeSlide(type: SlideType, seq: number, channel = 'instagram'): ContentSlide {
   const d = SLIDE_DEFAULTS[type]
   return {
     id: `s${seq}-${Date.now()}`,
@@ -61,7 +62,7 @@ export function makeSlide(type: SlideType, seq: number): ContentSlide {
     title: d.title ?? '',
     body: d.body ?? '',
     insights: '',
-    channel: 'instagram',
+    channel,
     chart: null,
     table: null,
     chartA: null,

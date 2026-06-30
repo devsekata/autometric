@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { BRANDS } from '@/components/dashboard/data'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { COVER_TEMPLATES, getTemplate } from '@/lib/reports/cover/templates'
-import { REPORT_HISTORY, ReportRecord, relativeDate } from '@/lib/reports/data/history'
+import { ReportRecord, relativeDate } from '@/lib/reports/data/history'
 import ReportBuilder from './builder/ReportBuilder'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
@@ -18,7 +19,14 @@ const DAY = 86_400_000
  * Reports landing page: stats, template quick-starts, and a grid of previously
  * exported reports. "Create report" (or any template card) launches the builder.
  */
-export default function ReportsView({ orgName }: { orgName: string }) {
+export default function ReportsView({
+  orgName, orgId, history,
+}: {
+  orgName: string
+  orgId: string
+  history: ReportRecord[]
+}) {
+  const router = useRouter()
   const [view, setView] = useState<'index' | 'builder'>('index')
   const [launchTemplate, setLaunchTemplate] = useState<string | undefined>(undefined)
 
@@ -31,39 +39,48 @@ export default function ReportsView({ orgName }: { orgName: string }) {
     return (
       <ReportBuilder
         orgName={orgName}
+        orgId={orgId}
         initialTemplateId={launchTemplate}
-        onExit={() => setView('index')}
+        onExit={() => { setView('index'); router.refresh() }}
       />
     )
   }
 
-  return <ReportsIndex orgName={orgName} onCreate={openBuilder} />
+  return <ReportsIndex orgName={orgName} orgId={orgId} history={history} onCreate={openBuilder} />
 }
 
 /* ── Index ──────────────────────────────────────────────────────────────── */
 
-function ReportsIndex({ orgName, onCreate }: { orgName: string; onCreate: (templateId?: string) => void }) {
+function ReportsIndex({
+  orgName, orgId, history, onCreate,
+}: {
+  orgName: string
+  orgId: string
+  history: ReportRecord[]
+  onCreate: (templateId?: string) => void
+}) {
   const [search, setSearch] = useState('')
   const [brandFilter, setBrandFilter] = useState('all')
 
-  const total = REPORT_HISTORY.length
+  const total = history.length
   const thisMonth = useMemo(
-    () => REPORT_HISTORY.filter(r => Date.now() - r.exportedAt < 30 * DAY).length,
-    [],
+    () => history.filter(r => Date.now() - r.exportedAt < 30 * DAY).length,
+    [history],
   )
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return REPORT_HISTORY.filter(r => {
+    return history.filter(r => {
       const brand = BRANDS.find(b => b.id === r.brandId)
       const matchesBrand = brandFilter === 'all' || r.brandId === brandFilter
       const matchesSearch =
         !q ||
+        r.name.toLowerCase().includes(q) ||
         r.title.toLowerCase().includes(q) ||
         (brand?.name.toLowerCase().includes(q) ?? false)
       return matchesBrand && matchesSearch
     })
-  }, [search, brandFilter])
+  }, [search, brandFilter, history])
 
   return (
     <div className="flex flex-col min-h-full bg-white">
@@ -167,7 +184,7 @@ function ReportsIndex({ orgName, onCreate }: { orgName: string; onCreate: (templ
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-4 mt-4">
-                {filtered.map(r => <ReportCard key={r.id} record={r} />)}
+                {filtered.map(r => <ReportCard key={r.id} record={r} orgId={orgId} />)}
               </div>
             )}
           </section>
@@ -195,7 +212,7 @@ function ReportsIndex({ orgName, onCreate }: { orgName: string; onCreate: (templ
               <div className="flex items-center justify-between">
                 <span className="text-[12.5px] text-[#94a3b8]">Last export</span>
                 <span style={PJ} className="text-[13px] font-semibold text-[#334155]">
-                  {total ? relativeDate(REPORT_HISTORY[0].exportedAt) : '—'}
+                  {total ? relativeDate(history[0].exportedAt) : '—'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -244,18 +261,39 @@ function InfoRow({ title, body }: { title: string; body: string }) {
   )
 }
 
-function ReportCard({ record }: { record: ReportRecord }) {
+function ReportCard({ record, orgId }: { record: ReportRecord; orgId: string }) {
+  const router = useRouter()
+  const [deleting, setDeleting] = useState(false)
   const brand = BRANDS.find(b => b.id === record.brandId) ?? BRANDS[0]
   const template = getTemplate(record.templateId)
-  const bg = template.background(record.colors, record.mode)
+  const bgImage = record.coverImageUrl
+    ? `url("${record.coverImageUrl}")`
+    : `url("data:image/svg+xml;utf8,${encodeURIComponent(template.background(record.colors, record.mode))}")`
+  const downloadUrl = `/api/organizations/${encodeURIComponent(orgId)}/reports/exports/${record.id}/download`
+
+  async function handleDelete() {
+    if (!confirm(`Delete "${record.title}"? This removes the saved file too.`)) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/organizations/${encodeURIComponent(orgId)}/reports/exports/${record.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`)
+      router.refresh()
+    } catch (e) {
+      console.error(e)
+      alert('Could not delete this report.')
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="group rounded-2xl overflow-hidden border border-[#e5e7eb] bg-white hover:shadow-[0_6px_22px_rgba(15,23,42,0.10)] hover:border-[#d8dde3] transition-all">
-      <div
-        className="aspect-video relative"
+      <a
+        href={downloadUrl}
+        className="block aspect-video relative"
         style={{
-          backgroundImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(bg)}")`,
+          backgroundImage: bgImage,
           backgroundSize: 'cover',
+          backgroundPosition: 'center',
         }}
       >
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -267,9 +305,18 @@ function ReportCard({ record }: { record: ReportRecord }) {
         <span className="absolute top-2.5 right-2.5 text-[10px] font-bold uppercase tracking-wide bg-white/90 text-[#64748b] px-2 py-0.5 rounded-md" style={PJ}>
           {template.name}
         </span>
-      </div>
+        <button
+          onClick={e => { e.preventDefault(); handleDelete() }}
+          disabled={deleting}
+          title="Delete report"
+          className="absolute top-2.5 left-2.5 w-7 h-7 flex items-center justify-center rounded-md bg-white/90 text-[#94a3b8] hover:text-[#dc2626] hover:bg-white opacity-0 group-hover:opacity-100 transition disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-[16px]">{deleting ? 'hourglass_empty' : 'delete'}</span>
+        </button>
+      </a>
       <div className="px-4 py-3.5">
-        <p style={PJ} className="text-[13.5px] font-bold text-[#0f172a] leading-snug line-clamp-1">{record.title}</p>
+        <p style={PJ} className="text-[13.5px] font-bold text-[#0f172a] leading-snug line-clamp-1">{record.name}</p>
+        <p className="text-[11.5px] text-[#94a3b8] leading-snug line-clamp-1 mt-0.5">{record.title}</p>
         <div className="flex items-center gap-2 mt-2">
           <span className="w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
             style={{ background: brand.color, ...PJ }}>

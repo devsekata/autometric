@@ -1,5 +1,6 @@
 // Dummy post data for the Visual Analysis slide (mirrors report_2's LayoutContent).
 // Deterministic so preview == export.
+import { groupInt } from './format'
 
 export const POST_METRICS: { id: string; label: string }[] = [
   { id: 'reach', label: 'Reach' },
@@ -21,9 +22,17 @@ export const POST_FILTERS: { id: string; label: string }[] = [
 
 export const POST_COUNTS = [4, 6, 8]
 
+// Dummy post images (cycled per post).
+export const POST_IMAGES = [
+  'https://naturalfoodimports.com/?q=1482669011330',
+  'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRHOyweUERP_PkAHflHnp-jMxGTx_D-DD638A&s',
+  'https://www.format.com/wp-content/uploads/portrait_of_black_man.jpg',
+]
+
 export interface PostRow {
   id: number
   tag?: 'TOP' | 'LOW'
+  image: string
   metrics: Record<string, string>
 }
 
@@ -32,8 +41,6 @@ function hash01(s: string): number {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
   return ((h >>> 0) % 10000) / 10000
 }
-
-const fmtK = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n))
 
 function makePost(i: number): { id: number; engagement: number; raw: Record<string, number | string> } {
   const reach = Math.floor(hash01(`r${i}`) * 50000) + 1000
@@ -63,9 +70,9 @@ export function buildPosts(count: number, filter: string): PostRow[] {
     const metrics: Record<string, string> = {}
     POST_METRICS.forEach(m => {
       const v = p.raw[m.id]
-      metrics[m.id] = typeof v === 'string' ? v : fmtK(v)
+      metrics[m.id] = typeof v === 'string' ? v : groupInt(v)
     })
-    return { id: p.id + 204, tag: p.tag, metrics }
+    return { id: p.id + 204, tag: p.tag, image: POST_IMAGES[p.id % POST_IMAGES.length], metrics }
   })
 }
 

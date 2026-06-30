@@ -3,8 +3,9 @@
 import { useMemo } from 'react'
 import { CoverColors, CoverMode } from '@/lib/reports/cover/colors'
 import { CoverTemplate, TextBox } from '@/lib/reports/cover/templates'
+import { fontStack } from '@/lib/reports/data/fonts'
 
-const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+const PJ = { fontFamily: 'var(--report-font, "Plus Jakarta Sans", sans-serif)' } as const
 
 export interface CoverPreviewProps {
   brandName: string
@@ -15,6 +16,7 @@ export interface CoverPreviewProps {
   colors: CoverColors
   mode: CoverMode
   template: CoverTemplate
+  font?: string
 }
 
 /**
@@ -24,7 +26,7 @@ export interface CoverPreviewProps {
  * the cover scales cleanly with its container.
  */
 export default function CoverPreview(props: CoverPreviewProps) {
-  const { brandName, title, subtitle, period, logoDataUrl, colors, mode, template } = props
+  const { brandName, title, subtitle, period, logoDataUrl, colors, mode, template, font } = props
 
   const bgUrl = useMemo(() => {
     const svg = template.background(colors, mode)
@@ -57,7 +59,8 @@ export default function CoverPreview(props: CoverPreviewProps) {
         backgroundImage: bgUrl,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
-      }}
+        ['--report-font']: fontStack(font ?? 'Calibri'),
+      } as React.CSSProperties}
     >
       {/* Logo or initials fallback */}
       {logoDataUrl ? (

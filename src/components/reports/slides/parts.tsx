@@ -5,7 +5,8 @@ import { CoverColors } from '@/lib/reports/cover/colors'
 import { SlideChrome } from '@/lib/reports/data/slideModel'
 import { PLATFORM_META } from '@/components/dashboard/data'
 
-export const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+// Resolves to the report's selected font (set as --report-font on the slide root).
+export const PJ = { fontFamily: 'var(--report-font, "Plus Jakarta Sans", sans-serif)' } as const
 
 export function Placeholder({ icon, label, editable, onClick }: { icon?: string; label: string; editable: boolean; onClick?: () => void }) {
   return (
@@ -70,12 +71,8 @@ export function Title({ value, editable, onChange }: { value: string; editable: 
 export function ChannelBadge({ channel }: { channel: string }) {
   const meta = PLATFORM_META[channel as keyof typeof PLATFORM_META]
   if (!meta) return null
-  return (
-    <div className="flex items-center" style={{ gap: '0.7cqw', background: '#f1f5f9', borderRadius: '999px', padding: '0.7cqh 1.3cqw' }}>
-      <img src={meta.logo} alt={meta.label} style={{ width: '1.6cqw', height: '1.6cqw', objectFit: 'contain' }} />
-      <span style={{ fontSize: '1.2cqw', fontWeight: 700, color: '#475569', ...PJ }}>{meta.label}</span>
-    </div>
-  )
+  // Logo only — no background, no label.
+  return <img src={meta.logo} alt={meta.label} style={{ width: '4cqw', height: '4cqw', objectFit: 'contain' }} />
 }
 
 export function InsightsBlock({ value, editable, onChange, label = 'Key insights' }: { value: string; editable: boolean; onChange?: (v: string) => void; label?: string }) {
@@ -107,46 +104,34 @@ export function InsightsBlock({ value, editable, onChange, label = 'Key insights
 }
 
 export function Footer({ chrome, colors }: { chrome: SlideChrome; colors: CoverColors }) {
-  const tint8 = `${colors.primary}14` // ~8% alpha
   return (
-    <div style={{ position: 'relative', paddingTop: '1.5cqh' }}>
-      {/* Gradient accent line at top */}
-      <div className="absolute top-0 left-0 right-0 rounded-full" style={{ height: '0.35cqh', background: `linear-gradient(90deg, ${colors.primary} 0%, ${colors.primary}55 50%, ${colors.primary} 100%)` }} />
+    <div className="flex items-center" style={{ paddingTop: '1.2cqh' }}>
+      {/* Left — logo · period (no box) */}
+      <div className="flex items-center flex-1" style={{ gap: '1.2cqw' }}>
+        {chrome.logoDataUrl ? (
+          <img src={chrome.logoDataUrl} alt="logo" style={{ height: '4.6cqh', maxWidth: '14cqw', objectFit: 'contain' }} />
+        ) : (
+          <span style={{ fontSize: '1.9cqw', fontWeight: 800, color: colors.primary, ...PJ }}>{chrome.brandName.slice(0, 2).toUpperCase()}</span>
+        )}
+        <span className="rounded-full" style={{ width: '0.9cqw', height: '0.9cqw', background: colors.primary }} />
+        <span style={{ fontSize: '1.5cqw', fontWeight: 600, color: '#475569', ...PJ }}>{chrome.period}</span>
+      </div>
 
-      <div className="flex items-center" style={{ paddingTop: '1.4cqh' }}>
-        {/* Left — logo box · period */}
-        <div className="flex items-center flex-1" style={{ gap: '1.2cqw' }}>
-          {chrome.logoDataUrl ? (
-            <span className="flex items-center justify-center" style={{ padding: '0.6cqh 0.7cqw', borderRadius: '0.8cqw', background: tint8 }}>
-              <img src={chrome.logoDataUrl} alt="logo" style={{ height: '2.6cqh', maxWidth: '10cqw', objectFit: 'contain' }} />
-            </span>
-          ) : (
-            <span className="flex items-center justify-center" style={{ width: '3.4cqh', height: '3.4cqh', borderRadius: '0.7cqw', background: colors.primary, color: '#fff', fontSize: '1.35cqw', fontWeight: 800, ...PJ }}>
-              {chrome.brandName.slice(0, 2).toUpperCase()}
-            </span>
-          )}
-          <span className="rounded-full" style={{ width: '0.8cqw', height: '0.8cqw', background: colors.primary }} />
-          <span style={{ fontSize: '1.25cqw', fontWeight: 600, color: '#475569', ...PJ }}>{chrome.period}</span>
-        </div>
+      {/* Center — prepared by */}
+      <div className="flex-1 flex flex-col items-center" style={{ gap: '0.2cqh' }}>
+        {chrome.preparedBy && (
+          <>
+            <span style={{ fontSize: '1.05cqw', color: '#94a3b8', ...PJ }}>Prepared by</span>
+            <span style={{ fontSize: '1.3cqw', fontWeight: 700, color: '#475569', ...PJ }}>{chrome.preparedBy}</span>
+          </>
+        )}
+      </div>
 
-        {/* Center — prepared by */}
-        <div className="flex-1 flex flex-col items-center" style={{ gap: '0.2cqh' }}>
-          {chrome.preparedBy && (
-            <>
-              <span style={{ fontSize: '0.9cqw', color: '#94a3b8', ...PJ }}>Prepared by</span>
-              <span style={{ fontSize: '1.1cqw', fontWeight: 700, color: '#475569', ...PJ }}>{chrome.preparedBy}</span>
-            </>
-          )}
-        </div>
-
-        {/* Right — page pill */}
-        <div className="flex-1 flex justify-end">
-          <div className="flex items-center" style={{ gap: '0.5cqw', padding: '0.4cqh 1.2cqw', borderRadius: '999px', background: tint8, ...PJ }}>
-            <span style={{ fontSize: '1.2cqw', fontWeight: 700, color: colors.primary }}>{chrome.pageNumber}</span>
-            <span style={{ fontSize: '1.2cqw', color: '#cbd5e1' }}>/</span>
-            <span style={{ fontSize: '1.2cqw', color: '#94a3b8' }}>{chrome.totalPages}</span>
-          </div>
-        </div>
+      {/* Right — page (no pill) */}
+      <div className="flex-1 flex items-center justify-end" style={{ gap: '0.5cqw', ...PJ }}>
+        <span style={{ fontSize: '1.55cqw', fontWeight: 800, color: colors.primary }}>{chrome.pageNumber}</span>
+        <span style={{ fontSize: '1.55cqw', color: '#cbd5e1' }}>/</span>
+        <span style={{ fontSize: '1.55cqw', color: '#94a3b8' }}>{chrome.totalPages}</span>
       </div>
     </div>
   )

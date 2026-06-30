@@ -2,6 +2,7 @@
 // row/value logic in SmartTableBlock, so the table metrics match the example
 // exactly. Values are DETERMINISTIC (seeded) instead of Math.random so the
 // preview is stable and matches export.
+import { groupInt } from './format'
 
 export type TableFormat = 'compact' | 'number' | 'percent' | 'time'
 export type TableRowType = 'comparison' | 'channels' | 'types' | 'competitors' | 'sentiments' | 'generic'
@@ -155,9 +156,8 @@ function hash01(s: string): number {
 
 function fmt(format: TableFormat, val: number): string {
   if (format === 'percent') return val + '%'
-  if (format === 'compact') return Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(val)
   if (format === 'time') return val + 's'
-  return val.toLocaleString()
+  return groupInt(val) // compact & number → full numbers with dot separators
 }
 
 export interface TableCell { text: string; gap?: boolean; positive?: boolean }

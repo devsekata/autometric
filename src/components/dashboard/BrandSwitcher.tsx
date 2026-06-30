@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BRANDS, fmtNum, PLATFORM_META, type DashBrand } from './data'
+import { fmtNum, PLATFORM_META, type DashBrand } from './data'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
-export default function BrandSwitcher({ value, onChange, children }: {
+export default function BrandSwitcher({ value, brands, onChange, children }: {
   value: DashBrand
+  brands: DashBrand[]
   onChange: (b: DashBrand) => void
   children: React.ReactNode
 }) {
@@ -33,7 +34,7 @@ export default function BrandSwitcher({ value, onChange, children }: {
           <div className="px-3 pt-1.5 pb-2">
             <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#9ca3af]">Switch brand</span>
           </div>
-          {BRANDS.map(b => {
+          {brands.map(b => {
             const active = b.id === value.id
             return (
               <button key={b.id}

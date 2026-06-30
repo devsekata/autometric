@@ -4,7 +4,7 @@
 // native charts (addChart) / native tables (addTable) — no rasterized images,
 // so everything stays editable in PowerPoint.
 import { CoverColors, noHash, tint } from '../cover/colors'
-import { CoverConfig, SLIDE_IN, addCoverSlide, svgToPng } from './exportCover'
+import { CoverConfig, SLIDE_IN, addCoverSlide, addContainImage, svgToPng } from './exportCover'
 import { ChartConfig, buildBarData, buildLineData, chartSummary, SENTIMENT_PALETTES, cloudWordsFor } from '../data/chartData'
 import { TableConfig, TABLE_TYPES, buildTable } from '../data/tableTypes'
 import { KpiMetric, deltaIsGood, getKpiMetric } from '../data/kpiMetrics'
@@ -16,7 +16,7 @@ import type { ContentSlide, SlideChrome } from '../data/slideModel'
 type Slide = any
 
 const S = SLIDE_IN
-const PJ = 'Plus Jakarta Sans'
+let PJ = 'Calibri'          // report font (set per export); MONO stays for table numbers
 const MONO = 'Consolas'
 
 // cq → inches / points (slide is 13.333in × 7.5in = 960pt × 540pt)
@@ -28,6 +28,7 @@ async function toDataUrl(url: string): Promise<string | null> {
   try {
     const res = await fetch(url)
     const blob = await res.blob()
+    if (!blob.type.startsWith('image/')) return null // not an image (e.g. an HTML page) → caller falls back
     return await new Promise(resolve => {
       const fr = new FileReader()
       fr.onload = () => resolve(fr.result as string)
@@ -177,13 +178,11 @@ function tableCard(slide: Slide, config: TableConfig | null, colors: CoverColors
 async function channelBadge(slide: Slide, channel: string, headerRight: number, headerY: number) {
   const meta = PLATFORM_META[channel as keyof typeof PLATFORM_META]
   if (!meta) return
-  const bh = H(5.6), bw = W(15)
-  const by = headerY + (H(12) - bh) / 2
-  const bx = headerRight - bw
-  slide.addShape('roundRect', { x: bx, y: by, w: bw, h: bh, rectRadius: bh / 2, fill: { color: 'F1F5F9' }, line: { width: 0 } })
   const logo = await toDataUrl(meta.logo)
-  if (logo) slide.addImage({ data: logo, x: bx + W(1.3), y: by + bh * 0.24, w: bh * 0.52, h: bh * 0.52 })
-  slide.addText(meta.label, { x: bx + W(3.6), y: by, w: bw - W(3.8), h: bh, valign: 'middle', fontSize: FS(1.2), bold: true, color: '475569', fontFace: PJ })
+  if (!logo) return
+  // Logo only — no background, no label.
+  const size = H(7)
+  await addContainImage(slide, logo, headerRight - size, headerY + (H(12) - size) / 2, size, size, 'right')
 }
 
 function dashboardHeader(slide: Slide, title: string, colors: CoverColors) {
@@ -195,45 +194,38 @@ function dashboardHeader(slide: Slide, title: string, colors: CoverColors) {
 }
 
 async function footer(slide: Slide, chrome: SlideChrome, colors: CoverColors, x: number, y: number, w: number) {
-  slide.addShape('rect', { x, y, w, h: H(0.35), fill: { color: noHash(colors.primary) } })
-  const fy = y + H(1.6), fh = H(5)
-  // Left — logo box · period
+  const fy = y + H(0.8), fh = H(6)
+  // Left — logo (no box) · period
   let lx = x
   if (chrome.logoDataUrl) {
-    const bw = W(5)
-    slide.addShape('roundRect', { x: lx, y: fy, w: bw, h: fh, rectRadius: 0.05, fill: { color: noHash(colors.primary), transparency: 92 }, line: { width: 0 } })
-    slide.addImage({ data: chrome.logoDataUrl, x: lx + W(0.6), y: fy + fh * 0.18, w: bw - W(1.2), h: fh * 0.64, sizing: { type: 'contain', w: bw - W(1.2), h: fh * 0.64 } })
-    lx += bw + W(1.2)
+    const lw = await addContainImage(slide, chrome.logoDataUrl, lx, fy, W(14), fh, 'left')
+    lx += lw + W(1.4)
   } else {
-    slide.addShape('roundRect', { x: lx, y: fy, w: fh, h: fh, rectRadius: 0.05, fill: { color: noHash(colors.primary) }, line: { width: 0 } })
-    slide.addText(chrome.brandName.slice(0, 2).toUpperCase(), { x: lx, y: fy, w: fh, h: fh, align: 'center', valign: 'middle', fontSize: FS(1.35), bold: true, color: 'FFFFFF', fontFace: PJ })
-    lx += fh + W(1.2)
+    slide.addText(chrome.brandName.slice(0, 2).toUpperCase(), { x: lx, y: fy, w: W(6), h: fh, valign: 'middle', fontSize: FS(1.9), bold: true, color: noHash(colors.primary), fontFace: PJ })
+    lx += W(6)
   }
-  slide.addShape('ellipse', { x: lx, y: fy + fh / 2 - W(0.4), w: W(0.8), h: W(0.8), fill: { color: noHash(colors.primary) }, line: { width: 0 } })
-  slide.addText(chrome.period, { x: lx + W(1.4), y: fy, w: W(28), h: fh, valign: 'middle', fontSize: FS(1.25), color: '475569', fontFace: PJ })
+  slide.addShape('ellipse', { x: lx, y: fy + fh / 2 - W(0.45), w: W(0.9), h: W(0.9), fill: { color: noHash(colors.primary) }, line: { width: 0 } })
+  slide.addText(chrome.period, { x: lx + W(1.6), y: fy, w: W(30), h: fh, valign: 'middle', fontSize: FS(1.5), color: '475569', fontFace: PJ })
 
   // Center — prepared by
   if (chrome.preparedBy) {
     slide.addText(
       [
-        { text: 'Prepared by\n', options: { fontSize: FS(0.9), color: '94A3B8' } },
-        { text: chrome.preparedBy, options: { fontSize: FS(1.1), bold: true, color: '475569' } },
+        { text: 'Prepared by\n', options: { fontSize: FS(1.05), color: '94A3B8' } },
+        { text: chrome.preparedBy, options: { fontSize: FS(1.3), bold: true, color: '475569' } },
       ],
       { x: x + w / 2 - W(20), y: fy, w: W(40), h: fh, align: 'center', valign: 'middle', fontFace: PJ, lineSpacingMultiple: 1.05 },
     )
   }
 
-  // Right — page pill
-  const pw = W(9), ph = H(3.6)
-  const px = x + w - pw, py = fy + (fh - ph) / 2
-  slide.addShape('roundRect', { x: px, y: py, w: pw, h: ph, rectRadius: ph / 2, fill: { color: noHash(colors.primary), transparency: 92 }, line: { width: 0 } })
+  // Right — page (no pill)
   slide.addText(
     [
       { text: String(chrome.pageNumber), options: { color: noHash(colors.primary), bold: true } },
       { text: '  /  ', options: { color: 'CBD5E1' } },
       { text: String(chrome.totalPages), options: { color: '94A3B8' } },
     ],
-    { x: px, y: py, w: pw, h: ph, align: 'center', valign: 'middle', fontSize: FS(1.2), fontFace: PJ },
+    { x: x + w - W(16), y: fy, w: W(16), h: fh, align: 'right', valign: 'middle', fontSize: FS(1.5), fontFace: PJ },
   )
 }
 
@@ -333,10 +325,12 @@ function hslToHex(h: number, sat: number, lig: number): string {
   return to(r) + to(g) + to(b)
 }
 
-function postCard(slide: Slide, post: { id: number; tag?: string; metrics: Record<string, string> }, postMetrics: string[], n: number, x: number, y: number, w: number, h: number) {
+async function postCard(slide: Slide, post: { id: number; tag?: string; image?: string; metrics: Record<string, string> }, postMetrics: string[], n: number, x: number, y: number, w: number, h: number) {
   card(slide, x, y, w, h)
   const imgH = h * 0.55
   slide.addShape('rect', { x, y, w, h: imgH, fill: { color: hslToHex((post.id * 47) % 360, 0.42, 0.85) }, line: { width: 0 } })
+  const imgData = post.image ? await toDataUrl(post.image) : null
+  if (imgData) await addContainImage(slide, imgData, x, y, w, imgH, 'center')
   if (post.tag) slide.addText(post.tag, { x: x + W(0.4), y: y + H(0.6), w: W(5), h: H(2.2), fontSize: FS(0.8), bold: true, color: 'FFFFFF', fill: { color: post.tag === 'TOP' ? '16A34A' : 'E11D48' }, align: 'center', valign: 'middle', fontFace: PJ })
   const pad = W(0.6)
   const fs = n === 4 ? FS(1.05) : n === 6 ? FS(0.9) : FS(0.78)
@@ -358,7 +352,7 @@ async function addVisualSlide(pptx: any, slide: ContentSlide, chrome: SlideChrom
   const gap = n === 4 ? W(1.2) : n === 6 ? W(0.9) : W(0.7)
   const cw = (hw - gap * (n - 1)) / n
   const gy = H(18), gh = H(49)
-  posts.forEach((p, i) => postCard(s, p, slide.postMetrics, n, hx + i * (cw + gap), gy, cw, gh))
+  for (let i = 0; i < posts.length; i++) await postCard(s, posts[i], slide.postMetrics, n, hx + i * (cw + gap), gy, cw, gh)
 
   insightsCard(s, slide.insights, hx, H(69), hw, H(18), 'VISUAL STRATEGY NOTES & INSIGHTS')
   await footer(s, chrome, colors, hx, H(89), hw)
@@ -386,9 +380,11 @@ export interface ReportExportOptions {
   chromes: SlideChrome[]
   colors: CoverColors
   brandName: string
+  font: string
 }
 
-export async function exportReportPptx({ cover, slides, chromes, colors, brandName }: ReportExportOptions): Promise<void> {
+export async function exportReportPptx({ cover, slides, chromes, colors, brandName, font }: ReportExportOptions): Promise<{ blob: Blob; fileName: string }> {
+  PJ = font
   const { default: PptxGenJS } = await import('pptxgenjs')
   const pptx = new PptxGenJS()
   pptx.defineLayout({ name: 'AUTOMETRIC_16x9', width: S.w, height: S.h })
@@ -408,5 +404,7 @@ export async function exportReportPptx({ cover, slides, chromes, colors, brandNa
   }
 
   const safe = (brandName || 'report').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-  await pptx.writeFile({ fileName: `${safe}-report.pptx` })
+  const fileName = `${safe}-report.pptx`
+  const blob = (await pptx.write({ outputType: 'blob' })) as Blob
+  return { blob, fileName }
 }
