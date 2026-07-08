@@ -23,6 +23,7 @@ import ChartSelectionModal from '../modals/ChartSelectionModal'
 import TableSelectionModal from '../modals/TableSelectionModal'
 import MetricPickerModal from '../modals/MetricPickerModal'
 import SaveTemplateModal from '../modals/SaveTemplateModal'
+import { useToast, ToastHost } from '../Toast'
 import Stepper, { Step } from './Stepper'
 import SetupStep from './SetupStep'
 import SlidesReview from './SlidesReview'
@@ -249,6 +250,8 @@ export default function ReportBuilder({
     reader.readAsDataURL(file)
   }
 
+  const { toast, showToast, clearToast } = useToast()
+
   async function handleExport(exportMode: 'export' | 'export-save' = 'export') {
     setIsExporting(true)
     try {
@@ -271,14 +274,14 @@ export default function ReportBuilder({
         })
         if (result.ok) {
           router.refresh()
-          alert('Saved to your organization’s reports library.')
+          showToast('success', 'Report berhasil disimpan ke reports library organisasi.')
         } else {
-          alert(`Downloaded the file, but saving to the library failed:\n${result.error ?? 'Unknown error'}`)
+          showToast('error', `File terunduh, tapi gagal menyimpan ke library:\n${result.error ?? 'Unknown error'}`)
         }
       }
     } catch (err) {
       console.error(err)
-      alert('Export failed. Check the console for details.')
+      showToast('error', 'Export gagal. Cek console untuk detail.')
     } finally {
       setIsExporting(false)
     }
@@ -316,6 +319,7 @@ export default function ReportBuilder({
     <ReportKpiContext.Provider value={kpiMetrics}>
     <ReportPostContext.Provider value={postMetrics}>
     <div className="min-h-screen bg-[#f7f8f9]">
+      <ToastHost toast={toast} onClose={clearToast} />
       {/* Off-screen full-size cover — rasterized to a PNG for the history preview */}
       <div aria-hidden style={{ position: 'fixed', left: -10000, top: 0, width: 1200, pointerEvents: 'none', zIndex: -1 }}>
         <div ref={coverCaptureRef}>
