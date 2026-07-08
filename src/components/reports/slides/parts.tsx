@@ -150,7 +150,11 @@ function gatherSlideData(
   const ch = slide.channel
   const out: Record<string, unknown> = { channel: ch }
 
-  if (slide.table) {
+  // Overview shows EITHER a chart or a table (visualMode) — read only what's shown.
+  const overviewMode = slide.type === 'overview' ? slide.visualMode : null
+
+  // TABLE — dashboard always; overview only when it's showing the table.
+  if (slide.table && (slide.type !== 'overview' || overviewMode === 'table')) {
     const built = buildTable(slide.table, sectionMetricsFor(ctx.table, slide.table.type, ch), null)
     out.table = {
       name: TABLE_TYPES[slide.table.type]?.label ?? 'Table',
@@ -161,10 +165,11 @@ function gatherSlideData(
       }),
     }
   }
+  // CHART — comparison = both sides; overview only when showing the chart; others = main chart.
   if (slide.type === 'comparison') {
     const a = chartToData(slide.chartA, ctx.chart, ch); if (a) out.chartLeft = a
     const b = chartToData(slide.chartB, ctx.chart, ch); if (b) out.chartRight = b
-  } else {
+  } else if (slide.type !== 'overview' || overviewMode === 'chart') {
     const c = chartToData(slide.chart, ctx.chart, ch); if (c) out.chart = c
   }
   if (slide.type === 'kpi') {
