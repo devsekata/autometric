@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import BrandSwitcher from './BrandSwitcher'
+import BrandAvatar from './BrandAvatar'
 import {
   PLATFORM_META, PLATFORM_FILTERS, PERIODS, fmtNum,
   type PlatformFilter, type Period, type DashBrand,
@@ -100,10 +101,8 @@ export default function DashboardChrome({ title, subtitle, children }: {
             <div className="mb-6">
               <BrandSwitcher value={brand} brands={brands ?? []} onChange={setBrand}>
             <div className="group flex items-center gap-4 pr-3 py-1">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-[19px] font-bold flex-shrink-0"
-                style={{ background: brand.color, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                {brand.initials}
-              </div>
+              <BrandAvatar logo={brand.logo} initials={brand.initials} color={brand.color} name={brand.name}
+                className="w-14 h-14 rounded-2xl" textClass="text-[19px]" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h2 style={PJ} className="text-[24px] font-bold text-[#111827] tracking-[-0.03em] leading-none">{brand.name}</h2>
