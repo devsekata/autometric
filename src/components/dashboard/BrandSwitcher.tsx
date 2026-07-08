@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { fmtNum, PLATFORM_META, type DashBrand } from './data'
+import BrandAvatar from './BrandAvatar'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -42,8 +43,8 @@ export default function BrandSwitcher({ value, brands, onChange, children }: {
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
                   active ? 'bg-[#f0f7f5]' : 'hover:bg-[#fafbfb]'
                 }`}>
-                <span className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
-                  style={{ background: b.color }}>{b.initials}</span>
+                <BrandAvatar logo={b.logo} initials={b.initials} color={b.color} name={b.name}
+                  className="w-8 h-8 rounded-lg" textClass="text-[11px]" />
                 <div className="flex-1 min-w-0">
                   <span style={PJ} className={`block text-[13px] font-bold truncate ${active ? 'text-[#1e4f49]' : 'text-[#111827]'}`}>{b.name}</span>
                   <div className="flex items-center gap-1.5 mt-0.5">
