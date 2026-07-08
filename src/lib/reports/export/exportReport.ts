@@ -179,7 +179,7 @@ function insightsCard(slide: Slide, content: { text: string; ai: AiInsight | nul
   const pad = W(1.6)
   slide.addText(label, { x: x + pad, y: y + H(1.6), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '1E4F49', fontFace: PJ })
 
-  const bodyOpts = { x: x + pad, y: y + H(5), w: w - 2 * pad, h: h - H(6), align: 'left' as const, valign: 'top' as const, fontFace: PJ }
+  const bodyOpts = { x: x + pad, y: y + H(5), w: w - 2 * pad, h: h - H(6), align: 'left' as const, valign: 'top' as const, fit: 'shrink' as const, fontFace: PJ }
   if (hasAi) {
     const runs: Record<string, unknown>[] = []
     if (ai!.analysis) {
