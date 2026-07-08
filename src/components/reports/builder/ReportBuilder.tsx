@@ -12,7 +12,7 @@ import { ReportTableMetrics } from '@/lib/reports/data/tableTypes'
 import { ReportChartMetrics } from '@/lib/reports/data/chartTypes'
 import { ReportKpiMetrics } from '@/lib/reports/data/kpiMetrics'
 import { ReportPostMetrics } from '@/lib/reports/data/posts'
-import { ReportMetricsContext, ReportChartContext, ReportKpiContext, ReportPostContext } from '@/lib/reports/data/metricsContext'
+import { ReportMetricsContext, ReportChartContext, ReportKpiContext, ReportPostContext, ReportAIContext } from '@/lib/reports/data/metricsContext'
 import {
   ContentSlide, SlideType, SlideChrome, ConfigBlock, ChartConfig, TableConfig, makeSlide,
   type ReportTemplateConfig, type ReportTemplateRecord,
@@ -314,6 +314,7 @@ export default function ReportBuilder({
   }
 
   return (
+    <ReportAIContext.Provider value={{ orgId, brandName, period }}>
     <ReportMetricsContext.Provider value={tableMetrics}>
     <ReportChartContext.Provider value={chartMetrics}>
     <ReportKpiContext.Provider value={kpiMetrics}>
@@ -591,5 +592,6 @@ export default function ReportBuilder({
     </ReportKpiContext.Provider>
     </ReportChartContext.Provider>
     </ReportMetricsContext.Provider>
+    </ReportAIContext.Provider>
   )
 }

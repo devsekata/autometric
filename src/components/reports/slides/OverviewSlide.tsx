@@ -2,7 +2,7 @@
 
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide, ConfigBlock } from '@/lib/reports/data/slideModel'
-import { PJ, InsightsBlock } from './parts'
+import { PJ, AiInsightBlock } from './parts'
 import { ChartBlock } from './charts'
 import { TableBlock } from './TableBlock'
 
@@ -71,7 +71,7 @@ export default function OverviewSlide({
       </div>
 
       <div style={{ height: '20cqh', flexShrink: 0 }}>
-        <InsightsBlock value={slide.insights} editable={editable} onChange={v => onChange?.({ ...slide, insights: v })} label="Comparative analysis & notes" />
+        <AiInsightBlock slide={slide} editable={editable} onChange={onChange} label="Comparative analysis & notes" />
       </div>
     </>
   )
