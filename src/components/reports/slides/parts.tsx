@@ -1,10 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
-import { SlideChrome, ContentSlide, RecommendationType } from '@/lib/reports/data/slideModel'
-import { useReportKpi, useReportAI } from '@/lib/reports/data/metricsContext'
-import { kpiDefsForChannel, kpiMetricFor, type KpiMetric, type ReportKpiMetrics } from '@/lib/reports/data/kpiMetrics'
+import { SlideChrome, ContentSlide } from '@/lib/reports/data/slideModel'
+import { useReportKpi, useReportAI, useReportMetrics, useReportChart, useReportPosts, sectionMetricsFor } from '@/lib/reports/data/metricsContext'
+import { kpiDefsForChannel, kpiMetricFor, type KpiMetric } from '@/lib/reports/data/kpiMetrics'
+import { TABLE_TYPES, buildTable } from '@/lib/reports/data/tableTypes'
+import { resolveLineData, resolveBarData, type ChartConfig } from '@/lib/reports/data/chartData'
+import { buildPosts } from '@/lib/reports/data/posts'
 import { PLATFORM_META } from '@/components/dashboard/data'
 
 // Resolves to the report's selected font (set as --report-font on the slide root).
@@ -116,12 +119,7 @@ export function InsightsBlock({ value, editable, onChange, label = 'Key insights
 }
 
 // ── AI Key Insights (Gemini analyst) ─────────────────────────────────────────
-const REC_STYLE: Record<RecommendationType, { color: string; bg: string }> = {
-  SCALE:   { color: '#15803d', bg: '#f0fdf4' },
-  REFINE:  { color: '#b45309', bg: '#fffbeb' },
-  EXPLORE: { color: '#1d4ed8', bg: '#eff6ff' },
-  STOP:    { color: '#b91c1c', bg: '#fef2f2' },
-}
+const AI_COLORS = { primary: '#1e4f49', secondary: '#3d7e96', accent: '#e0a458' }
 
 /** Render **bold** markers as <strong>. */
 function renderBold(text: string): React.ReactNode {
@@ -132,19 +130,87 @@ function renderBold(text: string): React.ReactNode {
   )
 }
 
-/** Compact, real metric payload (channel KPIs with value + MoM change) for the AI. */
-function gatherSlideData(slide: ContentSlide, kpi: ReportKpiMetrics | null) {
-  const metrics = kpiDefsForChannel(slide.channel)
-    .map(d => kpiMetricFor(kpi, slide.channel, d.key))
-    .filter((m): m is KpiMetric => !!m && m.value !== '—' && m.value !== '')
-    .map(m => ({ metric: m.label, value: m.value, change: m.hasDelta === false ? 'n/a' : `${m.delta >= 0 ? '+' : ''}${m.delta}%` }))
-  return { channel: slide.channel, metrics }
+const kpiRow = (m: KpiMetric) => ({ metric: m.label, value: m.value, change: m.hasDelta === false ? 'n/a' : `${m.delta >= 0 ? '+' : ''}${m.delta}%` })
+
+function chartToData(cfg: ChartConfig | null, chart: ReturnType<typeof useReportChart>, channel: string) {
+  if (!cfg) return null
+  if (cfg.chartType === 'bar') {
+    const { labels, series } = resolveBarData(cfg, chart, channel, AI_COLORS)
+    return { type: 'bar', categories: labels, series: series.map(s => ({ metric: s.name, values: s.data })) }
+  }
+  const { labels, series } = resolveLineData(cfg, chart, channel, AI_COLORS)
+  return { type: 'line', axis: labels, series: series.map(s => ({ metric: s.name, values: s.data })) }
+}
+
+/** Build the AI payload from what THIS slide actually shows (its table/chart/kpi/posts). */
+function gatherSlideData(
+  slide: ContentSlide,
+  ctx: { kpi: ReturnType<typeof useReportKpi>; table: ReturnType<typeof useReportMetrics>; chart: ReturnType<typeof useReportChart>; posts: ReturnType<typeof useReportPosts> },
+) {
+  const ch = slide.channel
+  const out: Record<string, unknown> = { channel: ch }
+
+  // Overview shows EITHER a chart or a table (visualMode) — read only what's shown.
+  const overviewMode = slide.type === 'overview' ? slide.visualMode : null
+
+  // TABLE — dashboard always; overview only when it's showing the table.
+  if (slide.table && (slide.type !== 'overview' || overviewMode === 'table')) {
+    const built = buildTable(slide.table, sectionMetricsFor(ctx.table, slide.table.type, ch), null)
+    out.table = {
+      name: TABLE_TYPES[slide.table.type]?.label ?? 'Table',
+      rows: built.rows.map(r => {
+        const o: Record<string, string> = { row: r.label }
+        built.columns.forEach(c => { o[c.label] = r.cells[c.id]?.text ?? '—' })
+        return o
+      }),
+    }
+  }
+  // CHART — comparison = both sides; overview only when showing the chart; others = main chart.
+  if (slide.type === 'comparison') {
+    const a = chartToData(slide.chartA, ctx.chart, ch); if (a) out.chartLeft = a
+    const b = chartToData(slide.chartB, ctx.chart, ch); if (b) out.chartRight = b
+  } else if (slide.type !== 'overview' || overviewMode === 'chart') {
+    const c = chartToData(slide.chart, ctx.chart, ch); if (c) out.chart = c
+  }
+  if (slide.type === 'kpi') {
+    out.scorecards = slide.kpiMetrics.map(k => kpiMetricFor(ctx.kpi, ch, k)).filter((m): m is KpiMetric => !!m).map(kpiRow)
+  }
+  if (slide.type === 'visual') {
+    out.posts = buildPosts(slide.postCount, slide.postFilter, { source: ctx.posts?.[ch] ?? undefined, format: slide.postFormat, pillar: slide.postPillar, sortMetric: slide.postSortMetric })
+      .map(p => ({ rank: p.id, format: p.format, pillar: p.pillar, ...p.metrics }))
+  }
+  const has = out.table || out.chart || out.chartLeft || (out.scorecards as unknown[] | undefined)?.length || (out.posts as unknown[] | undefined)?.length
+  if (!has) {
+    out.metrics = kpiDefsForChannel(ch).map(d => kpiMetricFor(ctx.kpi, ch, d.key)).filter((m): m is KpiMetric => !!m && m.value !== '—').map(kpiRow)
+  }
+  return out
+}
+
+/** Renders the analysis paragraph, auto-shrinking its font to fit the fixed box (matches PPTX fit:'shrink'). */
+function AutoFitParagraph({ text, baseCqw, editable, onClick }: { text: string; baseCqw: number; editable: boolean; onClick?: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.fontSize = `${baseCqw}cqw`
+    const avail = el.clientHeight, need = el.scrollHeight
+    if (need > avail && avail > 0) el.style.fontSize = `calc(${baseCqw}cqw * ${Math.max(0.72, (avail / need) * 0.985)})`
+  })
+  return (
+    <div ref={ref} onClick={onClick}
+      style={{ height: '100%', overflow: 'hidden', fontSize: `${baseCqw}cqw`, color: '#475569', lineHeight: 1.45, cursor: editable ? 'text' : 'default', ...PJ }}>
+      {renderBold(text)}
+    </div>
+  )
 }
 
 export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insights' }: {
   slide: ContentSlide; editable: boolean; onChange?: (next: ContentSlide) => void; label?: string
 }) {
   const kpi = useReportKpi()
+  const table = useReportMetrics()
+  const chart = useReportChart()
+  const posts = useReportPosts()
   const ai = useReportAI()
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -155,7 +221,7 @@ export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insi
     if (!ai || loading) return
     setLoading(true); setErr(null)
     try {
-      const data = gatherSlideData(slide, kpi)
+      const data = gatherSlideData(slide, { kpi, table, chart, posts })
       const res = await fetch(`/api/organizations/${encodeURIComponent(ai.orgId)}/reports/ai-insight`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slideType: slide.type, channel: slide.channel, brandName: ai.brandName, period: ai.period, title: slide.title, data }),
@@ -189,34 +255,16 @@ export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insi
         )}
       </div>
 
-      <div className="flex-1 min-h-0" style={{ display: 'flex', flexDirection: 'column', gap: '0.7cqh', overflowY: 'auto', overflowX: 'hidden', paddingRight: '0.4cqw' }}>
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
         {insight ? (
-          <>
-            {editable && editingAnalysis ? (
-              <textarea autoFocus value={insight.analysis}
-                onChange={e => onChange?.({ ...slide, aiInsight: { ...insight, analysis: e.target.value } })}
-                onBlur={() => setEditingAnalysis(false)}
-                style={{ fontSize: '1.3cqw', color: '#475569', lineHeight: 1.4, width: '100%', minHeight: '7cqh', flexShrink: 0, background: 'transparent', outline: 'none', resize: 'none', ...PJ }} />
-            ) : (
-              <div onClick={() => editable && setEditingAnalysis(true)} style={{ fontSize: '1.3cqw', color: '#475569', lineHeight: 1.4, flexShrink: 0, cursor: editable ? 'text' : 'default', ...PJ }}>
-                {renderBold(insight.analysis)}
-              </div>
-            )}
-            {insight.recommendations.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45cqh', flexShrink: 0 }}>
-                {insight.recommendations.map((r, i) => (
-                  <div key={i} className="flex items-start" style={{ gap: '0.6cqw' }}>
-                    <span style={{ flexShrink: 0, fontSize: '0.78cqw', fontWeight: 800, letterSpacing: '0.02em', color: REC_STYLE[r.type].color, background: REC_STYLE[r.type].bg, borderRadius: '0.4cqw', padding: '0.2cqh 0.55cqw', ...PJ }}>{r.type}</span>
-                    <span style={{ fontSize: '1.12cqw', color: '#334155', lineHeight: 1.32, flex: 1, ...PJ }}>{r.text}</span>
-                    {editable && (
-                      <button onClick={() => onChange?.({ ...slide, aiInsight: { ...insight, recommendations: insight.recommendations.filter((_, j) => j !== i) } })}
-                        className="material-symbols-outlined" style={{ fontSize: '1.1cqw', color: '#cbd5e1', flexShrink: 0 }}>close</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+          editable && editingAnalysis ? (
+            <textarea autoFocus value={insight.analysis}
+              onChange={e => onChange?.({ ...slide, aiInsight: { ...insight, analysis: e.target.value } })}
+              onBlur={() => setEditingAnalysis(false)}
+              style={{ fontSize: '1.3cqw', color: '#475569', lineHeight: 1.45, width: '100%', height: '100%', background: 'transparent', outline: 'none', resize: 'none', ...PJ }} />
+          ) : (
+            <AutoFitParagraph text={insight.analysis} baseCqw={1.45} editable={editable} onClick={() => editable && setEditingAnalysis(true)} />
+          )
         ) : editable ? (
           <textarea value={slide.insights} onChange={e => onChange?.({ ...slide, insights: e.target.value })}
             placeholder="Klik ‘Generate AI’ atau ketik insight manual…"

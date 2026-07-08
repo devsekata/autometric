@@ -163,34 +163,38 @@ async function chartCard(
   })
 }
 
-const REC_HEX: Record<string, string> = { SCALE: '15803D', REFINE: 'B45309', EXPLORE: '1D4ED8', STOP: 'B91C1C' }
-
 /** Split "**bold**" markers into pptx text runs. */
 function boldRuns(text: string): { text: string; options: { bold: boolean } }[] {
   return text.split(/(\*\*[^*]+\*\*)/g).filter(s => s !== '').map(p =>
     p.startsWith('**') && p.endsWith('**') ? { text: p.slice(2, -2), options: { bold: true } } : { text: p, options: { bold: false } })
 }
 
+/** Largest font (pt, ≤ basePt) that fits `len` chars into a wIn×hIn inch box. Conservative → never clips. */
+function fitFontPt(len: number, wIn: number, hIn: number, basePt: number): number {
+  for (let pt = basePt; pt > basePt * 0.5; pt -= 0.5) {
+    const cpl = Math.max(6, Math.floor(wIn / ((pt * 0.55) / 72)))  // ~0.55em average char width
+    const lines = Math.ceil(len / cpl)
+    if (lines * ((pt * 1.34) / 72) <= hIn) return pt                // 1.34 line-height
+  }
+  return Math.max(6, basePt * 0.5)
+}
+
 function insightsCard(slide: Slide, content: { text: string; ai: AiInsight | null }, x: number, y: number, w: number, h: number, label: string) {
   const ai = content.ai
-  const hasAi = !!ai && (!!ai.analysis || ai.recommendations.length > 0)
+  const hasAi = !!ai && !!ai.analysis
   if (!hasAi && !content.text) { placeholder(slide, x, y, w, h, label === 'KEY INSIGHTS' ? 'AI KEY INSIGHTS' : label); return }
   card(slide, x, y, w, h)
   const pad = W(1.6)
   slide.addText(label, { x: x + pad, y: y + H(1.6), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '1E4F49', fontFace: PJ })
 
-  const bodyOpts = { x: x + pad, y: y + H(5), w: w - 2 * pad, h: h - H(6), align: 'left' as const, valign: 'top' as const, fit: 'shrink' as const, fontFace: PJ }
+  const bodyW = w - 2 * pad
+  const bodyH = h - H(6)
+  const bodyOpts = { x: x + pad, y: y + H(5), w: bodyW, h: bodyH, align: 'left' as const, valign: 'top' as const, fit: 'shrink' as const, fontFace: PJ }
   if (hasAi) {
-    const runs: Record<string, unknown>[] = []
-    if (ai!.analysis) {
-      boldRuns(ai!.analysis).forEach(r => runs.push({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: FS(1.45) } }))
-      if (ai!.recommendations.length) runs.push({ text: '\n', options: { breakLine: true, fontSize: FS(0.8) } })
-    }
-    ai!.recommendations.forEach((r, i) => {
-      runs.push({ text: `${r.type}  `, options: { bold: true, color: REC_HEX[r.type] ?? '334155', fontSize: FS(1.2) } })
-      runs.push({ text: r.text, options: { color: '334155', fontSize: FS(1.25), breakLine: i < ai!.recommendations.length - 1 } })
-    })
-    slide.addText(runs, { ...bodyOpts, lineSpacingMultiple: 1.2 })
+    // Deterministically size the paragraph to fit the box so it never clips in the PPTX.
+    const pt = fitFontPt(ai!.analysis.length, bodyW, bodyH, FS(1.5))
+    const runs = boldRuns(ai!.analysis).map(r => ({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: pt } }))
+    slide.addText(runs, { ...bodyOpts, lineSpacingMultiple: 1.15 })
   } else {
     slide.addText(content.text, { ...bodyOpts, fontSize: FS(1.45), color: '475569', lineSpacingMultiple: 1.3 })
   }
