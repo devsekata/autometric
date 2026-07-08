@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { Brand, Platform, SocialAccount, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
 import { useOAuthConnect, CONNECT_OPTIONS } from '@/hooks/useOAuthConnect'
+import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -454,36 +455,46 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
               <p className="text-[12px] text-[#9ca3af] mt-0.5">Track competitor accounts to benchmark against.</p>
             </div>
 
-            <PlatformPicker selected={compPlatform} onSelect={p => { setCompPlatform(p); setCompErr('') }} />
+            {COMPETITOR_ADD_ENABLED ? (
+              <>
+                <PlatformPicker selected={compPlatform} onSelect={p => { setCompPlatform(p); setCompErr('') }} />
 
-            <div className="flex gap-2">
-              <div className="flex-1 flex flex-col gap-1">
-                <input
-                  ref={compRef}
-                  type="text"
-                  value={compUsername}
-                  onChange={e => { setCompUsername(e.target.value); setCompErr('') }}
-                  onKeyDown={e => e.key === 'Enter' && addCompetitor()}
-                  placeholder={`@username on ${PLATFORM_CONFIG[compPlatform].label}`}
-                  className={`h-9 px-3 text-[13px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
-                    compErr
-                      ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                      : 'border-[#e5e7eb] focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10'
-                  }`}
+                <div className="flex gap-2">
+                  <div className="flex-1 flex flex-col gap-1">
+                    <input
+                      ref={compRef}
+                      type="text"
+                      value={compUsername}
+                      onChange={e => { setCompUsername(e.target.value); setCompErr('') }}
+                      onKeyDown={e => e.key === 'Enter' && addCompetitor()}
+                      placeholder={`@username on ${PLATFORM_CONFIG[compPlatform].label}`}
+                      className={`h-9 px-3 text-[13px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
+                        compErr
+                          ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
+                          : 'border-[#e5e7eb] focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10'
+                      }`}
+                    />
+                    {compErr && <p className="text-[11px] text-red-500">{compErr}</p>}
+                  </div>
+                  <button type="button" onClick={addCompetitor} style={PJB}
+                    className="h-9 px-3.5 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[13px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0 self-start">
+                    Add
+                  </button>
+                </div>
+
+                <AddedList
+                  items={competitors}
+                  onRemove={i => setCompetitors(prev => prev.filter((_, idx) => idx !== i))}
+                  emptyLabel="No competitors added yet."
                 />
-                {compErr && <p className="text-[11px] text-red-500">{compErr}</p>}
+              </>
+            ) : (
+              <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-[#fafafa] px-4 py-6 flex flex-col items-center text-center gap-1">
+                <span className="material-symbols-outlined text-[28px] text-[#cbd1d8]">block</span>
+                <p style={PJB} className="text-[13px] font-semibold text-[#374151]">Penambahan competitor dinonaktifkan sementara</p>
+                <p className="text-[12px] text-[#9ca3af]">Lewati langkah ini — bisa diaktifkan lagi nanti.</p>
               </div>
-              <button type="button" onClick={addCompetitor} style={PJB}
-                className="h-9 px-3.5 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[13px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0 self-start">
-                Add
-              </button>
-            </div>
-
-            <AddedList
-              items={competitors}
-              onRemove={i => setCompetitors(prev => prev.filter((_, idx) => idx !== i))}
-              emptyLabel="No competitors added yet."
-            />
+            )}
 
             {error && <p className="text-[12px] text-red-500">{error}</p>}
           </div>

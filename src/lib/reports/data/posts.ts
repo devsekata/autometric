@@ -1,5 +1,6 @@
-// Dummy post data for the Visual Analysis slide (mirrors report_2's LayoutContent).
-// Deterministic so preview == export.
+// Post data for the Visual Analysis slide. Live-only: values come from
+// l1_silver.unified_post (via ReportPostContext / postsQuery). No sample/dummy
+// fallback — when there is no live pool the slide shows a loading / empty state.
 import { groupInt } from './format'
 
 export const POST_METRICS: { id: string; label: string }[] = [
@@ -22,58 +23,130 @@ export const POST_FILTERS: { id: string; label: string }[] = [
 
 export const POST_COUNTS = [4, 6, 8]
 
-// Dummy post images (cycled per post).
-export const POST_IMAGES = [
-  'https://naturalfoodimports.com/?q=1482669011330',
-  'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRHOyweUERP_PkAHflHnp-jMxGTx_D-DD638A&s',
-  'https://www.format.com/wp-content/uploads/portrait_of_black_man.jpg',
-]
-
 export interface PostRow {
   id: number
   tag?: 'TOP' | 'LOW'
   image: string
-  metrics: Record<string, string>
+  format: string   // display label, e.g. 'Reel'
+  pillar: string   // display label, e.g. 'Awareness'
+  metrics: Record<string, string>   // display-formatted per POST_METRICS id
 }
 
-function hash01(s: string): number {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
-  return ((h >>> 0) % 10000) / 10000
+// A candidate post carrying numeric metric values, fetched from
+// l1_silver.unified_post. buildPosts filters/ranks/slices these into PostRow.
+export interface PostCandidate {
+  id: number
+  image: string | null
+  formatId: string; format: string
+  pillarId: string; pillar: string
+  values: Record<string, number>   // numeric per POST_METRICS id (er = percent number)
 }
 
-function makePost(i: number): { id: number; engagement: number; raw: Record<string, number | string> } {
-  const reach = Math.floor(hash01(`r${i}`) * 50000) + 1000
-  const engagement = Math.floor(hash01(`e${i}`) * 5000) + 100
-  const raw: Record<string, number | string> = {
-    reach, impressions: Math.floor(reach * (1 + hash01(`i${i}`) * 0.5)),
-    engagement, likes: Math.floor(engagement * 0.75), comments: Math.floor(engagement * 0.1),
-    saves: Math.floor(engagement * 0.08), shares: Math.floor(engagement * 0.07),
-    views: Math.floor(reach * 0.6), er: ((engagement / reach) * 100).toFixed(2) + '%',
-  }
-  return { id: i, engagement, raw }
+// Live candidate pool for a report (brand + month), keyed by channel. Built by
+// postsQuery.ts, provided through ReportPostContext, consumed by the Visual slide
+// and the PPTX exporter.
+export type ReportPostMetrics = Record<string, PostCandidate[]>
+
+// Normalize the messy source `format` (photo/Motion/Static/reels/Reels-Tiktok/…)
+// into the slide's filter buckets.
+export function normFormat(raw?: string | null): { id: string; label: string } {
+  const s = (raw ?? '').trim().toLowerCase()
+  if (!s) return { id: 'other', label: 'Other' }
+  if (s.includes('reel')) return { id: 'reel', label: 'Reel' }
+  if (s.includes('carousel')) return { id: 'carousel', label: 'Carousel' }
+  if (s.includes('video') || s.includes('motion')) return { id: 'video', label: 'Video' }
+  if (s.includes('photo') || s.includes('feed') || s.includes('static') || s.includes('image')) return { id: 'image', label: 'Image' }
+  if (s.includes('link')) return { id: 'link', label: 'Link' }
+  if (s.includes('story')) return { id: 'story', label: 'Story' }
+  return { id: s, label: (raw ?? '').trim() }
 }
 
-export function buildPosts(count: number, filter: string): PostRow[] {
-  const all = Array.from({ length: 24 }, (_, i) => makePost(i)).sort((a, b) => b.engagement - a.engagement)
-  let picked: { id: number; raw: Record<string, number | string>; tag?: 'TOP' | 'LOW' }[]
-  if (filter === 'low') picked = [...all].reverse().slice(0, count)
+// Content pillars are brand-specific free text → slug id + verbatim label.
+export function normPillar(raw?: string | null): { id: string; label: string } {
+  const t = (raw ?? '').trim()
+  if (!t) return { id: 'none', label: 'No pillar' }
+  return { id: t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''), label: t }
+}
+
+const fmtValue = (id: string, v: number) => (id === 'er' ? v.toFixed(2) + '%' : groupInt(v))
+
+export interface PostOptions {
+  format?: string
+  pillar?: string
+  sortMetric?: string
+  source?: PostCandidate[]   // live pool; empty/absent ⇒ no posts (no sample fallback)
+}
+
+// Filter (format + pillar) → rank by the chosen metric → apply top/low/mixed → slice.
+// Returns [] when there is no live pool — the slide never shows fabricated posts.
+export function buildPosts(count: number, filter: string, opts: PostOptions = {}): PostRow[] {
+  const cands = opts.source ?? []
+  if (!cands.length) return []
+  const format = opts.format ?? 'all'
+  const pillar = opts.pillar ?? 'all'
+  const sortMetric = opts.sortMetric ?? 'engagement'
+
+  let pool = cands
+  if (format !== 'all') pool = pool.filter(p => p.formatId === format)
+  if (pillar !== 'all') pool = pool.filter(p => p.pillarId === pillar)
+  const key = (p: PostCandidate) => p.values[sortMetric] ?? 0
+  const sorted = [...pool].sort((a, b) => key(b) - key(a))   // best → worst by chosen metric
+
+  let picked: { cand: PostCandidate; tag?: 'TOP' | 'LOW' }[]
+  if (filter === 'low') picked = [...sorted].reverse().slice(0, count).map(cand => ({ cand }))
   else if (filter === 'mixed') {
     const half = Math.ceil(count / 2)
+    const top = sorted.slice(0, half)
+    const bottom = sorted.slice(half).reverse().slice(0, count - half)   // worst first, no overlap with top
     picked = [
-      ...all.slice(0, half).map(p => ({ ...p, tag: 'TOP' as const })),
-      ...[...all].reverse().slice(0, count - half).map(p => ({ ...p, tag: 'LOW' as const })),
+      ...top.map(cand => ({ cand, tag: 'TOP' as const })),
+      ...bottom.map(cand => ({ cand, tag: 'LOW' as const })),
     ]
-  } else picked = all.slice(0, count)
+  } else picked = sorted.slice(0, count).map(cand => ({ cand }))
 
-  return picked.map(p => {
+  return picked.map(({ cand, tag }, i) => {
     const metrics: Record<string, string> = {}
-    POST_METRICS.forEach(m => {
-      const v = p.raw[m.id]
-      metrics[m.id] = typeof v === 'string' ? v : groupInt(v)
-    })
-    return { id: p.id + 204, tag: p.tag, image: POST_IMAGES[p.id % POST_IMAGES.length], metrics }
+    POST_METRICS.forEach(m => { metrics[m.id] = fmtValue(m.id, cand.values[m.id] ?? 0) })
+    return { id: i + 1, tag, image: cand.image ?? '', format: cand.format, pillar: cand.pillar, metrics }
   })
 }
 
 export const metricLabel = (id: string) => POST_METRICS.find(m => m.id === id)?.label ?? id
+
+// ── channel-aware metric availability ─────────────────────────────────────────
+// Which metric ids are offered for a channel, data-driven from the live pool (a
+// metric is available when at least one post carries a value > 0). Empty when
+// there is no live pool. Shared by the Visual slide (options) and the exporter.
+export function availableMetricsFor(source: PostCandidate[] | undefined, _channel: string): string[] {
+  if (!source || !source.length) return []
+  const avail = POST_METRICS.filter(m => source.some(p => (p.values[m.id] ?? 0) > 0)).map(m => m.id)
+  return avail.length ? avail : POST_METRICS.map(m => m.id)
+}
+
+// Resolve the ranking metric to one that's actually available on the channel.
+export function effectiveSortMetric(metric: string | undefined, available: string[]): string {
+  if (metric && available.includes(metric)) return metric
+  if (available.includes('engagement')) return 'engagement'
+  return available[0] ?? 'engagement'
+}
+
+// Resolve which metrics show on the card — the user's picks intersected with what's
+// available; if none survive, the first few available metrics.
+export function effectiveShownMetrics(selected: string[], available: string[]): string[] {
+  const shown = selected.filter(id => available.includes(id))
+  return shown.length ? shown : available.slice(0, 3)
+}
+
+// Distinct format/pillar ids present in a pool — the valid filter values.
+export function availableFilterIds(source: PostCandidate[] | undefined, key: 'formatId' | 'pillarId'): string[] {
+  if (!source || !source.length) return []
+  return [...new Set(source.map(p => p[key]))]
+}
+
+// Resolve a saved format/pillar filter against a brand's actual data: keep it if
+// the brand has that value, else fall back to 'all'. Lets a template's brand-
+// specific filter apply cleanly to a different brand.
+export function effectiveFilterId(selected: string | undefined, availableIds: string[]): string {
+  const v = selected ?? 'all'
+  return v === 'all' || availableIds.includes(v) ? v : 'all'
+}

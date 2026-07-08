@@ -1,17 +1,32 @@
 'use client'
 
-import { BRANDS } from '@/components/dashboard/data'
+import { useState } from 'react'
+import type { DashBrand } from '@/components/dashboard/data'
+import type { ReportTemplateConfig, ReportTemplateRecord } from '@/lib/reports/data/slideModel'
 import { REPORT_FONTS, FONT_META, fontStack } from '@/lib/reports/data/fonts'
 import { MONTHS, YEARS } from './constants'
 import { PJ, Label, Field } from './ui'
 
 export default function SetupStep(props: {
+  brands: DashBrand[]
+  templates: ReportTemplateRecord[]
+  onUseTemplate: (config: ReportTemplateConfig) => boolean
   brandId: string; onBrand: (id: string) => void
   month: string; setMonth: (v: string) => void; year: number; setYear: (v: number) => void
   title: string; setTitle: (v: string) => void; subtitle: string; setSubtitle: (v: string) => void
   font: string; setFont: (v: string) => void
   onContinue: () => void
 }) {
+  const noBrands = props.brands.length === 0
+  const [pickedId, setPickedId] = useState('')
+  const applied = props.templates.find(t => t.id === pickedId)
+
+  function handlePickTemplate(id: string) {
+    if (!id) { setPickedId(''); return }
+    const t = props.templates.find(x => x.id === id)
+    if (t && props.onUseTemplate(t.config)) setPickedId(id)
+  }
+
   return (
     <div className="max-w-[600px] mx-auto">
       <div className="bg-white rounded-2xl border border-[#e5e7eb] shadow-sm overflow-hidden">
@@ -20,16 +35,51 @@ export default function SetupStep(props: {
           <p className="text-[12px] text-[#9ca3af] mt-0.5">Pick the brand and reporting period, then design the cover.</p>
         </div>
         <div className="p-6 space-y-5">
+          {props.templates.length > 0 && (
+            <div className="rounded-xl border border-[#e3ece9] bg-gradient-to-br from-[#f2f8f5] to-[#eef4f7] p-4">
+              <Label>Start from a saved template</Label>
+              <select
+                value={pickedId}
+                onChange={e => handlePickTemplate(e.target.value)}
+                style={PJ}
+                className="w-full border border-[#cfe0da] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#3d7e96] focus:outline-none"
+              >
+                <option value="">Blank — build from scratch</option>
+                {props.templates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} · {t.slideCount} slide{t.slideCount !== 1 ? 's' : ''}</option>
+                ))}
+              </select>
+              {applied ? (
+                <p className="text-[11.5px] text-[#1e6b5e] mt-2 flex items-start gap-1">
+                  <span className="material-symbols-outlined text-[14px] leading-none mt-px">check_circle</span>
+                  Struktur “{applied.name}” dimuat ({applied.slideCount} slide). Warna &amp; logo mengikuti brand yang dipilih di bawah.
+                </p>
+              ) : (
+                <p className="text-[11px] text-[#73858c] mt-1.5">Muat struktur report yang tersimpan — data & branding ikut brand + periode di bawah.</p>
+              )}
+            </div>
+          )}
+
           <div>
             <Label>Brand</Label>
             <select
               value={props.brandId}
               onChange={e => props.onBrand(e.target.value)}
+              disabled={noBrands}
               style={PJ}
-              className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#3d7e96] focus:outline-none"
+              className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#3d7e96] focus:outline-none disabled:bg-[#f9fafb] disabled:text-[#9ca3af]"
             >
-              {BRANDS.map(b => <option key={b.id} value={b.id}>{b.name} · {b.handle}</option>)}
+              {noBrands
+                ? <option value="">No brands connected</option>
+                : props.brands.map(b => (
+                    <option key={b.id} value={b.id}>{b.handle ? `${b.name} · ${b.handle}` : b.name}</option>
+                  ))}
             </select>
+            {noBrands && (
+              <p className="text-[11px] text-[#dc2626] mt-1.5">
+                Belum ada brand terhubung untuk organisasi ini — hubungkan akun sosial dulu sebelum membuat report.
+              </p>
+            )}
           </div>
 
           <div>
@@ -81,8 +131,9 @@ export default function SetupStep(props: {
         <div className="px-6 py-4 bg-[#fafbfb] border-t border-[#f0f1f2] flex justify-end">
           <button
             onClick={props.onContinue}
+            disabled={noBrands}
             style={PJ}
-            className="flex items-center gap-2 bg-[#1e4f49] hover:bg-[#163a35] text-white text-[13px] font-bold px-5 py-2.5 rounded-lg shadow-sm transition-colors"
+            className="flex items-center gap-2 bg-[#1e4f49] hover:bg-[#163a35] text-white text-[13px] font-bold px-5 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#1e4f49]"
           >
             Design cover
             <span className="material-symbols-outlined text-[18px]">arrow_forward</span>

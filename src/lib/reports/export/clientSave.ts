@@ -1,6 +1,7 @@
 // Client-side helpers: trigger a local download of a generated blob, and upload
 // it (plus metadata) to the org's report library through our server route.
 import type { ReportExportConfig } from '../queries'
+import type { ReportTemplateConfig } from '../data/slideModel'
 
 /** Triggers a browser download of a blob. */
 export function downloadBlob(blob: Blob, fileName: string): void {
@@ -52,6 +53,30 @@ export async function saveExportToLibrary(
     return { ok: false, error: e instanceof Error ? e.message : 'Network error' }
   }
 
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    return { ok: false, error: data?.error ?? `Save failed (${res.status})` }
+  }
+  return { ok: true }
+}
+
+/** Saves a reusable report template (cover style + slides, no data) to the org. */
+export async function saveTemplateToLibrary(
+  orgId: string,
+  name: string,
+  sourceBrandName: string | null,
+  config: ReportTemplateConfig,
+): Promise<SaveExportResult> {
+  let res: Response
+  try {
+    res = await fetch(`/api/organizations/${encodeURIComponent(orgId)}/reports/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, sourceBrandName, config }),
+    })
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' }
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     return { ok: false, error: data?.error ?? `Save failed (${res.status})` }

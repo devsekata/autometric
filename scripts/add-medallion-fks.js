@@ -8,6 +8,10 @@
  *       (gold is rolled up to the umbrella brand via brand_social_accounts)
  *   l2_gold.brand_metric_daily            : account_id  -> public.social_accounts(id)
  *       (the only gold table that keeps per-account detail)
+ *   l2_gold.post_metric                   : brand_id    -> public.social_accounts(id)
+ *       (sp_build_post_metric() copies l1_silver.unified_post.brand_id as-is,
+ *        without translating through brand_social_accounts, so despite the
+ *        column name this table is per-account grain, not per-brand)
  *
  * All FKs are ON DELETE RESTRICT.
  *
@@ -24,6 +28,7 @@ require('dotenv').config({ path: '.env.local' })
 const SOCIAL = 'public.social_accounts'
 const BRANDS = 'public.brands'
 const SA_SCHEMAS = ['l0_extra', 'l0_harmonization', 'l1_silver'] // brand_id -> social_accounts
+const L2_ACCOUNT_GRAIN = new Set(['post_metric']) // l2_gold tables where brand_id actually holds social_accounts.id
 
 const client = new Client({ connectionString: process.env.DATABASE_URL })
 
@@ -91,7 +96,9 @@ async function main() {
   for (const s of SA_SCHEMAS) {
     for (const t of await tablesWithColumn(s, 'brand_id')) plan.push([s, t, 'brand_id', SOCIAL])
   }
-  for (const t of await tablesWithColumn('l2_gold', 'brand_id')) plan.push(['l2_gold', t, 'brand_id', BRANDS])
+  for (const t of await tablesWithColumn('l2_gold', 'brand_id')) {
+    plan.push(['l2_gold', t, 'brand_id', L2_ACCOUNT_GRAIN.has(t) ? SOCIAL : BRANDS])
+  }
   for (const t of await tablesWithColumn('l2_gold', 'account_id')) plan.push(['l2_gold', t, 'account_id', SOCIAL])
 
   const tally = { ok: 0, added: 0, fixed: 0 }

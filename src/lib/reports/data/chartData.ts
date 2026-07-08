@@ -1,6 +1,10 @@
-// Chart configuration data + dummy-series builders, mirrored 1:1 from report_2's
+// Chart configuration data + real-data resolvers, mirrored 1:1 from report_2's
 // ChartSelectionModal / SmartChartBlock so the metric-selection flow matches exactly.
 import { CoverColors } from '../cover/colors'
+import {
+  AxisScale, ReportChartMetrics, niceScale, chartSeriesFor, dimensionLabelsFor,
+  barCategoryFor, barScale, sentimentSeriesFor, SentimentKey,
+} from './chartTypes'
 
 export type ChartCategory = 'line' | 'bar' | 'wordcloud'
 export type LineDimension = 'daymonth' | 'last3months' | 'days'
@@ -98,18 +102,7 @@ export const METRIC_LABELS: Record<string, string> = (() => {
   return m
 })()
 
-/* ── dummy data ──────────────────────────────────────────────────────────── */
-
-// stable pseudo-random in [0,1) from a string (so charts don't flicker on render)
-function hash01(s: string): number {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return ((h >>> 0) % 1000) / 1000
-}
-const seedVal = (seed: string, min = 35, max = 95) => min + Math.round(hash01(seed) * (max - min))
+/* ── axis labels (real labels; used as placeholders only while ctx is null) ────── */
 
 const monthShort = (offset: number) => {
   const d = new Date()
@@ -143,69 +136,94 @@ export interface Series { name: string; color: string; data: number[] }
 
 const SENTIMENT_COLORS: Record<string, string> = { Negative: '#ef4444', Neutral: '#94a3b8', Positive: '#22c55e' }
 
-export function buildLineData(config: ChartConfig, colors: CoverColors): { labels: string[]; series: Series[] } {
-  const labels = dimensionLabels(config.dimension)
+/* ── real line data (shared by preview + PPTX export) ────────────────────────── */
+
+// A line series carrying its own value-axis scale, so two metrics of very
+// different magnitude each get a readable axis (dual-axis: left = series[0],
+// right = series[1]).
+export interface LineSeries extends Series { scale: AxisScale }
+
+/**
+ * Resolve the line chart's series against REAL report data ONLY (no dummy). A
+ * metric with no data for the brand+period is omitted; `sentiments` has no
+ * pipeline so it returns nothing. Shared by the on-screen chart and the PPTX
+ * exporter, so both show real data or an empty state — never fabricated series.
+ */
+export function resolveLineData(
+  config: ChartConfig, ctx: ReportChartMetrics | null, channel: string, colors: CoverColors,
+): { labels: string[]; series: LineSeries[] } {
+  const dim = config.dimension ?? 'daymonth'
+  const labels = ctx ? dimensionLabelsFor(dim, ctx.meta) : dimensionLabels(dim)
+
+  // Sentiments → 3 real daily-count series (Negative / Neutral / Positive) from
+  // l2_gold.comment_sentiment_daily, sharing one value axis (comparable counts).
   if (config.metrics?.includes('sentiments')) {
-    return {
-      labels,
-      series: ['Negative', 'Neutral', 'Positive'].map(name => ({
-        name, color: SENTIMENT_COLORS[name],
-        data: labels.map((_, i) => seedVal(`${name}${i}`, name === 'Positive' ? 45 : 10, name === 'Positive' ? 75 : name === 'Neutral' ? 45 : 30)),
-      })),
-    }
+    const defs: { key: SentimentKey; name: string }[] = [
+      { key: 'negative', name: 'Negative' },
+      { key: 'neutral', name: 'Neutral' },
+      { key: 'positive', name: 'Positive' },
+    ]
+    const raw = defs
+      .map(d => ({ d, data: sentimentSeriesFor(ctx, channel, d.key, dim) }))
+      .filter((x): x is { d: { key: SentimentKey; name: string }; data: number[] } => !!x.data && x.data.length > 0)
+    if (!raw.length) return { labels, series: [] }
+    const scale = niceScale(raw.flatMap(x => x.data))
+    return { labels, series: raw.map(x => ({ name: x.d.name, color: SENTIMENT_COLORS[x.d.name], data: x.data, scale })) }
   }
+
   const palette = [colors.primary, colors.accent, colors.secondary]
-  return {
-    labels,
-    series: (config.metrics ?? []).map((id, idx) => ({
-      name: METRIC_LABELS[id] ?? id, color: palette[idx % palette.length],
-      data: labels.map((_, i) => seedVal(`${id}_${config.dimension}_${i}`)),
-    })),
-  }
+  const series: LineSeries[] = []
+  ;(config.metrics ?? []).forEach((id, idx) => {
+    const data = chartSeriesFor(ctx, channel, id, dim)
+    if (data && data.length) {
+      series.push({ name: METRIC_LABELS[id] ?? id, color: palette[idx % palette.length], data, scale: niceScale(data) })
+    }
+  })
+  return { labels, series }
 }
 
-export function buildBarData(config: ChartConfig, colors: CoverColors): { labels: string[]; series: Series[] } {
-  const labels = barCategoryLabels(config.barCategory)
+/* ── real bar data (shared by preview + PPTX export) ─────────────────────────── */
+
+// A bar series carrying the value-axis scale it should be plotted against.
+export interface BarSeries extends Series { scale: AxisScale }
+
+/**
+ * Resolve a bar chart against REAL report data only (no dummy) — a metric with no
+ * data yields no series → empty state. Rendered as SMALL MULTIPLES: each metric becomes its own mini bar
+ * chart over the category members (`labels` = days / months / pillars), each with
+ * its OWN real value axis (from a zero baseline) — so metrics of very different
+ * magnitude each read clearly in true units. `content_pillars` labels come from
+ * the data (real per-brand pillar names).
+ */
+export function resolveBarData(
+  config: ChartConfig, ctx: ReportChartMetrics | null, channel: string, colors: CoverColors,
+): { labels: string[]; series: BarSeries[] } {
+  const cat = config.barCategory
+  const ids = config.barMetrics ?? []
+  const catData = barCategoryFor(ctx, channel, cat)
+  const labels = catData?.labels.length ? catData.labels : barCategoryLabels(cat)
+  const n = labels.length
   const palette = [colors.primary, colors.accent, colors.secondary, '#d96d6d']
-  return {
-    labels,
-    series: (config.barMetrics ?? []).map((id, idx) => ({
-      name: METRIC_LABELS[id] ?? id, color: palette[idx % palette.length],
-      data: labels.map(lbl => seedVal(`${id}_${lbl}`)),
-    })),
-  }
+  // Real data only — a metric/category with no data (e.g. competitors, or an empty
+  // period) yields no series → the chart shows an empty state, never dummy bars.
+  const series: BarSeries[] = []
+  ids.forEach((id, idx) => {
+    const real = catData?.metrics?.[id]
+    if (real && real.length === n) {
+      series.push({ name: METRIC_LABELS[id] ?? id, color: palette[idx % palette.length], data: real, scale: barScale(real) })
+    }
+  })
+  return { labels, series }
 }
 
 export type Sentiment = 'positive' | 'neutral' | 'negative'
-export interface CloudWord { word: string; sentiment: Sentiment }
 
-// Sentiment-tagged keywords for the word cloud.
-export const WORDCLOUD_DATA: CloudWord[] = [
-  // positive
-  { word: 'amazing', sentiment: 'positive' }, { word: 'love', sentiment: 'positive' }, { word: 'quality', sentiment: 'positive' },
-  { word: 'recommend', sentiment: 'positive' }, { word: 'premium', sentiment: 'positive' }, { word: 'fast', sentiment: 'positive' },
-  { word: 'fresh', sentiment: 'positive' }, { word: 'great', sentiment: 'positive' }, { word: 'beautiful', sentiment: 'positive' },
-  { word: 'helpful', sentiment: 'positive' }, { word: 'reliable', sentiment: 'positive' }, { word: 'favorite', sentiment: 'positive' },
-  // neutral
-  { word: 'launch', sentiment: 'neutral' }, { word: 'new', sentiment: 'neutral' }, { word: 'design', sentiment: 'neutral' },
-  { word: 'drop', sentiment: 'neutral' }, { word: 'reels', sentiment: 'neutral' }, { word: 'update', sentiment: 'neutral' },
-  { word: 'price', sentiment: 'neutral' }, { word: 'size', sentiment: 'neutral' }, { word: 'shipping', sentiment: 'neutral' },
-  { word: 'order', sentiment: 'neutral' }, { word: 'color', sentiment: 'neutral' }, { word: 'stock', sentiment: 'neutral' },
-  // negative
-  { word: 'slow', sentiment: 'negative' }, { word: 'expensive', sentiment: 'negative' }, { word: 'delay', sentiment: 'negative' },
-  { word: 'issue', sentiment: 'negative' }, { word: 'confusing', sentiment: 'negative' }, { word: 'broken', sentiment: 'negative' },
-  { word: 'late', sentiment: 'negative' }, { word: 'missing', sentiment: 'negative' },
-]
-
-// Sentiment → shade options (vary within a sentiment for variety).
+// Sentiment → shade options (vary within a sentiment for variety). Word colors
+// are resolved from real data now (see l2_gold.post_wordcloud + comment_sentiment_post).
 export const SENTIMENT_PALETTES: Record<Sentiment, string[]> = {
   positive: ['#15803d', '#16a34a', '#22c55e'],
   neutral: ['#475569', '#64748b', '#94a3b8'],
   negative: ['#b91c1c', '#dc2626', '#ef4444'],
-}
-
-export function cloudWordsFor(sentiment?: string): CloudWord[] {
-  return !sentiment || sentiment === 'all' ? WORDCLOUD_DATA : WORDCLOUD_DATA.filter(d => d.sentiment === sentiment)
 }
 
 export function chartSummary(c: ChartConfig): string {

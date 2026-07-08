@@ -26,12 +26,41 @@ export interface ContentSlide {
   kpiMetrics: (string | null)[]   // kpi — selected metric key per scorecard slot
   postCount: number          // visual — number of post cards (4/6/8)
   postFilter: string         // visual — 'top' | 'low' | 'mixed'
+  postFormat: string         // visual — format filter: 'all' | 'reel' | 'video' | 'carousel' | 'image'
+  postPillar: string         // visual — content-pillar filter: 'all' | '<pillar id>'
+  postSortMetric: string     // visual — metric the top/low ranking is based on
   postMetrics: string[]      // visual — which post metrics to show
   visualMode: VisualMode     // overview — chart | table | null
 }
 
 /** Block keys that open a configuration modal. (`kpi-<index>` = a KPI scorecard) */
 export type ConfigBlock = 'chart' | 'table' | 'chartA' | 'chartB' | `kpi-${number}`
+
+/**
+ * A saved report template = reusable structure only (cover style + slides), with
+ * NO brand/period/data. Applied to any brand + period; branding (colors/logo) and
+ * live data come from the newly selected brand. Persisted as the `config` JSONB.
+ */
+export interface ReportTemplateCover {
+  templateId: string
+  mode: CoverMode
+  font: string
+  title: string
+  subtitle: string
+}
+export interface ReportTemplateConfig {
+  cover: ReportTemplateCover
+  slides: ContentSlide[]
+}
+export interface ReportTemplateRecord {
+  id: string
+  name: string
+  sourceBrandName: string | null
+  slideCount: number
+  slideTypes: SlideType[]
+  config: ReportTemplateConfig
+  createdAt: number
+}
 
 export interface SlideChrome {
   brandName: string
@@ -71,6 +100,9 @@ export function makeSlide(type: SlideType, seq: number, channel = 'instagram'): 
     kpiMetrics: [null, null, null, null, null, null],
     postCount: 4,
     postFilter: 'top',
+    postFormat: 'all',
+    postPillar: 'all',
+    postSortMetric: 'engagement',
     postMetrics: ['reach', 'engagement', 'er'],
     visualMode: null,
   }

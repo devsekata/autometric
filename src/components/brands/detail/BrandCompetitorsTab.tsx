@@ -5,8 +5,10 @@ import { useBrandDetail } from './BrandDetailContext'
 import { Platform } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
 import CompetitorModal from '../modals/CompetitorModal'
+import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+const ADD_DISABLED_TITLE = 'Penambahan competitor dinonaktifkan sementara'
 
 export default function BrandCompetitorsTab() {
   const { brand, addCompetitor, removeCompetitor } = useBrandDetail()
@@ -24,8 +26,11 @@ export default function BrandCompetitorsTab() {
               : `Tracking ${brand.competitors.length} competitor account${brand.competitors.length !== 1 ? 's' : ''}.`}
           </p>
         </div>
-        <button onClick={() => setShowAdd(true)} style={PJB}
-          className="flex items-center gap-1.5 h-9 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] text-white text-[13px] font-semibold rounded-lg transition-colors">
+        <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
+          title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
+          className={`flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
+            COMPETITOR_ADD_ENABLED ? 'bg-[#3d7e96] hover:bg-[#2d6e85] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+          }`}>
           <span className="material-symbols-outlined text-[15px]">add</span>
           Add Competitor
         </button>
@@ -36,11 +41,15 @@ export default function BrandCompetitorsTab() {
           <span className="material-symbols-outlined text-[44px] text-[#e5e7eb]">flag</span>
           <p style={PJB} className="text-[14px] font-bold text-[#374151]">No competitors yet</p>
           <p className="text-[13px] text-[#9ca3af]">Track competitor accounts to benchmark your brand's performance</p>
-          <button onClick={() => setShowAdd(true)} style={PJB}
-            className="mt-1 flex items-center gap-1.5 h-9 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] text-white text-[13px] font-semibold rounded-lg transition-colors">
+          <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
+            title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
+            className={`mt-1 flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
+              COMPETITOR_ADD_ENABLED ? 'bg-[#3d7e96] hover:bg-[#2d6e85] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+            }`}>
             <span className="material-symbols-outlined text-[15px]">add</span>
             Add Competitor
           </button>
+          {!COMPETITOR_ADD_ENABLED && <p className="text-[11.5px] text-[#bcc2c9]">Fitur ini dinonaktifkan sementara.</p>}
         </div>
       ) : (
         brand.competitors.map(comp => (

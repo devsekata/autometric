@@ -1,6 +1,7 @@
 import pool from '@/lib/db'
 import type { ReportRecord } from './data/history'
 import type { CoverColors, CoverMode } from './cover/colors'
+import type { ReportTemplateConfig, ReportTemplateRecord } from './data/slideModel'
 
 // Render/display details persisted in the `config` JSONB column. These are what
 // the history card needs to re-render a live cover thumbnail.
@@ -140,4 +141,76 @@ export async function deleteReportExport(
   return rows[0]
     ? { gcsObjectName: rows[0].gcs_object_name, coverPublicId: rows[0].cover_public_id }
     : null
+}
+
+/* ─────────────────────────  REPORT TEMPLATES  ───────────────────────── */
+// Reusable report structure (cover style + slides), org-scoped, no brand/period/data.
+
+export interface InsertReportTemplateInput {
+  organizationId: string
+  createdBy: string
+  name: string
+  sourceBrandName: string | null
+  config: ReportTemplateConfig
+}
+
+interface ReportTemplateRow {
+  id: string
+  name: string
+  source_brand_name: string | null
+  slide_count: number
+  config: ReportTemplateConfig
+  created_at: string
+}
+
+function toTemplateRecord(row: ReportTemplateRow): ReportTemplateRecord {
+  const slides = row.config?.slides ?? []
+  return {
+    id: row.id,
+    name: row.name,
+    sourceBrandName: row.source_brand_name,
+    slideCount: row.slide_count,
+    slideTypes: slides.map(s => s.type),
+    config: row.config,
+    createdAt: new Date(row.created_at).getTime(),
+  }
+}
+
+/** Lists a single org's report templates, newest first. */
+export async function listReportTemplates(orgId: string): Promise<ReportTemplateRecord[]> {
+  const { rows } = await pool.query<ReportTemplateRow>(
+    `SELECT id, name, source_brand_name, slide_count, config, created_at
+     FROM report_templates
+     WHERE organization_id = $1
+     ORDER BY created_at DESC`,
+    [orgId],
+  )
+  return rows.map(toTemplateRecord)
+}
+
+export async function insertReportTemplate(input: InsertReportTemplateInput): Promise<string> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO report_templates
+       (organization_id, created_by, name, source_brand_name, slide_count, config)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
+    [
+      input.organizationId,
+      input.createdBy,
+      input.name,
+      input.sourceBrandName,
+      input.config.slides?.length ?? 0,
+      JSON.stringify(input.config),
+    ],
+  )
+  return rows[0].id
+}
+
+/** Deletes a template (scoped to org); returns true when a row was removed. */
+export async function deleteReportTemplate(orgId: string, id: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `DELETE FROM report_templates WHERE id = $1 AND organization_id = $2`,
+    [id, orgId],
+  )
+  return (rowCount ?? 0) > 0
 }

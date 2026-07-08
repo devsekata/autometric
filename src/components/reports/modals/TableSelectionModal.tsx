@@ -1,28 +1,49 @@
 'use client'
 
-import { useState } from 'react'
-import { TABLE_TYPES, TableConfig } from '@/lib/reports/data/tableTypes'
+import { useEffect, useState } from 'react'
+import {
+  TABLE_TYPES, TableConfig,
+  columnsForChannel, defaultColumnsFor, isTypeEnabledForChannel,
+} from '@/lib/reports/data/tableTypes'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
-/** Replicates report_2's TableSelectionModal: type list + visible-column picker. */
+const defaultTypeFor = (channel: string) => (channel === 'all' ? 'sentiments' : 'content_level')
+
+/**
+ * Two-pane table configurator: type list (left) + channel-scoped column picker
+ * (right). Content/Channel Level metric tables are channel-specific, so their
+ * columns are filtered by the slide's channel and they're disabled on "all".
+ */
 export default function TableSelectionModal({
-  open, initial, onClose, onConfirm,
+  open, initial, channel, onClose, onConfirm,
 }: {
   open: boolean
   initial: TableConfig | null
+  channel: string
   onClose: () => void
   onConfirm: (config: TableConfig) => void
 }) {
-  const [type, setType] = useState(initial?.type ?? 'performance')
+  const [type, setType] = useState(initial?.type ?? defaultTypeFor(channel))
   const [columns, setColumns] = useState<string[]>(
-    initial?.columns ?? TABLE_TYPES['performance'].columns.map(c => c.id),
+    initial?.columns ?? defaultColumnsFor(initial?.type ?? defaultTypeFor(channel), channel),
   )
+
+  // Re-sync when the modal (re)opens — the slide/channel may have changed.
+  useEffect(() => {
+    if (!open) return
+    const valid = initial && TABLE_TYPES[initial.type] && isTypeEnabledForChannel(initial.type, channel) && !TABLE_TYPES[initial.type].disabled
+    const t = valid ? initial!.type : defaultTypeFor(channel)
+    setType(t)
+    setColumns(valid ? initial!.columns : defaultColumnsFor(t, channel))
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null
 
-  const changeType = (id: string) => { setType(id); setColumns(TABLE_TYPES[id].columns.map(c => c.id)) }
+  const changeType = (id: string) => { setType(id); setColumns(defaultColumnsFor(id, channel)) }
   const toggle = (id: string) => setColumns(prev => (prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]))
+
+  const visibleColumns = columnsForChannel(type, channel)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -44,17 +65,31 @@ export default function TableSelectionModal({
           <div className="w-[40%] border-r border-[#f0f1f2] bg-[#fafbfb] overflow-y-auto p-2 space-y-1.5">
             {Object.values(TABLE_TYPES).map(t => {
               const active = type === t.id
+              const enabled = isTypeEnabledForChannel(t.id, channel) && !t.disabled
               return (
                 <button
                   key={t.id}
-                  onClick={() => changeType(t.id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-all ${active ? 'bg-[#f2f8f5] border-[#1e4f49] ring-1 ring-[#1e4f49]' : 'border-transparent hover:bg-white hover:border-[#e5e7eb]'}`}
+                  disabled={!enabled}
+                  onClick={() => enabled && changeType(t.id)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                    !enabled
+                      ? 'border-transparent opacity-45 cursor-not-allowed'
+                      : active
+                        ? 'bg-[#f2f8f5] border-[#1e4f49] ring-1 ring-[#1e4f49]'
+                        : 'border-transparent hover:bg-white hover:border-[#e5e7eb]'
+                  }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`material-symbols-outlined text-[17px] ${active ? 'text-[#1e4f49]' : 'text-[#9ca3af]'}`}>{t.icon}</span>
                     <span style={PJ} className={`text-[13px] font-bold ${active ? 'text-[#1e4f49]' : 'text-[#475569]'}`}>{t.label}</span>
                   </div>
-                  <p className="text-[10.5px] text-[#94a3b8] leading-tight">{t.description}</p>
+                  <p className="text-[10.5px] text-[#94a3b8] leading-tight">
+                    {t.disabled
+                      ? 'Competitor data isn’t available in reports yet.'
+                      : !enabled
+                        ? 'Pick a specific channel to use this table.'
+                        : t.description}
+                  </p>
                 </button>
               )
             })}
@@ -64,12 +99,12 @@ export default function TableSelectionModal({
           <div className="flex-1 p-4 overflow-y-auto">
             <div className="flex justify-between items-center mb-3">
               <h4 style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Visible Columns</h4>
-              <button onClick={() => setColumns(TABLE_TYPES[type].columns.map(c => c.id))} className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+              <button onClick={() => setColumns(defaultColumnsFor(type, channel))} className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
                 Reset to Default
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {TABLE_TYPES[type].columns.map(col => {
+              {visibleColumns.map(col => {
                 const on = columns.includes(col.id)
                 return (
                   <label key={col.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#f2f8f5] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>

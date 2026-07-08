@@ -171,15 +171,24 @@ export default function ChartSelectionModal({
         {/* Step 3: bar category */}
         {step === 3 && category === 'bar' && (
           <div className="grid grid-cols-2 gap-3">
-            {BAR_CATEGORIES.map(cat => (
-              <button key={cat.id} onClick={() => { setBarCategory(cat.id); setStep(4) }} style={PJ} className={`${base} items-start text-left`}>
-                <div className="flex items-center gap-2 w-full">
-                  <span className="material-symbols-outlined text-[18px] opacity-60">stacked_bar_chart</span>
-                  <span className="text-[13px] font-bold">{cat.label}</span>
-                </div>
-                <span className="text-[10px] text-[#94a3b8] w-full">{cat.desc}</span>
-              </button>
-            ))}
+            {BAR_CATEGORIES.map(cat => {
+              const disabled = cat.id === 'competitors'   // competitor data isn't wired into reports
+              return (
+                <button
+                  key={cat.id}
+                  disabled={disabled}
+                  onClick={() => { if (!disabled) { setBarCategory(cat.id); setStep(4) } }}
+                  style={PJ}
+                  className={`${base} items-start text-left ${disabled ? 'opacity-45 cursor-not-allowed pointer-events-none' : ''}`}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <span className="material-symbols-outlined text-[18px] opacity-60">stacked_bar_chart</span>
+                    <span className="text-[13px] font-bold">{cat.label}</span>
+                  </div>
+                  <span className="text-[10px] text-[#94a3b8] w-full">{disabled ? 'Competitor data isn’t available in reports yet.' : cat.desc}</span>
+                </button>
+              )
+            })}
           </div>
         )}
 

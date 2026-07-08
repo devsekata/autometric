@@ -1,18 +1,26 @@
 'use client'
 
-import { KPI_METRICS } from '@/lib/reports/data/kpiMetrics'
+import { kpiDefsForChannel, buildKpiMetric, kpiPairFor, KpiMetric } from '@/lib/reports/data/kpiMetrics'
+import { useReportKpi } from '@/lib/reports/data/metricsContext'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
 export default function MetricPickerModal({
-  open, current, onClose, onSelect,
+  open, current, channel, onClose, onSelect,
 }: {
   open: boolean
   current: string | null
+  channel: string
   onClose: () => void
   onSelect: (key: string) => void
 }) {
+  const kpi = useReportKpi()
   if (!open) return null
+  // Only metrics that carry data on this slide's channel; real value/delta from the
+  // DB — "—" while the payload is still loading or when there's no data (never dummy).
+  const metrics: KpiMetric[] = kpiDefsForChannel(channel).map(def =>
+    buildKpiMetric(def, kpiPairFor(kpi, channel, def.key)),
+  )
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-[#0f172a]/50 backdrop-blur-sm" />
@@ -20,14 +28,14 @@ export default function MetricPickerModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#f0f1f2]">
           <div>
             <h2 style={PJ} className="text-[16px] font-bold text-[#0f172a]">Select metric</h2>
-            <p className="text-[12px] text-[#94a3b8] mt-0.5">Pick a top-line metric for this scorecard.</p>
+            <p className="text-[12px] text-[#94a3b8] mt-0.5">Metrics available for {channel} — live from your data.</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-[#94a3b8] hover:text-[#334155] hover:bg-[#f1f5f9] transition-colors">
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
         <div className="p-6 grid grid-cols-2 gap-2.5 max-h-[60vh] overflow-y-auto">
-          {KPI_METRICS.map(m => {
+          {metrics.map(m => {
             const active = current === m.key
             return (
               <button
@@ -40,7 +48,7 @@ export default function MetricPickerModal({
                 </span>
                 <div className="min-w-0">
                   <p style={PJ} className="text-[13px] font-bold text-[#0f172a] truncate">{m.label}</p>
-                  <p className="text-[11.5px] text-[#94a3b8]">{m.value} · {m.delta >= 0 ? '+' : ''}{m.delta}%</p>
+                  <p className="text-[11.5px] text-[#94a3b8]">{m.value}{m.hasDelta ? ` · ${m.delta >= 0 ? '+' : ''}${m.delta}%` : ''}</p>
                 </div>
               </button>
             )

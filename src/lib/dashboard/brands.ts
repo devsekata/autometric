@@ -5,8 +5,8 @@ import type { DashBrand, DashPlatform } from '@/components/dashboard/data'
  * Real brand list for the dashboard brand switcher, scoped to one org.
  * Aggregates each brand's connected social accounts:
  *   - platforms  : distinct platform keys (instagram/facebook/tiktok)
- *   - followers  : sum of the latest follower_count across the brand's accounts
- *                  (l1_silver.unified_profile, where brand_id = social_accounts.id)
+ *   - followers  : sum of the latest follower_count_eod across the brand's accounts
+ *                  (l2_gold.brand_metric_daily, brand_id = public.brands.id — per docs §5)
  *   - handle     : a representative username (prefers Instagram)
  */
 
@@ -21,34 +21,35 @@ function initials(name: string): string {
 
 export async function getDashboardBrands(orgId: string): Promise<DashBrand[]> {
   const { rows } = await pool.query<{
-    id: string; name: string; platforms: string[] | null; followers: string; handle: string | null
+    id: string; name: string; platforms: string[] | null; followers: string; handle: string | null; profile_url: string | null
   }>(
     `WITH accts AS (
-        SELECT bsa.brand_id, p.key AS platform, sa.id AS account_id, sa.username
+        SELECT bsa.brand_id, p.key AS platform, sa.username
           FROM public.brand_social_accounts bsa
           JOIN public.social_accounts sa ON sa.id = bsa.social_account_id
           JOIN public.platforms p ON p.id = bsa.platform_id
          WHERE p.key IN ('instagram','facebook','tiktok')
      ),
-     fol AS (
-        SELECT DISTINCT ON (up.brand_id) up.brand_id AS account_id, up.follower_count
-          FROM l1_silver.unified_profile up
-         ORDER BY up.brand_id, up.profile_date DESC
-     ),
-     acct_fol AS (
-        SELECT a.brand_id, a.platform, a.username, COALESCE(f.follower_count, 0) AS followers
-          FROM accts a LEFT JOIN fol f ON f.account_id = a.account_id
+     brand_fol AS (
+        SELECT brand_id, SUM(follower_count_eod)::bigint AS followers
+          FROM (
+            SELECT DISTINCT ON (bmd.brand_id, bmd.account_id, bmd.platform)
+                   bmd.brand_id, bmd.follower_count_eod
+              FROM l2_gold.brand_metric_daily bmd
+             ORDER BY bmd.brand_id, bmd.account_id, bmd.platform, bmd.metric_date DESC
+          ) x GROUP BY brand_id
      )
-     SELECT b.id, b.name,
+     SELECT b.id, b.name, b.profile_url,
             array_agg(DISTINCT af.platform ORDER BY af.platform) FILTER (WHERE af.platform IS NOT NULL) AS platforms,
-            COALESCE(SUM(af.followers), 0)::bigint AS followers,
+            COALESCE(bf.followers, 0)::bigint AS followers,
             (array_agg(af.username ORDER BY CASE af.platform
                 WHEN 'instagram' THEN 0 WHEN 'tiktok' THEN 1 ELSE 2 END)
               FILTER (WHERE af.username IS NOT NULL))[1] AS handle
        FROM public.brands b
-       LEFT JOIN acct_fol af ON af.brand_id = b.id
+       LEFT JOIN accts af ON af.brand_id = b.id
+       LEFT JOIN brand_fol bf ON bf.brand_id = b.id
       WHERE b.organization_id = $1
-      GROUP BY b.id, b.name
+      GROUP BY b.id, b.name, bf.followers
       ORDER BY followers DESC, b.name`,
     [orgId],
   )
@@ -61,5 +62,6 @@ export async function getDashboardBrands(orgId: string): Promise<DashBrand[]> {
     color: COLORS[i % COLORS.length],
     followers: Number(r.followers) || 0,
     platforms: (r.platforms ?? []).filter((p): p is DashPlatform => DASH_PLATFORMS.includes(p as DashPlatform)),
+    logo: r.profile_url,
   }))
 }

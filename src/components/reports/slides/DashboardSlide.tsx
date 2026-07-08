@@ -23,14 +23,14 @@ export default function DashboardSlide({
     <>
       <div className="flex min-h-0" style={{ gap: '2cqw', height: '37cqh' }}>
         <div style={{ flex: 1.85, minWidth: 0 }}>
-          <ChartBlock config={slide.chart} colors={colors} editable={editable} onConfigure={() => onConfigure?.('chart')} />
+          <ChartBlock config={slide.chart} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('chart')} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <InsightsBlock value={slide.insights} editable={editable} onChange={v => onChange?.({ ...slide, insights: v })} />
         </div>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
-        <TableBlock config={slide.table} colors={colors} editable={editable} onConfigure={() => onConfigure?.('table')} />
+        <TableBlock config={slide.table} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('table')} />
       </div>
     </>
   )

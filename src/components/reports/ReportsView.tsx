@@ -2,15 +2,16 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { BRANDS } from '@/components/dashboard/data'
+import type { DashBrand, DashPlatform } from '@/components/dashboard/data'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { COVER_TEMPLATES, getTemplate } from '@/lib/reports/cover/templates'
 import { ReportRecord, relativeDate } from '@/lib/reports/data/history'
+import type { ReportTemplateRecord } from '@/lib/reports/data/slideModel'
 import ReportBuilder from './builder/ReportBuilder'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
-// Default palette used for the template-gallery previews.
+// Default palette used for the cover-style gallery previews.
 const GALLERY_COLORS: CoverColors = { primary: '#1e4f49', secondary: '#3d7e96', accent: '#e0a458' }
 
 const DAY = 86_400_000
@@ -20,11 +21,13 @@ const DAY = 86_400_000
  * exported reports. "Create report" (or any template card) launches the builder.
  */
 export default function ReportsView({
-  orgName, orgId, history,
+  orgName, orgId, brands, history, templates,
 }: {
   orgName: string
   orgId: string
+  brands: DashBrand[]
   history: ReportRecord[]
+  templates: ReportTemplateRecord[]
 }) {
   const router = useRouter()
   const [view, setView] = useState<'index' | 'builder'>('index')
@@ -40,22 +43,30 @@ export default function ReportsView({
       <ReportBuilder
         orgName={orgName}
         orgId={orgId}
+        brands={brands}
+        templates={templates}
         initialTemplateId={launchTemplate}
         onExit={() => { setView('index'); router.refresh() }}
       />
     )
   }
 
-  return <ReportsIndex orgName={orgName} orgId={orgId} history={history} onCreate={openBuilder} />
+  return (
+    <ReportsIndex
+      orgName={orgName} orgId={orgId} brands={brands} history={history}
+      onCreate={openBuilder}
+    />
+  )
 }
 
 /* ── Index ──────────────────────────────────────────────────────────────── */
 
 function ReportsIndex({
-  orgName, orgId, history, onCreate,
+  orgName, orgId, brands, history, onCreate,
 }: {
   orgName: string
   orgId: string
+  brands: DashBrand[]
   history: ReportRecord[]
   onCreate: (templateId?: string) => void
 }) {
@@ -71,7 +82,7 @@ function ReportsIndex({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return history.filter(r => {
-      const brand = BRANDS.find(b => b.id === r.brandId)
+      const brand = brands.find(b => b.id === r.brandId)
       const matchesBrand = brandFilter === 'all' || r.brandId === brandFilter
       const matchesSearch =
         !q ||
@@ -124,7 +135,7 @@ function ReportsIndex({
                 <span className="material-symbols-outlined text-[19px]">auto_awesome</span>
               </span>
               <div>
-                <h2 style={PJ} className="text-[15px] font-bold text-[#0f172a] tracking-[-0.01em]">Start from a template</h2>
+                <h2 style={PJ} className="text-[15px] font-bold text-[#0f172a] tracking-[-0.01em]">Start from a cover style</h2>
                 <p className="text-[12px] text-[#73858c] mt-0.5">Pick a cover style to jump into the builder — you can change it later</p>
               </div>
             </div>
@@ -163,7 +174,7 @@ function ReportsIndex({
                   className="h-9 text-[12.5px] font-semibold text-[#334155] bg-white border border-[#e2e8f0] rounded-lg px-3 cursor-pointer hover:border-[#cbd5e1] outline-none"
                 >
                   <option value="all">All brands</option>
-                  {BRANDS.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
                 <div className="relative flex items-center">
                   <span className="material-symbols-outlined text-[15px] text-[#94a3b8] absolute left-3 pointer-events-none">search</span>
@@ -184,7 +195,7 @@ function ReportsIndex({
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-4 mt-4">
-                {filtered.map(r => <ReportCard key={r.id} record={r} orgId={orgId} />)}
+                {filtered.map(r => <ReportCard key={r.id} record={r} orgId={orgId} brands={brands} />)}
               </div>
             )}
           </section>
@@ -261,10 +272,17 @@ function InfoRow({ title, body }: { title: string; body: string }) {
   )
 }
 
-function ReportCard({ record, orgId }: { record: ReportRecord; orgId: string }) {
+// Neutral placeholder for history rows whose brand is no longer in the org
+// (e.g. legacy exports made with dummy brand ids before real-data wiring).
+const FALLBACK_BRAND: DashBrand = {
+  id: '', name: 'Brand', handle: '', initials: '—', color: '#94a3b8', followers: 0,
+  platforms: [] as DashPlatform[],
+}
+
+function ReportCard({ record, orgId, brands }: { record: ReportRecord; orgId: string; brands: DashBrand[] }) {
   const router = useRouter()
   const [deleting, setDeleting] = useState(false)
-  const brand = BRANDS.find(b => b.id === record.brandId) ?? BRANDS[0]
+  const brand = brands.find(b => b.id === record.brandId) ?? brands[0] ?? FALLBACK_BRAND
   const template = getTemplate(record.templateId)
   const bgImage = record.coverImageUrl
     ? `url("${record.coverImageUrl}")`
