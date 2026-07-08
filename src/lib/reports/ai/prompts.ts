@@ -36,7 +36,7 @@ BEHAVIORAL RULES — NEVER DO THESE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT — STRICT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Return ONE flowing analytical paragraph written like a short narrative — continuous prose, NOT bullets, labels, or headings. In that single paragraph, weave together: the finding (what happened), the pattern behind it (why — cross-metric relationships), what it means strategically, and the concrete direction to act on next. Use **bold** for ALL numbers and percentages. Length: 3–6 sentences. Do NOT use section labels, do NOT use SCALE/REFINE/EXPLORE/STOP tags, do NOT use bullet points or any heading. Return ONLY the paragraph.
+Return ONE flowing analytical paragraph written like a short narrative — continuous prose, NOT bullets, labels, or headings. In that single paragraph, weave together: the finding (what happened), the pattern behind it (why — cross-metric relationships), what it means strategically, and the concrete direction to act on next. Use **bold** for ALL numbers and percentages. Keep it CONCISE — 2 to 4 sentences, roughly 300–450 characters — so it reads cleanly inside a compact box. Be selective: cite only the 2–3 most telling numbers, not every metric. Do NOT use section labels, do NOT use SCALE/REFINE/EXPLORE/STOP tags, do NOT use bullet points or any heading. Return ONLY the paragraph.
 `.trim()
 
 /** Per-slide-type analytical focus appended to the data prompt. */
@@ -66,9 +66,9 @@ export function buildInsightPrompt(ctx: InsightContext): string {
     `Data:\n${JSON.stringify(ctx.data, null, 2)}\n\n` +
     (focus ? `Analytical focus: ${focus}\n\n` : '') +
     `Apply the four-layer reasoning framework, then express it as ONE flowing analytical paragraph ` +
-    `(3–6 sentences, narrative prose — no bullets, no labels, no headings). Weave the finding, the ` +
-    `underlying pattern, what it means, and the next-step direction together into a story. Bold all ` +
-    `numbers and percentages. Return ONLY the paragraph.`
+    `(2–4 CONCISE sentences, ~300–450 characters, narrative prose — no bullets, no labels, no headings). ` +
+    `Cite only the 2–3 most telling numbers. Weave the finding, the underlying pattern, what it means, ` +
+    `and the next-step direction together into a story. Bold all numbers. Return ONLY the paragraph.`
   )
 }
 

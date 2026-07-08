@@ -194,7 +194,7 @@ function AutoFitParagraph({ text, baseCqw, editable, onClick }: { text: string; 
     if (!el) return
     el.style.fontSize = `${baseCqw}cqw`
     const avail = el.clientHeight, need = el.scrollHeight
-    if (need > avail && avail > 0) el.style.fontSize = `calc(${baseCqw}cqw * ${Math.max(0.6, (avail / need) * 0.985)})`
+    if (need > avail && avail > 0) el.style.fontSize = `calc(${baseCqw}cqw * ${Math.max(0.72, (avail / need) * 0.985)})`
   })
   return (
     <div ref={ref} onClick={onClick}
