@@ -8,8 +8,11 @@ import { COVER_TEMPLATES, getTemplate } from '@/lib/reports/cover/templates'
 import { ReportRecord, relativeDate } from '@/lib/reports/data/history'
 import type { ReportTemplateRecord } from '@/lib/reports/data/slideModel'
 import ReportBuilder from './builder/ReportBuilder'
+import { useToast, ToastHost, type ToastKind } from './Toast'
+import ConfirmDialog from './ConfirmDialog'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+type ShowToast = (kind: ToastKind, message: string) => void
 
 // Default palette used for the cover-style gallery previews.
 const GALLERY_COLORS: CoverColors = { primary: '#1e4f49', secondary: '#3d7e96', accent: '#e0a458' }
@@ -72,6 +75,7 @@ function ReportsIndex({
 }) {
   const [search, setSearch] = useState('')
   const [brandFilter, setBrandFilter] = useState('all')
+  const { toast, showToast, clearToast } = useToast()
 
   const total = history.length
   const thisMonth = useMemo(
@@ -95,6 +99,7 @@ function ReportsIndex({
 
   return (
     <div className="flex flex-col min-h-full bg-white">
+      <ToastHost toast={toast} onClose={clearToast} />
 
       {/* ════ Header ════ */}
       <div className="px-10 pt-7 pb-5 border-b-2 border-[#e2e8f0] flex items-end justify-between gap-6">
@@ -195,7 +200,7 @@ function ReportsIndex({
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-4 mt-4">
-                {filtered.map(r => <ReportCard key={r.id} record={r} orgId={orgId} brands={brands} />)}
+                {filtered.map(r => <ReportCard key={r.id} record={r} orgId={orgId} brands={brands} showToast={showToast} />)}
               </div>
             )}
           </section>
@@ -279,9 +284,10 @@ const FALLBACK_BRAND: DashBrand = {
   platforms: [] as DashPlatform[],
 }
 
-function ReportCard({ record, orgId, brands }: { record: ReportRecord; orgId: string; brands: DashBrand[] }) {
+function ReportCard({ record, orgId, brands, showToast }: { record: ReportRecord; orgId: string; brands: DashBrand[]; showToast: ShowToast }) {
   const router = useRouter()
   const [deleting, setDeleting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const brand = brands.find(b => b.id === record.brandId) ?? brands[0] ?? FALLBACK_BRAND
   const template = getTemplate(record.templateId)
   const bgImage = record.coverImageUrl
@@ -289,8 +295,7 @@ function ReportCard({ record, orgId, brands }: { record: ReportRecord; orgId: st
     : `url("data:image/svg+xml;utf8,${encodeURIComponent(template.background(record.colors, record.mode))}")`
   const downloadUrl = `/api/organizations/${encodeURIComponent(orgId)}/reports/exports/${record.id}/download`
 
-  async function handleDelete() {
-    if (!confirm(`Delete "${record.title}"? This removes the saved file too.`)) return
+  async function doDelete() {
     setDeleting(true)
     try {
       const res = await fetch(`/api/organizations/${encodeURIComponent(orgId)}/reports/exports/${record.id}`, { method: 'DELETE' })
@@ -298,8 +303,9 @@ function ReportCard({ record, orgId, brands }: { record: ReportRecord; orgId: st
       router.refresh()
     } catch (e) {
       console.error(e)
-      alert('Could not delete this report.')
+      showToast('error', 'Gagal menghapus report ini.')
       setDeleting(false)
+      setConfirmOpen(false)
     }
   }
 
@@ -324,7 +330,7 @@ function ReportCard({ record, orgId, brands }: { record: ReportRecord; orgId: st
           {template.name}
         </span>
         <button
-          onClick={e => { e.preventDefault(); handleDelete() }}
+          onClick={e => { e.preventDefault(); setConfirmOpen(true) }}
           disabled={deleting}
           title="Delete report"
           className="absolute top-2.5 left-2.5 w-7 h-7 flex items-center justify-center rounded-md bg-white/90 text-[#94a3b8] hover:text-[#dc2626] hover:bg-white opacity-0 group-hover:opacity-100 transition disabled:opacity-50"
@@ -349,6 +355,15 @@ function ReportCard({ record, orgId, brands }: { record: ReportRecord; orgId: st
           <span className="text-[11.5px] text-[#cbd5e1] font-medium">{(record.sizeKb / 1024).toFixed(1)} MB</span>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Hapus report?"
+        message={`"${record.title}" akan dihapus permanen — termasuk file .pptx yang tersimpan.`}
+        confirmLabel="Hapus" cancelLabel="Batal" busy={deleting}
+        onConfirm={doDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }
