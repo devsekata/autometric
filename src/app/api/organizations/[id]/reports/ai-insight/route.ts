@@ -29,8 +29,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     const raw = await generateGeminiContent(buildInsightPrompt(ctx), ANALYST_SYSTEM_PROMPT)
     const insight = parseInsight(raw)
-    insight.recommendations = insight.recommendations.slice(0, 3) // keep the block compact + WYSIWYG
-    if (!insight.analysis && insight.recommendations.length === 0) {
+    if (!insight.analysis) {
       return NextResponse.json({ error: 'AI returned no usable insight — try again.' }, { status: 502 })
     }
     return NextResponse.json(insight)

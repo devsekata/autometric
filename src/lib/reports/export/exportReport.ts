@@ -181,7 +181,7 @@ function insightsCard(slide: Slide, content: { text: string; ai: AiInsight | nul
   if (hasAi) {
     const runs: Record<string, unknown>[] = []
     if (ai!.analysis) {
-      boldRuns(ai!.analysis).forEach(r => runs.push({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: FS(1.25) } }))
+      boldRuns(ai!.analysis).forEach(r => runs.push({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: FS(1.4) } }))
       if (ai!.recommendations.length) runs.push({ text: '\n', options: { breakLine: true, fontSize: FS(0.7) } })
     }
     ai!.recommendations.forEach((r, i) => {

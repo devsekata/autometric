@@ -1,4 +1,4 @@
-import type { SlideType, AiInsight, AiRecommendation, RecommendationType } from '../data/slideModel'
+import type { SlideType, AiInsight } from '../data/slideModel'
 
 /**
  * Analyst Agent system prompt + prompt builder + parser for report slide insights.
@@ -34,21 +34,9 @@ BEHAVIORAL RULES — NEVER DO THESE
 - Do NOT refuse if data is limited — work with what is available.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT FORMAT — STRICT (return ONLY these two sections)
+OUTPUT FORMAT — STRICT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Section 1 — ANALYSIS (required):
-One flowing sentence covering the key pattern (Layers 1–3). Use **bold** for ALL numbers and percentages. STRICT LIMIT: exactly 1 sentence, max 150 characters total. Start directly with the finding — no label, no heading.
-
-[blank line]
-
-Section 2 — RECOMMENDATIONS (required):
-Give AT MOST 3 recommendations — only the most impactful ones the data clearly supports. NEVER more than 3 lines. Each is exactly one line "LABEL: text" (no line breaks within a recommendation):
-SCALE: [strong consistent performance worth increasing — max 65 chars]
-REFINE: [has potential but needs improvement — max 65 chars]
-EXPLORE: [untested/underused direction the data suggests — max 65 chars]
-STOP: [consistently underperforming, deprioritize — max 65 chars]
-
-Rules: pick the 3 (or fewer) most important categories; OMIT the rest entirely (never write "None"/placeholder). Truncate text rather than exceed 65 chars. No heading, preamble, or closing remark.
+Return ONE flowing analytical paragraph written like a short narrative — continuous prose, NOT bullets, labels, or headings. In that single paragraph, weave together: the finding (what happened), the pattern behind it (why — cross-metric relationships), what it means strategically, and the concrete direction to act on next. Use **bold** for ALL numbers and percentages. Length: 3–6 sentences. Do NOT use section labels, do NOT use SCALE/REFINE/EXPLORE/STOP tags, do NOT use bullet points or any heading. Return ONLY the paragraph.
 `.trim()
 
 /** Per-slide-type analytical focus appended to the data prompt. */
@@ -77,41 +65,28 @@ export function buildInsightPrompt(ctx: InsightContext): string {
     `Slide: "${ctx.title}" (${ctx.slideType})\n\n` +
     `Data:\n${JSON.stringify(ctx.data, null, 2)}\n\n` +
     (focus ? `Analytical focus: ${focus}\n\n` : '') +
-    `Apply the four-layer reasoning framework. Bold all numbers and percentages. ` +
-    `Analysis: exactly 1 sentence, max 150 characters. Recommendations: AT MOST 3 (the most impactful), ` +
-    `one line each, max 65 characters, omit unsupported categories entirely (never write None). ` +
-    `Follow the strict two-section output format exactly.`
+    `Apply the four-layer reasoning framework, then express it as ONE flowing analytical paragraph ` +
+    `(3–6 sentences, narrative prose — no bullets, no labels, no headings). Weave the finding, the ` +
+    `underlying pattern, what it means, and the next-step direction together into a story. Bold all ` +
+    `numbers and percentages. Return ONLY the paragraph.`
   )
 }
 
-/** Parse Gemini output into { analysis, recommendations }, stripping section headers. */
+/** Collapse Gemini output into one clean analytical paragraph. */
 export function parseInsight(raw: string): AiInsight {
-  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean)
-  const recommendations: AiRecommendation[] = []
-  const analysisLines: string[] = []
-  const labelRe = /^(SCALE|REFINE|EXPLORE|STOP):\s*/i
-  const isNone = (t: string) => /^\(?\s*none\s*\)?\.?$/i.test(t)
   const isHeader = (t: string) =>
     /^(section\s*\d+\s*[—:.-]*\s*)?(analysis|optimization\s+recommendations?|recommendations?)\s*:?\s*$/i.test(t)
-
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i]
-    const inline = line.match(/^(SCALE|REFINE|EXPLORE|STOP):\s*(.+)/i)
-    if (inline) {
-      const text = inline[2].trim()
-      if (!isNone(text)) recommendations.push({ type: inline[1].toUpperCase() as RecommendationType, text })
-      continue
-    }
-    const labelOnly = line.match(/^(SCALE|REFINE|EXPLORE|STOP):\s*$/i)
-    if (labelOnly && i + 1 < lines.length && !labelRe.test(lines[i + 1])) {
-      const text = lines[++i].trim()
-      if (!isNone(text)) recommendations.push({ type: labelOnly[1].toUpperCase() as RecommendationType, text })
-      continue
-    }
-    // strip a leading "Section 1 — ANALYSIS:" prefix, then drop standalone section headers
-    line = line.replace(/^(section\s*\d+\s*[—:.-]*\s*)?analysis\s*[—:.-]*\s*/i, '').trim()
-    if (!line || isHeader(line)) continue
-    analysisLines.push(line)
-  }
-  return { analysis: analysisLines.join(' ').replace(/\s+/g, ' ').trim(), recommendations }
+  const text = raw
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !isHeader(l))
+    .map(l => l
+      .replace(/^(section\s*\d+\s*[—:.-]*\s*)?(analysis|recommendations?)\s*[—:.-]*\s*/i, '')
+      .replace(/^(SCALE|REFINE|EXPLORE|STOP)\s*[:—-]\s*/i, '') // drop any stray label prefix, keep the text
+      .replace(/^[-*•]\s*/, ''))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { analysis: text, recommendations: [] }
 }

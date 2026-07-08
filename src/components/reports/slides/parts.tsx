@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { SlideChrome, ContentSlide } from '@/lib/reports/data/slideModel'
 import { useReportKpi, useReportAI, useReportMetrics, useReportChart, useReportPosts, sectionMetricsFor } from '@/lib/reports/data/metricsContext'
@@ -186,6 +186,24 @@ function gatherSlideData(
   return out
 }
 
+/** Renders the analysis paragraph, auto-shrinking its font to fit the fixed box (matches PPTX fit:'shrink'). */
+function AutoFitParagraph({ text, baseCqw, editable, onClick }: { text: string; baseCqw: number; editable: boolean; onClick?: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.fontSize = `${baseCqw}cqw`
+    const avail = el.clientHeight, need = el.scrollHeight
+    if (need > avail && avail > 0) el.style.fontSize = `calc(${baseCqw}cqw * ${Math.max(0.6, (avail / need) * 0.985)})`
+  })
+  return (
+    <div ref={ref} onClick={onClick}
+      style={{ height: '100%', overflow: 'hidden', fontSize: `${baseCqw}cqw`, color: '#475569', lineHeight: 1.45, cursor: editable ? 'text' : 'default', ...PJ }}>
+      {renderBold(text)}
+    </div>
+  )
+}
+
 export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insights' }: {
   slide: ContentSlide; editable: boolean; onChange?: (next: ContentSlide) => void; label?: string
 }) {
@@ -237,34 +255,16 @@ export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insi
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column', gap: '0.6cqh' }}>
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
         {insight ? (
-          <>
-            {editable && editingAnalysis ? (
-              <textarea autoFocus value={insight.analysis}
-                onChange={e => onChange?.({ ...slide, aiInsight: { ...insight, analysis: e.target.value } })}
-                onBlur={() => setEditingAnalysis(false)}
-                style={{ fontSize: '1.2cqw', color: '#475569', lineHeight: 1.38, width: '100%', minHeight: '6cqh', flexShrink: 0, background: 'transparent', outline: 'none', resize: 'none', ...PJ }} />
-            ) : (
-              <div onClick={() => editable && setEditingAnalysis(true)} style={{ fontSize: '1.2cqw', color: '#475569', lineHeight: 1.38, flexShrink: 0, cursor: editable ? 'text' : 'default', ...PJ }}>
-                {renderBold(insight.analysis)}
-              </div>
-            )}
-            {insight.recommendations.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4cqh', flexShrink: 0 }}>
-                {insight.recommendations.map((r, i) => (
-                  <div key={i} className="flex items-start" style={{ gap: '0.55cqw' }}>
-                    <span style={{ flexShrink: 0, fontSize: '0.92cqw', fontWeight: 800, letterSpacing: '0.03em', color: '#334155', ...PJ }}>{r.type}</span>
-                    <span style={{ fontSize: '1.05cqw', color: '#334155', lineHeight: 1.3, flex: 1, ...PJ }}>{r.text}</span>
-                    {editable && (
-                      <button onClick={() => onChange?.({ ...slide, aiInsight: { ...insight, recommendations: insight.recommendations.filter((_, j) => j !== i) } })}
-                        className="material-symbols-outlined" style={{ fontSize: '1.1cqw', color: '#cbd5e1', flexShrink: 0 }}>close</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+          editable && editingAnalysis ? (
+            <textarea autoFocus value={insight.analysis}
+              onChange={e => onChange?.({ ...slide, aiInsight: { ...insight, analysis: e.target.value } })}
+              onBlur={() => setEditingAnalysis(false)}
+              style={{ fontSize: '1.3cqw', color: '#475569', lineHeight: 1.45, width: '100%', height: '100%', background: 'transparent', outline: 'none', resize: 'none', ...PJ }} />
+          ) : (
+            <AutoFitParagraph text={insight.analysis} baseCqw={1.45} editable={editable} onClick={() => editable && setEditingAnalysis(true)} />
+          )
         ) : editable ? (
           <textarea value={slide.insights} onChange={e => onChange?.({ ...slide, insights: e.target.value })}
             placeholder="Klik ‘Generate AI’ atau ketik insight manual…"
