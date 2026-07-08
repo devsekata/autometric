@@ -8,8 +8,9 @@ import type {
  *
  * Grain note: in l2_gold, `brand_id` = public.brands.id (umbrella brand), so org
  * scoping joins brands directly. In l1_silver, `brand_id` = social_accounts.id, so
- * scoping there hops through brand_social_accounts -> brands. Followers (absolute)
- * and the posting heatmap have no gold equivalent and come from l1_silver.
+ * scoping there hops through brand_social_accounts -> brands. Followers use
+ * brand_metric_daily.follower_count_eod; the posting heatmap uses
+ * posting_time_heatmap (all-time, per-account) — both gold.
  */
 
 export type PlatformParam = 'all' | DashPlatform
@@ -164,14 +165,13 @@ async function engagementOverTime(orgId: string, platform: PlatformParam, w: Win
 
   // followers per brand per day: unified_profile is 1 row/account/day, so SUM is the daily total
   const { rows: folRows } = await pool.query<{ brand: string; d: string; f: number }>(
-    `SELECT b.name brand, to_char(p.profile_date, 'YYYY-MM-DD') d, SUM(p.follower_count)::float f
-       FROM l1_silver.unified_profile p
-       JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
-      WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
-        AND p.profile_date BETWEEN $3 AND $4
-        AND ($5::uuid IS NULL OR bsa.brand_id = $5)
-      GROUP BY b.name, p.profile_date
+    `SELECT b.name brand, to_char(bmd.metric_date, 'YYYY-MM-DD') d, SUM(bmd.follower_count_eod)::float f
+       FROM l2_gold.brand_metric_daily bmd
+       JOIN public.brands b ON b.id = bmd.brand_id
+      WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
+        AND bmd.metric_date BETWEEN $3 AND $4
+        AND ($5::uuid IS NULL OR bmd.brand_id = $5)
+      GROUP BY b.name, bmd.metric_date
       ORDER BY d`,
     [orgId, platform, w.start, w.end, brandId],
   )
@@ -246,16 +246,15 @@ async function brandMatrix(orgId: string, platform: PlatformParam, cur: Window, 
 
   const { rows: fol } = await pool.query<{ brand: string; platform: DashPlatform; f: number }>(
     `WITH last_acct AS (
-        SELECT DISTINCT ON (p.brand_id) bsa.brand_id real_brand, p.platform, p.follower_count
-          FROM l1_silver.unified_profile p
-          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-          JOIN public.brands b ON b.id = bsa.brand_id
-         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
-           AND ($3::uuid IS NULL OR bsa.brand_id = $3)
-         ORDER BY p.brand_id, p.profile_date DESC
+        SELECT DISTINCT ON (bmd.account_id, bmd.platform) bmd.brand_id, bmd.platform, bmd.follower_count_eod
+          FROM l2_gold.brand_metric_daily bmd
+          JOIN public.brands b ON b.id = bmd.brand_id
+         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
+           AND ($3::uuid IS NULL OR bmd.brand_id = $3)
+         ORDER BY bmd.account_id, bmd.platform, bmd.metric_date DESC
      )
-     SELECT b.name brand, la.platform, SUM(la.follower_count)::float f
-       FROM last_acct la JOIN public.brands b ON b.id = la.real_brand
+     SELECT b.name brand, la.platform, SUM(la.follower_count_eod)::float f
+       FROM last_acct la JOIN public.brands b ON b.id = la.brand_id
       GROUP BY b.name, la.platform`,
     [orgId, platform, brandId],
   )
@@ -319,35 +318,34 @@ async function contentAttributes(orgId: string, platform: PlatformParam, w: Wind
   return { contentAttributes: attrs, contentAttrFinding: finding }
 }
 
-// ── best posting times heatmap (silver) ──────────────────────────────────────
+// ── best posting times heatmap (gold posting_time_heatmap — all-time by design) ──
 const SLOT_OF = (h: number) => (h <= 9 ? 0 : h <= 12 ? 1 : h <= 15 ? 2 : h <= 18 ? 3 : h <= 20 ? 4 : 5)
 
-async function postingHeatmap(orgId: string, platform: PlatformParam, w: Window, brandId: string | null) {
-  const { rows } = await pool.query<{ dow: number; hr: number; eng: number; cnt: number }>(
-    `SELECT EXTRACT(ISODOW FROM (p.post_date AT TIME ZONE 'Asia/Jakarta'))::int dow,
-            EXTRACT(HOUR  FROM (p.post_date AT TIME ZONE 'Asia/Jakarta'))::int hr,
-            SUM(p.engagement)::float eng,
-            COUNT(*)::int cnt
-       FROM l1_silver.unified_post p
-       JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
+async function postingHeatmap(orgId: string, platform: PlatformParam, brandId: string | null) {
+  // posting_time_heatmap is a TRUNCATE+INSERT all-time aggregate (no metric_date),
+  // so it is NOT period-scoped — best posting windows are a stable pattern. brand_id
+  // is per-account; weekday is 0=Sun..6=Sat (WIB).
+  const { rows } = await pool.query<{ weekday: number; hr: number; eng: number; cnt: number }>(
+    `SELECT pth.weekday, pth.hour hr,
+            SUM(pth.engagement_sum)::float eng, SUM(pth.post_count)::int cnt
+       FROM l2_gold.posting_time_heatmap pth
+       JOIN public.brand_social_accounts bsa ON bsa.social_account_id = pth.brand_id
        JOIN public.brands b ON b.id = bsa.brand_id
-      WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
-        AND (p.post_date AT TIME ZONE 'Asia/Jakarta')::date BETWEEN $3 AND $4
-        AND p.post_date IS NOT NULL
-        AND ($5::uuid IS NULL OR bsa.brand_id = $5)
-      GROUP BY 1, 2`,
-    [orgId, platform, w.start, w.end, brandId],
+      WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'pth')})
+        AND ($3::uuid IS NULL OR bsa.brand_id = $3)
+      GROUP BY pth.weekday, pth.hour`,
+    [orgId, platform, brandId],
   )
-  // accumulate engagement sum + post count per (day, slot), then take the
-  // AVERAGE engagement per post — removes the bias toward slots that simply
-  // get posted to more often, so the heatmap reflects effectiveness.
+  // accumulate engagement sum + post count per (day, slot), then take the AVERAGE
+  // engagement per post — reflects effectiveness, not just posting frequency.
   const sum = Array.from({ length: 7 }, () => new Array(6).fill(0))
   const cnt = Array.from({ length: 7 }, () => new Array(6).fill(0))
   for (const r of rows) {
-    if (r.dow < 1 || r.dow > 7) continue
+    if (r.weekday < 0 || r.weekday > 6) continue
+    const day = (r.weekday + 6) % 7   // gold 0=Sun..6=Sat → grid 0=Mon..6=Sun
     const slot = SLOT_OF(r.hr)
-    sum[r.dow - 1][slot] += r.eng
-    cnt[r.dow - 1][slot] += r.cnt
+    sum[day][slot] += r.eng
+    cnt[day][slot] += r.cnt
   }
   const grid = sum.map((row, d) => row.map((v, s) => (cnt[d][s] > 0 ? v / cnt[d][s] : 0)))
   const max = Math.max(1, ...grid.flat())
@@ -384,7 +382,7 @@ export async function getOverviewData(
     platformReachShare(orgId, platform, win.cur, brandId),
     brandMatrix(orgId, platform, win.cur, win.mid, brandId),
     contentAttributes(orgId, platform, win.cur, brandId),
-    postingHeatmap(orgId, platform, win.cur, brandId),
+    postingHeatmap(orgId, platform, brandId),
   ])
 
   return {

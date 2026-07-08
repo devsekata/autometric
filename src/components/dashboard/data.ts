@@ -21,6 +21,7 @@ export interface DashBrand {
   color: string
   followers: number
   platforms: DashPlatform[]
+  logo?: string | null   // brand logo URL (public.brands.profile_url); null → initials badge
 }
 
 export const BRANDS: DashBrand[] = [

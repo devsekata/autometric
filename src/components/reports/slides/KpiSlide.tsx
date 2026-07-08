@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide, ConfigBlock } from '@/lib/reports/data/slideModel'
-import { KpiMetric, deltaIsGood, getKpiMetric } from '@/lib/reports/data/kpiMetrics'
+import { KpiMetric, deltaIsGood, kpiMetricFor } from '@/lib/reports/data/kpiMetrics'
+import { useReportKpi } from '@/lib/reports/data/metricsContext'
 import { PJ, InsightsBlock } from './parts'
 import { ChartBlock } from './charts'
 
@@ -52,11 +53,17 @@ function Scorecard({ metric, accent, count, editable, onClick }: { metric: KpiMe
       </div>
       <div style={{ fontSize: s.value, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', lineHeight: 1, ...PJ }}>{metric.value}</div>
       <div className="flex items-center" style={{ gap: '0.6cqw' }}>
-        <span className="flex items-center rounded-full" style={{ gap: '0.2cqw', fontSize: s.trend, fontWeight: 800, padding: '0.2cqh 0.7cqw', color: good ? '#16a34a' : '#dc2626', background: good ? '#f0fdf4' : '#fef2f2', ...PJ }}>
-          <span className="material-symbols-outlined" style={{ fontSize: `calc(${s.trend} + 0.4cqw)` }}>{metric.delta >= 0 ? 'arrow_outward' : 'south_east'}</span>
-          {Math.abs(metric.delta)}%
-        </span>
-        <span style={{ fontSize: s.cap, color: '#94a3b8', ...PJ }}>vs last period</span>
+        {metric.hasDelta === false ? (
+          <span style={{ fontSize: s.cap, color: '#94a3b8', ...PJ }}>No prior-period data</span>
+        ) : (
+          <>
+            <span className="flex items-center rounded-full" style={{ gap: '0.2cqw', fontSize: s.trend, fontWeight: 800, padding: '0.2cqh 0.7cqw', color: good ? '#16a34a' : '#dc2626', background: good ? '#f0fdf4' : '#fef2f2', ...PJ }}>
+              <span className="material-symbols-outlined" style={{ fontSize: `calc(${s.trend} + 0.4cqw)` }}>{metric.delta >= 0 ? 'arrow_outward' : 'south_east'}</span>
+              {Math.abs(metric.delta)}%
+            </span>
+            <span style={{ fontSize: s.cap, color: '#94a3b8', ...PJ }}>vs last period</span>
+          </>
+        )}
       </div>
     </div>
   )
@@ -78,6 +85,9 @@ export default function KpiSlide({
 }) {
   const [countOpen, setCountOpen] = useState(false)
   const count = slide.metricCount
+  const kpi = useReportKpi()
+  // Real scorecard values only — "—" while loading or when a metric has no data (never dummy).
+  const metricFor = (key: string | null) => kpiMetricFor(kpi, slide.channel, key)
 
   return (
     <>
@@ -97,7 +107,7 @@ export default function KpiSlide({
           {Array.from({ length: count }, (_, i) => (
             <div key={i} style={{ flex: 1, minWidth: 0 }}>
               <Scorecard
-                metric={getKpiMetric(slide.kpiMetrics[i] ?? null)}
+                metric={metricFor(slide.kpiMetrics[i] ?? null)}
                 accent={colors.primary}
                 count={count}
                 editable={editable}
@@ -111,7 +121,7 @@ export default function KpiSlide({
       {/* Deep dive + summary */}
       <div className="flex-1 flex min-h-0" style={{ gap: '2cqw' }}>
         <div style={{ flex: 2, minWidth: 0 }}>
-          <ChartBlock config={slide.chart} colors={colors} editable={editable} onConfigure={() => onConfigure?.('chart')} placeholderLabel="Deep dive analysis" />
+          <ChartBlock config={slide.chart} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('chart')} placeholderLabel="Deep dive analysis" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <InsightsBlock value={slide.insights} editable={editable} onChange={v => onChange?.({ ...slide, insights: v })} label="Summary & actions" />

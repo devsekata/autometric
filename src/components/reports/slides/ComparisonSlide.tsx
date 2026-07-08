@@ -22,10 +22,10 @@ export default function ComparisonSlide({
     <>
       <div className="flex-1 flex min-h-0" style={{ gap: '2.2cqw' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <ChartBlock config={slide.chartA} colors={colors} editable={editable} onConfigure={() => onConfigure?.('chartA')} placeholderLabel="Period A / Segment A" />
+          <ChartBlock config={slide.chartA} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('chartA')} placeholderLabel="Period A / Segment A" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <ChartBlock config={slide.chartB} colors={colors} editable={editable} onConfigure={() => onConfigure?.('chartB')} placeholderLabel="Period B / Segment B" />
+          <ChartBlock config={slide.chartB} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('chartB')} placeholderLabel="Period B / Segment B" />
         </div>
       </div>
       <div style={{ height: '22cqh', flexShrink: 0 }}>

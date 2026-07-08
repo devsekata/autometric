@@ -7,6 +7,7 @@ import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
 import { initialCompetitorSync } from '@/lib/hiker/sync'
 import { initialFbCompetitorSync, initialTiktokCompetitorSync } from '@/lib/apify/sync'
 import { competitorHasSnapshot } from '@/lib/competitors/queries'
+import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -34,6 +35,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
 // POST /api/brands/[brandId]/competitors
 export async function POST(req: NextRequest, { params }: Params) {
   try {
+    // Adding competitors is temporarily disabled app-wide (see @/lib/featureFlags).
+    if (!COMPETITOR_ADD_ENABLED) {
+      return NextResponse.json({ error: 'Adding competitors is temporarily disabled.' }, { status: 403 })
+    }
+
     const session = await auth()
     const userId = session?.user?.id
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

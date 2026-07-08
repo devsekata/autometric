@@ -1,21 +1,28 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { BRANDS } from '@/components/dashboard/data'
+import type { DashBrand } from '@/components/dashboard/data'
 import { CoverColors, CoverMode, extractPalette, normalizeHex } from '@/lib/reports/cover/colors'
 import { COVER_TEMPLATES, getTemplate } from '@/lib/reports/cover/templates'
 import { exportCoverPptx } from '@/lib/reports/export/exportCover'
 import { exportReportPptx } from '@/lib/reports/export/exportReport'
-import { downloadBlob, saveExportToLibrary } from '@/lib/reports/export/clientSave'
+import { downloadBlob, saveExportToLibrary, saveTemplateToLibrary } from '@/lib/reports/export/clientSave'
+import { ReportTableMetrics } from '@/lib/reports/data/tableTypes'
+import { ReportChartMetrics } from '@/lib/reports/data/chartTypes'
+import { ReportKpiMetrics } from '@/lib/reports/data/kpiMetrics'
+import { ReportPostMetrics } from '@/lib/reports/data/posts'
+import { ReportMetricsContext, ReportChartContext, ReportKpiContext, ReportPostContext } from '@/lib/reports/data/metricsContext'
 import {
   ContentSlide, SlideType, SlideChrome, ConfigBlock, ChartConfig, TableConfig, makeSlide,
+  type ReportTemplateConfig, type ReportTemplateRecord,
 } from '@/lib/reports/data/slideModel'
 import CoverPreview from '../cover/CoverPreview'
 import SlideTypePicker from '../modals/SlideTypePicker'
 import ChartSelectionModal from '../modals/ChartSelectionModal'
 import TableSelectionModal from '../modals/TableSelectionModal'
 import MetricPickerModal from '../modals/MetricPickerModal'
+import SaveTemplateModal from '../modals/SaveTemplateModal'
 import Stepper, { Step } from './Stepper'
 import SetupStep from './SetupStep'
 import SlidesReview from './SlidesReview'
@@ -25,38 +32,68 @@ import { MONTHS, NOW } from './constants'
 
 let slideSeq = 0
 
+// Seed slides from a saved template: fresh ids + cleared insights (insights are
+// data-specific to the original report, so the user re-writes them per apply).
+function seedTemplateSlides(slides: ContentSlide[]): ContentSlide[] {
+  return slides.map((s, i) => ({ ...s, id: `tpl-${i}-${s.type}`, insights: '' }))
+}
+
+// Fetch a remote image (the brand logo) and convert it to a data URL, so it behaves
+// EXACTLY like a manually uploaded logo — same preview + PPTX export path, no
+// cross-origin canvas taint. Returns null if it can't be fetched/decoded.
+async function urlToDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return await new Promise<string | null>(resolve => {
+      const r = new FileReader()
+      r.onload = () => resolve(r.result as string)
+      r.onerror = () => resolve(null)
+      r.readAsDataURL(blob)
+    })
+  } catch { return null }
+}
+
 export default function ReportBuilder({
   orgName,
   orgId,
+  brands,
+  templates,
   onExit,
   initialTemplateId,
 }: {
   orgName: string
   orgId: string
+  brands: DashBrand[]
+  templates: ReportTemplateRecord[]
   onExit?: () => void
   initialTemplateId?: string
 }) {
   const router = useRouter()
   const [step, setStep] = useState<Step>('setup')
 
-  // Setup state
-  const [brandId, setBrandId] = useState(BRANDS[0].id)
+  // Setup state — brands come from the DB (real, org-scoped).
+  const [brandId, setBrandId] = useState(brands[0]?.id ?? '')
   const [month, setMonth] = useState(MONTHS[NOW.getMonth()])
   const [year, setYear] = useState(NOW.getFullYear())
   const [title, setTitle] = useState('Social Media Performance Report')
   const [subtitle, setSubtitle] = useState('Monthly Analytics & Insights')
   const [font, setFont] = useState('Calibri')
 
-  // Cover state
+  // Cover state. Branding (colors/logo) stays brand-driven.
   const [templateId, setTemplateId] = useState(initialTemplateId ?? COVER_TEMPLATES[0].id)
   const [mode, setMode] = useState<CoverMode>('light')
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null)
+  // true once the user uploads their own logo → stop auto-filling from the brand.
+  const [logoIsManual, setLogoIsManual] = useState(false)
   const [colors, setColors] = useState<CoverColors>({
-    primary: BRANDS[0].color,
+    primary: brands[0]?.color ?? '#1e4f49',
     secondary: '#3d7e96',
     accent: '#e0a458',
   })
   const [isExporting, setIsExporting] = useState(false)
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const coverCaptureRef = useRef<HTMLDivElement>(null)
 
@@ -72,7 +109,7 @@ export default function ReportBuilder({
     }
   }
 
-  // Slides state (Stage 2 — per-slide editing). Starts fresh: cover only.
+  // Slides state (Stage 2 — per-slide editing). Starts empty.
   const [slides, setSlides] = useState<ContentSlide[]>([])
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -80,8 +117,64 @@ export default function ReportBuilder({
   const activeIndex = slides.findIndex(s => s.id === activeSlideId)
   const activeSlide = slides[activeIndex]
 
-  const brand = useMemo(() => BRANDS.find(b => b.id === brandId)!, [brandId])
+  const brand = useMemo(() => brands.find(b => b.id === brandId) ?? null, [brands, brandId])
+  const brandName = brand?.name ?? ''
   const period = `${month} ${year}`
+
+  // Real Content/Channel Level table values for this brand + period (current vs
+  // previous month). Provided via context so TableBlock renders live DB numbers.
+  const [tableMetrics, setTableMetrics] = useState<ReportTableMetrics | null>(null)
+  // Real line-chart time series for this brand + period (report month + 2 prior),
+  // provided via context so ChartBlock renders live DB numbers.
+  const [chartMetrics, setChartMetrics] = useState<ReportChartMetrics | null>(null)
+  // Real KPI scorecard values for this brand + period (current vs previous month).
+  const [kpiMetrics, setKpiMetrics] = useState<ReportKpiMetrics | null>(null)
+  // Live post pool (per channel) for this brand + report month, provided via context
+  // so the Visual Analysis slide ranks real posts by Format / Pillar / metric.
+  const [postMetrics, setPostMetrics] = useState<ReportPostMetrics | null>(null)
+  useEffect(() => {
+    if (!brandId) { setTableMetrics(null); setChartMetrics(null); setKpiMetrics(null); setPostMetrics(null); return }
+    const monthNum = MONTHS.indexOf(month) + 1
+    let alive = true
+    setTableMetrics(null); setChartMetrics(null); setKpiMetrics(null); setPostMetrics(null)
+    const base = `/api/organizations/${encodeURIComponent(orgId)}/reports`
+    const qs = `brand=${encodeURIComponent(brandId)}&year=${year}&month=${monthNum}`
+    fetch(`${base}/table-metrics?${qs}`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: ReportTableMetrics | null) => { if (alive) setTableMetrics(d) })
+      .catch(e => { if (alive) { console.error('[report] table metrics fetch failed:', e); setTableMetrics(null) } })
+    fetch(`${base}/chart-metrics?${qs}`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: ReportChartMetrics | null) => { if (alive) setChartMetrics(d) })
+      .catch(e => { if (alive) { console.error('[report] chart metrics fetch failed:', e); setChartMetrics(null) } })
+    fetch(`${base}/kpi-metrics?${qs}`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: ReportKpiMetrics | null) => { if (alive) setKpiMetrics(d) })
+      .catch(e => { if (alive) { console.error('[report] kpi metrics fetch failed:', e); setKpiMetrics(null) } })
+    fetch(`${base}/post-metrics?${qs}`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: ReportPostMetrics | null) => { if (alive) setPostMetrics(d) })
+      .catch(e => { if (alive) { console.error('[report] post metrics fetch failed:', e); setPostMetrics(null) } })
+    return () => { alive = false }
+  }, [orgId, brandId, month, year])
+
+  // Auto-fill the cover logo from the selected brand's logo (public.brands.profile_url),
+  // treated exactly like an uploaded logo (fetched to a data URL + palette extracted).
+  // A manual upload overrides it; switching brand re-loads the new brand's logo.
+  useEffect(() => {
+    if (logoIsManual) return
+    const url = brands.find(b => b.id === brandId)?.logo ?? null
+    if (!url) { setLogoDataUrl(null); return }
+    let alive = true
+    urlToDataUrl(url).then(async dataUrl => {
+      if (!alive || !dataUrl) return
+      setLogoDataUrl(dataUrl)
+      const palette = await extractPalette(dataUrl)
+      if (alive && palette) setColors(palette)
+    })
+    return () => { alive = false }
+  }, [brandId, brands, logoIsManual])
+
   const template = getTemplate(templateId)
   const kpiSlot = typeof configBlock === 'string' && configBlock.startsWith('kpi-') ? Number(configBlock.slice(4)) : null
 
@@ -126,7 +219,7 @@ export default function ReportBuilder({
 
   // Per-slide chrome (footer + page numbers). Cover is page 1; content slides follow.
   const chromeFor = (index: number): SlideChrome => ({
-    brandName: brand.name,
+    brandName,
     period,
     preparedBy: 'Sekata',
     logoDataUrl,
@@ -139,11 +232,13 @@ export default function ReportBuilder({
 
   function handleBrandChange(id: string) {
     setBrandId(id)
-    const b = BRANDS.find(x => x.id === id)
+    setLogoIsManual(false)   // new brand → auto-load its logo (unless re-uploaded)
+    const b = brands.find(x => x.id === id)
     if (b) setColors(c => ({ ...c, primary: b.color }))
   }
 
   async function handleLogo(file: File) {
+    setLogoIsManual(true)    // manual upload overrides the brand's auto logo
     const reader = new FileReader()
     reader.onload = async () => {
       const dataUrl = reader.result as string
@@ -157,10 +252,10 @@ export default function ReportBuilder({
   async function handleExport(exportMode: 'export' | 'export-save' = 'export') {
     setIsExporting(true)
     try {
-      const cover = { brandName: brand.name, title, subtitle, period, logoDataUrl, colors, mode, template, font }
+      const cover = { brandName, title, subtitle, period, logoDataUrl, colors, mode, template, font }
       const { blob, fileName } = slides.length === 0
         ? await exportCoverPptx(cover)
-        : await exportReportPptx({ cover, slides, chromes: slides.map((_, i) => chromeFor(i)), colors, brandName: brand.name, font })
+        : await exportReportPptx({ cover, slides, chromes: slides.map((_, i) => chromeFor(i)), colors, brandName, font, metrics: tableMetrics, chartMetrics, kpiMetrics, postMetrics })
 
       downloadBlob(blob, fileName)
 
@@ -168,7 +263,7 @@ export default function ReportBuilder({
         const coverImage = await captureCover()
         const result = await saveExportToLibrary(orgId, blob, fileName, {
           title,
-          brandName: brand.name,
+          brandName,
           period,
           slideCount: slides.length + 1, // + cover
           config: { subtitle, brandId, templateId, mode, colors, month, year },
@@ -189,19 +284,43 @@ export default function ReportBuilder({
     }
   }
 
-  function handleSaveTemplate() {
-    // TODO: persist the current report config (cover + slides + theme) as a reusable
-    // template (UI only for now — save wiring pending).
-    console.log('[template] save requested — wiring pending')
+  // Apply a saved template from the Setup step: replace slides + cover style only.
+  // Brand/period/colors/logo stay as the user set them. Returns false if cancelled.
+  function applyTemplate(config: ReportTemplateConfig): boolean {
+    if (slides.length > 0 && !window.confirm('Replace the current slides with this template’s structure?')) return false
+    setSlides(seedTemplateSlides(config.slides))
+    setTemplateId(config.cover.templateId)
+    setMode(config.cover.mode)
+    setFont(config.cover.font)
+    setTitle(config.cover.title)
+    setSubtitle(config.cover.subtitle)
+    return true
+  }
+
+  // Persist the current report structure as a reusable template. Called by the
+  // Save Template modal (which owns the name field + loading/error state).
+  async function saveTemplate(name: string): Promise<{ ok: boolean; error?: string }> {
+    // A template = structure only: cover style + slides, no brand/period/data.
+    const config: ReportTemplateConfig = {
+      cover: { templateId, mode, font, title, subtitle },
+      slides,
+    }
+    const res = await saveTemplateToLibrary(orgId, name, brandName || null, config)
+    if (res.ok) router.refresh()
+    return res
   }
 
   return (
+    <ReportMetricsContext.Provider value={tableMetrics}>
+    <ReportChartContext.Provider value={chartMetrics}>
+    <ReportKpiContext.Provider value={kpiMetrics}>
+    <ReportPostContext.Provider value={postMetrics}>
     <div className="min-h-screen bg-[#f7f8f9]">
       {/* Off-screen full-size cover — rasterized to a PNG for the history preview */}
       <div aria-hidden style={{ position: 'fixed', left: -10000, top: 0, width: 1200, pointerEvents: 'none', zIndex: -1 }}>
         <div ref={coverCaptureRef}>
           <CoverPreview
-            brandName={brand.name}
+            brandName={brandName}
             title={title} subtitle={subtitle} period={period}
             logoDataUrl={logoDataUrl} colors={colors} mode={mode} template={template} font={font}
           />
@@ -234,6 +353,9 @@ export default function ReportBuilder({
       <div className="px-8 py-8">
         {step === 'setup' && (
           <SetupStep
+            brands={brands}
+            templates={templates}
+            onUseTemplate={applyTemplate}
             brandId={brandId} onBrand={handleBrandChange}
             month={month} setMonth={setMonth} year={year} setYear={setYear}
             title={title} setTitle={setTitle} subtitle={subtitle} setSubtitle={setSubtitle}
@@ -358,7 +480,7 @@ export default function ReportBuilder({
                   {/* Cover with deep, soft shadow */}
                   <div className="rounded-2xl shadow-[0_30px_60px_-22px_rgba(16,24,40,0.40)]">
                     <CoverPreview
-                      brandName={brand.name}
+                      brandName={brandName}
                       title={title} subtitle={subtitle} period={period}
                       logoDataUrl={logoDataUrl} colors={colors} mode={mode} template={template} font={font}
                     />
@@ -367,7 +489,7 @@ export default function ReportBuilder({
                   {/* Meta + continue */}
                   <div className="flex items-center justify-between mt-6 px-1">
                     <div className="min-w-0">
-                      <p style={PJ} className="text-[13.5px] font-bold text-[#0f172a] truncate">{brand.name}</p>
+                      <p style={PJ} className="text-[13.5px] font-bold text-[#0f172a] truncate">{brandName || 'No brand'}</p>
                       <p className="text-[12px] text-[#94a3b8] mt-0.5">{period} · 16:9 · PPTX</p>
                     </div>
                     <button
@@ -396,10 +518,10 @@ export default function ReportBuilder({
             onRename={(id, t) => updateSlide({ ...slides.find(s => s.id === id)!, title: t })}
             onDelete={deleteSlide}
             onExport={handleExport}
-            onSaveTemplate={handleSaveTemplate}
+            onSaveTemplate={() => setSaveTemplateOpen(true)}
             cover={
               <CoverPreview
-                brandName={brand.name}
+                brandName={brandName}
                 title={title} subtitle={subtitle} period={period}
                 logoDataUrl={logoDataUrl} colors={colors} mode={mode} template={template}
               />
@@ -441,6 +563,7 @@ export default function ReportBuilder({
       <TableSelectionModal
         open={configBlock === 'table'}
         initial={activeSlide?.table ?? null}
+        channel={activeSlide?.channel ?? 'instagram'}
         onClose={() => setConfigBlock(null)}
         onConfirm={applyTable}
       />
@@ -448,9 +571,21 @@ export default function ReportBuilder({
       <MetricPickerModal
         open={typeof configBlock === 'string' && configBlock.startsWith('kpi-')}
         current={kpiSlot !== null && activeSlide ? activeSlide.kpiMetrics[kpiSlot] ?? null : null}
+        channel={activeSlide?.channel ?? 'instagram'}
         onClose={() => setConfigBlock(null)}
         onSelect={applyMetric}
       />
+
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        defaultName={title || 'My report template'}
+        onClose={() => setSaveTemplateOpen(false)}
+        onSave={saveTemplate}
+      />
     </div>
+    </ReportPostContext.Provider>
+    </ReportKpiContext.Provider>
+    </ReportChartContext.Provider>
+    </ReportMetricsContext.Provider>
   )
 }

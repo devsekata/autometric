@@ -60,12 +60,12 @@ export default function OverviewSlide({
         ) : mode === 'chart' ? (
           <div className="h-full relative">
             {editable && <SwitchButton onClick={() => onChange?.({ ...slide, visualMode: null, chart: null })} />}
-            <ChartBlock config={slide.chart} colors={colors} editable={editable} onConfigure={() => onConfigure?.('chart')} placeholderLabel="Select visualization" />
+            <ChartBlock config={slide.chart} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('chart')} placeholderLabel="Select visualization" />
           </div>
         ) : (
           <div className="h-full relative">
             {editable && <SwitchButton onClick={() => onChange?.({ ...slide, visualMode: null, table: null })} />}
-            <TableBlock config={slide.table} colors={colors} editable={editable} onConfigure={() => onConfigure?.('table')} />
+            <TableBlock config={slide.table} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('table')} />
           </div>
         )}
       </div>

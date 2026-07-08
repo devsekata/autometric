@@ -69,6 +69,16 @@ export function Title({ value, editable, onChange }: { value: string; editable: 
 }
 
 export function ChannelBadge({ channel }: { channel: string }) {
+  // "All channels" — a compact row of every platform logo.
+  if (channel === 'all') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6cqw' }}>
+        {(['instagram', 'facebook', 'tiktok'] as const).map(p => (
+          <img key={p} src={PLATFORM_META[p].logo} alt={PLATFORM_META[p].label} style={{ width: '2.8cqw', height: '2.8cqw', objectFit: 'contain' }} />
+        ))}
+      </div>
+    )
+  }
   const meta = PLATFORM_META[channel as keyof typeof PLATFORM_META]
   if (!meta) return null
   // Logo only — no background, no label.
