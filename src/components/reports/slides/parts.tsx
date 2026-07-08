@@ -189,25 +189,25 @@ export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insi
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
+      <div className="flex-1 min-h-0" style={{ display: 'flex', flexDirection: 'column', gap: '0.7cqh', overflowY: 'auto', overflowX: 'hidden', paddingRight: '0.4cqw' }}>
         {insight ? (
           <>
             {editable && editingAnalysis ? (
               <textarea autoFocus value={insight.analysis}
                 onChange={e => onChange?.({ ...slide, aiInsight: { ...insight, analysis: e.target.value } })}
                 onBlur={() => setEditingAnalysis(false)}
-                style={{ ...textStyle, width: '100%', minHeight: '5cqh', background: 'transparent', outline: 'none', resize: 'none' }} />
+                style={{ fontSize: '1.3cqw', color: '#475569', lineHeight: 1.4, width: '100%', minHeight: '7cqh', flexShrink: 0, background: 'transparent', outline: 'none', resize: 'none', ...PJ }} />
             ) : (
-              <div onClick={() => editable && setEditingAnalysis(true)} style={{ ...textStyle, cursor: editable ? 'text' : 'default' }}>
+              <div onClick={() => editable && setEditingAnalysis(true)} style={{ fontSize: '1.3cqw', color: '#475569', lineHeight: 1.4, flexShrink: 0, cursor: editable ? 'text' : 'default', ...PJ }}>
                 {renderBold(insight.analysis)}
               </div>
             )}
             {insight.recommendations.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55cqh' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45cqh', flexShrink: 0 }}>
                 {insight.recommendations.map((r, i) => (
-                  <div key={i} className="flex items-start" style={{ gap: '0.7cqw' }}>
-                    <span style={{ flexShrink: 0, fontSize: '0.85cqw', fontWeight: 800, letterSpacing: '0.03em', color: REC_STYLE[r.type].color, background: REC_STYLE[r.type].bg, borderRadius: '0.4cqw', padding: '0.25cqh 0.65cqw', ...PJ }}>{r.type}</span>
-                    <span style={{ fontSize: '1.2cqw', color: '#334155', lineHeight: 1.4, flex: 1, ...PJ }}>{r.text}</span>
+                  <div key={i} className="flex items-start" style={{ gap: '0.6cqw' }}>
+                    <span style={{ flexShrink: 0, fontSize: '0.78cqw', fontWeight: 800, letterSpacing: '0.02em', color: REC_STYLE[r.type].color, background: REC_STYLE[r.type].bg, borderRadius: '0.4cqw', padding: '0.2cqh 0.55cqw', ...PJ }}>{r.type}</span>
+                    <span style={{ fontSize: '1.12cqw', color: '#334155', lineHeight: 1.32, flex: 1, ...PJ }}>{r.text}</span>
                     {editable && (
                       <button onClick={() => onChange?.({ ...slide, aiInsight: { ...insight, recommendations: insight.recommendations.filter((_, j) => j !== i) } })}
                         className="material-symbols-outlined" style={{ fontSize: '1.1cqw', color: '#cbd5e1', flexShrink: 0 }}>close</button>
