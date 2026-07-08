@@ -37,18 +37,18 @@ BEHAVIORAL RULES — NEVER DO THESE
 OUTPUT FORMAT — STRICT (return ONLY these two sections)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Section 1 — ANALYSIS (required):
-Flowing prose covering Layers 1–3. Use **bold** for ALL numbers and percentages. STRICT LIMIT: 1–2 sentences, max 240 characters total. Start directly with the finding — no label, no heading.
+One flowing sentence covering the key pattern (Layers 1–3). Use **bold** for ALL numbers and percentages. STRICT LIMIT: exactly 1 sentence, max 150 characters total. Start directly with the finding — no label, no heading.
 
 [blank line]
 
 Section 2 — RECOMMENDATIONS (required):
-Each recommendation is exactly one line "LABEL: text" (no line breaks within a recommendation):
-SCALE: [what shows strong consistent performance worth increasing — max 80 chars]
-REFINE: [what has potential but needs improvement — max 80 chars]
-EXPLORE: [untested/underused directions the data suggests — max 80 chars]
-STOP: [what is consistently underperforming and should be deprioritized — max 80 chars]
+Give AT MOST 3 recommendations — only the most impactful ones the data clearly supports. NEVER more than 3 lines. Each is exactly one line "LABEL: text" (no line breaks within a recommendation):
+SCALE: [strong consistent performance worth increasing — max 65 chars]
+REFINE: [has potential but needs improvement — max 65 chars]
+EXPLORE: [untested/underused direction the data suggests — max 65 chars]
+STOP: [consistently underperforming, deprioritize — max 65 chars]
 
-Rules: if a category is NOT supported by the data, OMIT the line entirely (never write "None"/placeholder). If supported it MUST appear (truncate rather than skip). No heading, preamble, or closing remark.
+Rules: pick the 3 (or fewer) most important categories; OMIT the rest entirely (never write "None"/placeholder). Truncate text rather than exceed 65 chars. No heading, preamble, or closing remark.
 `.trim()
 
 /** Per-slide-type analytical focus appended to the data prompt. */
@@ -78,8 +78,8 @@ export function buildInsightPrompt(ctx: InsightContext): string {
     `Data:\n${JSON.stringify(ctx.data, null, 2)}\n\n` +
     (focus ? `Analytical focus: ${focus}\n\n` : '') +
     `Apply the four-layer reasoning framework. Bold all numbers and percentages. ` +
-    `Analysis: 1–2 sentences, max 240 characters. Recommendations: one line each, max 80 characters, ` +
-    `omit unsupported categories entirely (never write None), truncate rather than skip supported ones. ` +
+    `Analysis: exactly 1 sentence, max 150 characters. Recommendations: AT MOST 3 (the most impactful), ` +
+    `one line each, max 65 characters, omit unsupported categories entirely (never write None). ` +
     `Follow the strict two-section output format exactly.`
   )
 }

@@ -163,8 +163,6 @@ async function chartCard(
   })
 }
 
-const REC_HEX: Record<string, string> = { SCALE: '15803D', REFINE: 'B45309', EXPLORE: '1D4ED8', STOP: 'B91C1C' }
-
 /** Split "**bold**" markers into pptx text runs. */
 function boldRuns(text: string): { text: string; options: { bold: boolean } }[] {
   return text.split(/(\*\*[^*]+\*\*)/g).filter(s => s !== '').map(p =>
@@ -183,12 +181,12 @@ function insightsCard(slide: Slide, content: { text: string; ai: AiInsight | nul
   if (hasAi) {
     const runs: Record<string, unknown>[] = []
     if (ai!.analysis) {
-      boldRuns(ai!.analysis).forEach(r => runs.push({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: FS(1.45) } }))
-      if (ai!.recommendations.length) runs.push({ text: '\n', options: { breakLine: true, fontSize: FS(0.8) } })
+      boldRuns(ai!.analysis).forEach(r => runs.push({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: FS(1.25) } }))
+      if (ai!.recommendations.length) runs.push({ text: '\n', options: { breakLine: true, fontSize: FS(0.7) } })
     }
     ai!.recommendations.forEach((r, i) => {
-      runs.push({ text: `${r.type}  `, options: { bold: true, color: REC_HEX[r.type] ?? '334155', fontSize: FS(1.2) } })
-      runs.push({ text: r.text, options: { color: '334155', fontSize: FS(1.25), breakLine: i < ai!.recommendations.length - 1 } })
+      runs.push({ text: `${r.type}  `, options: { bold: true, color: '334155', fontSize: FS(1.05) } })
+      runs.push({ text: r.text, options: { color: '334155', fontSize: FS(1.1), breakLine: i < ai!.recommendations.length - 1 } })
     })
     slide.addText(runs, { ...bodyOpts, lineSpacingMultiple: 1.2 })
   } else {
