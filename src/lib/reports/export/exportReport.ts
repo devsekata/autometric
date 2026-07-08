@@ -12,7 +12,7 @@ import { computeWordCloud, WC_W, WC_H, WC_FONT } from '../data/wordcloudLayout'
 import { KpiMetric, ReportKpiMetrics, deltaIsGood, kpiMetricFor } from '../data/kpiMetrics'
 import { buildPosts, metricLabel as postMetricLabel, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, availableFilterIds, effectiveFilterId, type ReportPostMetrics } from '../data/posts'
 import { PLATFORM_META, type DashPlatform } from '@/components/dashboard/data'
-import type { ContentSlide, SlideChrome } from '../data/slideModel'
+import type { ContentSlide, SlideChrome, AiInsight } from '../data/slideModel'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Slide = any
@@ -163,12 +163,37 @@ async function chartCard(
   })
 }
 
-function insightsCard(slide: Slide, value: string, x: number, y: number, w: number, h: number, label: string) {
-  if (!value) { placeholder(slide, x, y, w, h, label === 'KEY INSIGHTS' ? 'AI KEY INSIGHTS' : label); return }
+const REC_HEX: Record<string, string> = { SCALE: '15803D', REFINE: 'B45309', EXPLORE: '1D4ED8', STOP: 'B91C1C' }
+
+/** Split "**bold**" markers into pptx text runs. */
+function boldRuns(text: string): { text: string; options: { bold: boolean } }[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).filter(s => s !== '').map(p =>
+    p.startsWith('**') && p.endsWith('**') ? { text: p.slice(2, -2), options: { bold: true } } : { text: p, options: { bold: false } })
+}
+
+function insightsCard(slide: Slide, content: { text: string; ai: AiInsight | null }, x: number, y: number, w: number, h: number, label: string) {
+  const ai = content.ai
+  const hasAi = !!ai && (!!ai.analysis || ai.recommendations.length > 0)
+  if (!hasAi && !content.text) { placeholder(slide, x, y, w, h, label === 'KEY INSIGHTS' ? 'AI KEY INSIGHTS' : label); return }
   card(slide, x, y, w, h)
   const pad = W(1.6)
   slide.addText(label, { x: x + pad, y: y + H(1.6), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '1E4F49', fontFace: PJ })
-  slide.addText(value, { x: x + pad, y: y + H(5), w: w - 2 * pad, h: h - H(6), fontSize: FS(1.45), color: '475569', align: 'left', valign: 'top', lineSpacingMultiple: 1.3, fontFace: PJ })
+
+  const bodyOpts = { x: x + pad, y: y + H(5), w: w - 2 * pad, h: h - H(6), align: 'left' as const, valign: 'top' as const, fontFace: PJ }
+  if (hasAi) {
+    const runs: Record<string, unknown>[] = []
+    if (ai!.analysis) {
+      boldRuns(ai!.analysis).forEach(r => runs.push({ text: r.text, options: { bold: r.options.bold, color: r.options.bold ? '0F172A' : '475569', fontSize: FS(1.45) } }))
+      if (ai!.recommendations.length) runs.push({ text: '\n', options: { breakLine: true, fontSize: FS(0.8) } })
+    }
+    ai!.recommendations.forEach((r, i) => {
+      runs.push({ text: `${r.type}  `, options: { bold: true, color: REC_HEX[r.type] ?? '334155', fontSize: FS(1.2) } })
+      runs.push({ text: r.text, options: { color: '334155', fontSize: FS(1.25), breakLine: i < ai!.recommendations.length - 1 } })
+    })
+    slide.addText(runs, { ...bodyOpts, lineSpacingMultiple: 1.2 })
+  } else {
+    slide.addText(content.text, { ...bodyOpts, fontSize: FS(1.45), color: '475569', lineSpacingMultiple: 1.3 })
+  }
 }
 
 // Resolve the real metric sub-map for a table (content/channel level) on a channel.
@@ -302,7 +327,7 @@ async function addDashboardSlide(pptx: any, slide: ContentSlide, chrome: SlideCh
   const ry = H(18), rh = H(37)
   const chartW = W(58.4), insW = W(31.6)
   await chartCard(pptx, s, slide.chart, colors, hx, ry, chartW, rh, 'MAIN CHART AREA', chartMetrics, slide.channel)
-  insightsCard(s, slide.insights, hx + chartW + W(2), ry, insW, rh, 'KEY INSIGHTS')
+  insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx + chartW + W(2), ry, insW, rh, 'KEY INSIGHTS')
   tableCard(s, slide.table, colors, hx, H(57), hw, H(30), sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel))
   await footer(s, chrome, colors, hx, H(89), hw)
 }
@@ -317,7 +342,7 @@ async function addComparisonSlide(pptx: any, slide: ContentSlide, chrome: SlideC
   const cy = H(18), chH = H(45), cw = W(45)
   await chartCard(pptx, s, slide.chartA, colors, hx, cy, cw, chH, 'PERIOD A / SEGMENT A', chartMetrics, slide.channel)
   await chartCard(pptx, s, slide.chartB, colors, hx + cw + W(2), cy, cw, chH, 'PERIOD B / SEGMENT B', chartMetrics, slide.channel)
-  insightsCard(s, slide.insights, hx, H(65), hw, H(22), 'COMPARATIVE ANALYSIS & NOTES')
+  insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx, H(65), hw, H(22), 'COMPARATIVE ANALYSIS & NOTES')
   await footer(s, chrome, colors, hx, H(89), hw)
 }
 
@@ -362,7 +387,7 @@ async function addKpiSlide(pptx: any, slide: ContentSlide, chrome: SlideChrome, 
   const cy = H(37), ch = H(50)
   const chartW = W(60)
   await chartCard(pptx, s, slide.chart, colors, hx, cy, chartW, ch, 'DEEP DIVE ANALYSIS', chartMetrics, slide.channel)
-  insightsCard(s, slide.insights, hx + chartW + W(2), cy, hw - chartW - W(2), ch, 'SUMMARY & ACTIONS')
+  insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx + chartW + W(2), cy, hw - chartW - W(2), ch, 'SUMMARY & ACTIONS')
   await footer(s, chrome, colors, hx, H(89), hw)
 }
 
@@ -415,7 +440,7 @@ async function addVisualSlide(pptx: any, slide: ContentSlide, chrome: SlideChrom
   const gy = H(18), gh = H(49)
   for (let i = 0; i < posts.length; i++) await postCard(s, posts[i], shownMetrics, n, hx + i * (cw + gap), gy, cw, gh)
 
-  insightsCard(s, slide.insights, hx, H(69), hw, H(18), 'VISUAL STRATEGY NOTES & INSIGHTS')
+  insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx, H(69), hw, H(18), 'VISUAL STRATEGY NOTES & INSIGHTS')
   await footer(s, chrome, colors, hx, H(89), hw)
 }
 
@@ -431,7 +456,7 @@ async function addOverviewSlide(pptx: any, slide: ContentSlide, chrome: SlideChr
   else if (slide.visualMode === 'table') tableCard(s, slide.table, colors, hx, vy, hw, vh, sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel))
   else placeholder(s, hx, vy, hw, vh, 'SELECT A CHART OR TABLE')
 
-  insightsCard(s, slide.insights, hx, H(67), hw, H(20), 'COMPARATIVE ANALYSIS & NOTES')
+  insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx, H(67), hw, H(20), 'COMPARATIVE ANALYSIS & NOTES')
   await footer(s, chrome, colors, hx, H(89), hw)
 }
 

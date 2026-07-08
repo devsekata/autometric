@@ -11,6 +11,11 @@ export type { TableConfig } from './tableTypes'
 export type SlideType = 'section' | 'dashboard' | 'comparison' | 'kpi' | 'visual' | 'overview'
 export type VisualMode = 'chart' | 'table' | null
 
+// ── AI analyst insight (Gemini) ──────────────────────────────────────────────
+export type RecommendationType = 'SCALE' | 'REFINE' | 'EXPLORE' | 'STOP'
+export interface AiRecommendation { type: RecommendationType; text: string }
+export interface AiInsight { analysis: string; recommendations: AiRecommendation[] }
+
 export interface ContentSlide {
   id: string
   type: SlideType
@@ -31,6 +36,7 @@ export interface ContentSlide {
   postSortMetric: string     // visual — metric the top/low ranking is based on
   postMetrics: string[]      // visual — which post metrics to show
   visualMode: VisualMode     // overview — chart | table | null
+  aiInsight: AiInsight | null // AI analyst insight (analysis + typed recommendations)
 }
 
 /** Block keys that open a configuration modal. (`kpi-<index>` = a KPI scorecard) */
@@ -105,5 +111,6 @@ export function makeSlide(type: SlideType, seq: number, channel = 'instagram'): 
     postSortMetric: 'engagement',
     postMetrics: ['reach', 'engagement', 'er'],
     visualMode: null,
+    aiInsight: null,
   }
 }

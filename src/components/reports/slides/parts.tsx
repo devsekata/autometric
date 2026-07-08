@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
-import { SlideChrome } from '@/lib/reports/data/slideModel'
+import { SlideChrome, ContentSlide, RecommendationType } from '@/lib/reports/data/slideModel'
+import { useReportKpi, useReportAI } from '@/lib/reports/data/metricsContext'
+import { kpiDefsForChannel, kpiMetricFor, type KpiMetric, type ReportKpiMetrics } from '@/lib/reports/data/kpiMetrics'
 import { PLATFORM_META } from '@/components/dashboard/data'
 
 // Resolves to the report's selected font (set as --report-font on the slide root).
@@ -109,6 +111,122 @@ export function InsightsBlock({ value, editable, onChange, label = 'Key insights
           <div className="whitespace-pre-wrap overflow-hidden" style={{ ...style, height: '100%' }}>{value}</div>
         )}
       </div>
+    </Card>
+  )
+}
+
+// ── AI Key Insights (Gemini analyst) ─────────────────────────────────────────
+const REC_STYLE: Record<RecommendationType, { color: string; bg: string }> = {
+  SCALE:   { color: '#15803d', bg: '#f0fdf4' },
+  REFINE:  { color: '#b45309', bg: '#fffbeb' },
+  EXPLORE: { color: '#1d4ed8', bg: '#eff6ff' },
+  STOP:    { color: '#b91c1c', bg: '#fef2f2' },
+}
+
+/** Render **bold** markers as <strong>. */
+function renderBold(text: string): React.ReactNode {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i} style={{ fontWeight: 800, color: '#0f172a' }}>{part.slice(2, -2)}</strong>
+      : <span key={i}>{part}</span>,
+  )
+}
+
+/** Compact, real metric payload (channel KPIs with value + MoM change) for the AI. */
+function gatherSlideData(slide: ContentSlide, kpi: ReportKpiMetrics | null) {
+  const metrics = kpiDefsForChannel(slide.channel)
+    .map(d => kpiMetricFor(kpi, slide.channel, d.key))
+    .filter((m): m is KpiMetric => !!m && m.value !== '—' && m.value !== '')
+    .map(m => ({ metric: m.label, value: m.value, change: m.hasDelta === false ? 'n/a' : `${m.delta >= 0 ? '+' : ''}${m.delta}%` }))
+  return { channel: slide.channel, metrics }
+}
+
+export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insights' }: {
+  slide: ContentSlide; editable: boolean; onChange?: (next: ContentSlide) => void; label?: string
+}) {
+  const kpi = useReportKpi()
+  const ai = useReportAI()
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [editingAnalysis, setEditingAnalysis] = useState(false)
+  const insight = slide.aiInsight
+
+  async function generate() {
+    if (!ai || loading) return
+    setLoading(true); setErr(null)
+    try {
+      const data = gatherSlideData(slide, kpi)
+      const res = await fetch(`/api/organizations/${encodeURIComponent(ai.orgId)}/reports/ai-insight`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slideType: slide.type, channel: slide.channel, brandName: ai.brandName, period: ai.period, title: slide.title, data }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'Gagal generate')
+      onChange?.({ ...slide, aiInsight: { analysis: j.analysis || '', recommendations: Array.isArray(j.recommendations) ? j.recommendations : [] } })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Gagal generate')
+    } finally { setLoading(false) }
+  }
+
+  if (!insight && !slide.insights && !editable) {
+    return <Placeholder icon="auto_awesome" label={label} editable={false} />
+  }
+
+  const textStyle: React.CSSProperties = { fontSize: '1.4cqw', color: '#475569', lineHeight: 1.5, ...PJ }
+  return (
+    <Card style={{ padding: '1.7cqh 1.5cqw', display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
+      <div className="flex items-center justify-between" style={{ ...PJ }}>
+        <span className="flex items-center" style={{ gap: '0.5cqw', fontSize: '1.15cqw', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#1e4f49' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '1.6cqw' }}>auto_awesome</span>{label}
+        </span>
+        {editable && ai && (
+          <button onClick={generate} disabled={loading} title={insight ? 'Regenerate' : 'Generate with AI'}
+            className="flex items-center rounded-full transition-colors"
+            style={{ gap: '0.4cqw', fontSize: '1cqw', fontWeight: 700, padding: '0.5cqh 1cqw', color: loading ? '#94a3b8' : '#1e4f49', background: '#f2f8f5', border: '1px solid #cfe5dd', ...PJ }}>
+            <span className={`material-symbols-outlined ${loading ? 'animate-spin' : ''}`} style={{ fontSize: '1.3cqw' }}>{loading ? 'progress_activity' : 'auto_awesome'}</span>
+            {loading ? 'Generating…' : insight ? 'Regenerate' : 'Generate AI'}
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
+        {insight ? (
+          <>
+            {editable && editingAnalysis ? (
+              <textarea autoFocus value={insight.analysis}
+                onChange={e => onChange?.({ ...slide, aiInsight: { ...insight, analysis: e.target.value } })}
+                onBlur={() => setEditingAnalysis(false)}
+                style={{ ...textStyle, width: '100%', minHeight: '5cqh', background: 'transparent', outline: 'none', resize: 'none' }} />
+            ) : (
+              <div onClick={() => editable && setEditingAnalysis(true)} style={{ ...textStyle, cursor: editable ? 'text' : 'default' }}>
+                {renderBold(insight.analysis)}
+              </div>
+            )}
+            {insight.recommendations.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55cqh' }}>
+                {insight.recommendations.map((r, i) => (
+                  <div key={i} className="flex items-start" style={{ gap: '0.7cqw' }}>
+                    <span style={{ flexShrink: 0, fontSize: '0.85cqw', fontWeight: 800, letterSpacing: '0.03em', color: REC_STYLE[r.type].color, background: REC_STYLE[r.type].bg, borderRadius: '0.4cqw', padding: '0.25cqh 0.65cqw', ...PJ }}>{r.type}</span>
+                    <span style={{ fontSize: '1.2cqw', color: '#334155', lineHeight: 1.4, flex: 1, ...PJ }}>{r.text}</span>
+                    {editable && (
+                      <button onClick={() => onChange?.({ ...slide, aiInsight: { ...insight, recommendations: insight.recommendations.filter((_, j) => j !== i) } })}
+                        className="material-symbols-outlined" style={{ fontSize: '1.1cqw', color: '#cbd5e1', flexShrink: 0 }}>close</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : editable ? (
+          <textarea value={slide.insights} onChange={e => onChange?.({ ...slide, insights: e.target.value })}
+            placeholder="Klik ‘Generate AI’ atau ketik insight manual…"
+            style={{ ...textStyle, width: '100%', height: '100%', background: 'transparent', outline: 'none', resize: 'none' }}
+            className="placeholder:text-slate-300" />
+        ) : (
+          <div className="whitespace-pre-wrap" style={{ ...textStyle }}>{slide.insights}</div>
+        )}
+      </div>
+      {err && <span style={{ fontSize: '1cqw', color: '#dc2626', ...PJ }}>{err}</span>}
     </Card>
   )
 }

@@ -51,6 +51,13 @@ export function useReportPosts(): ReportPostMetrics | null {
   return useContext(ReportPostContext)
 }
 
+/** Report-level meta (org + brand + period) for the AI insight generator. */
+export interface ReportAIMeta { orgId: string; brandName: string; period: string }
+export const ReportAIContext = createContext<ReportAIMeta | null>(null)
+export function useReportAI(): ReportAIMeta | null {
+  return useContext(ReportAIContext)
+}
+
 /** Resolve the metrics sub-map for a table (by type) on a given channel. */
 export function sectionMetricsFor(
   metrics: ReportTableMetrics | null | undefined,

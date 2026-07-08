@@ -2,7 +2,7 @@
 
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide, ConfigBlock } from '@/lib/reports/data/slideModel'
-import { InsightsBlock } from './parts'
+import { AiInsightBlock } from './parts'
 import { ChartBlock } from './charts'
 
 /**
@@ -29,7 +29,7 @@ export default function ComparisonSlide({
         </div>
       </div>
       <div style={{ height: '22cqh', flexShrink: 0 }}>
-        <InsightsBlock value={slide.insights} editable={editable} onChange={v => onChange?.({ ...slide, insights: v })} label="Comparative analysis & notes" />
+        <AiInsightBlock slide={slide} editable={editable} onChange={onChange} label="Comparative analysis & notes" />
       </div>
     </>
   )

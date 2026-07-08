@@ -5,7 +5,7 @@ import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide, ConfigBlock } from '@/lib/reports/data/slideModel'
 import { KpiMetric, deltaIsGood, kpiMetricFor } from '@/lib/reports/data/kpiMetrics'
 import { useReportKpi } from '@/lib/reports/data/metricsContext'
-import { PJ, InsightsBlock } from './parts'
+import { PJ, AiInsightBlock } from './parts'
 import { ChartBlock } from './charts'
 
 const COUNTS = [3, 4, 5, 6]
@@ -124,7 +124,7 @@ export default function KpiSlide({
           <ChartBlock config={slide.chart} colors={colors} channel={slide.channel} editable={editable} onConfigure={() => onConfigure?.('chart')} placeholderLabel="Deep dive analysis" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <InsightsBlock value={slide.insights} editable={editable} onChange={v => onChange?.({ ...slide, insights: v })} label="Summary & actions" />
+          <AiInsightBlock slide={slide} editable={editable} onChange={onChange} label="Summary & actions" />
         </div>
       </div>
 

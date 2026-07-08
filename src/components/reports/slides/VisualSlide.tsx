@@ -5,7 +5,7 @@ import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide } from '@/lib/reports/data/slideModel'
 import { POST_COUNTS, POST_FILTERS, POST_METRICS, buildPosts, metricLabel, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, effectiveFilterId } from '@/lib/reports/data/posts'
 import { useReportPosts } from '@/lib/reports/data/metricsContext'
-import { PJ, InsightsBlock } from './parts'
+import { PJ, AiInsightBlock } from './parts'
 
 function hue(id: number) { return (id * 47) % 360 }
 
@@ -146,7 +146,7 @@ export default function VisualSlide({
       </div>
 
       <div style={{ height: '18cqh', flexShrink: 0 }}>
-        <InsightsBlock value={slide.insights} editable={editable} onChange={v => onChange?.({ ...slide, insights: v })} label="Visual strategy notes & insights" />
+        <AiInsightBlock slide={slide} editable={editable} onChange={onChange} label="Visual strategy notes & insights" />
       </div>
 
       {/* Config modal (fixed → px, not cq) */}
