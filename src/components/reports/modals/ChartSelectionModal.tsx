@@ -15,10 +15,11 @@ const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
  *   Cloud → sentiment
  */
 export default function ChartSelectionModal({
-  open, allowWordCloud = false, onClose, onSelect,
+  open, allowWordCloud = false, availableCompetitors = [], onClose, onSelect,
 }: {
   open: boolean
   allowWordCloud?: boolean
+  availableCompetitors?: { id: string; label: string }[]
   onClose: () => void
   onSelect: (config: ChartConfig) => void
 }) {
@@ -29,12 +30,14 @@ export default function ChartSelectionModal({
   const [orientation, setOrientation] = useState<BarOrientation>('vertical')
   const [barCategory, setBarCategory] = useState<string | null>(null)
   const [barMetrics, setBarMetrics] = useState<string[]>([])
+  const [competitorIds, setCompetitorIds] = useState<string[]>([])
 
   if (!open) return null
 
+  const allCompIds = availableCompetitors.map(c => c.id)
   const reset = () => {
     setStep(1); setCategory(null); setDimension(null); setLineMetrics([])
-    setOrientation('vertical'); setBarCategory(null); setBarMetrics([])
+    setOrientation('vertical'); setBarCategory(null); setBarMetrics([]); setCompetitorIds([])
   }
   const close = () => { reset(); onClose() }
 
@@ -57,10 +60,15 @@ export default function ChartSelectionModal({
   }
   const toggleBar = (id: string) =>
     setBarMetrics(prev => (prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]))
+  const toggleComp = (id: string) =>
+    setCompetitorIds(prev => (prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]))
 
   const confirm = () => {
     if (category === 'line') onSelect({ chartType: 'line', dimension: dimension ?? 'daymonth', metrics: lineMetrics })
-    else if (category === 'bar') onSelect({ chartType: 'bar', barOrientation: orientation, barCategory: barCategory ?? undefined, barMetrics })
+    else if (category === 'bar') onSelect({
+      chartType: 'bar', barOrientation: orientation, barCategory: barCategory ?? undefined, barMetrics,
+      ...(barCategory === 'competitors' ? { competitorIds } : {}),
+    })
     close()
   }
 
@@ -171,24 +179,24 @@ export default function ChartSelectionModal({
         {/* Step 3: bar category */}
         {step === 3 && category === 'bar' && (
           <div className="grid grid-cols-2 gap-3">
-            {BAR_CATEGORIES.map(cat => {
-              const disabled = cat.id === 'competitors'   // competitor data isn't wired into reports
-              return (
-                <button
-                  key={cat.id}
-                  disabled={disabled}
-                  onClick={() => { if (!disabled) { setBarCategory(cat.id); setStep(4) } }}
-                  style={PJ}
-                  className={`${base} items-start text-left ${disabled ? 'opacity-45 cursor-not-allowed pointer-events-none' : ''}`}
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    <span className="material-symbols-outlined text-[18px] opacity-60">stacked_bar_chart</span>
-                    <span className="text-[13px] font-bold">{cat.label}</span>
-                  </div>
-                  <span className="text-[10px] text-[#94a3b8] w-full">{disabled ? 'Competitor data isn’t available in reports yet.' : cat.desc}</span>
-                </button>
-              )
-            })}
+            {BAR_CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setBarCategory(cat.id)
+                  if (cat.id === 'competitors') setCompetitorIds(allCompIds)  // default all checked
+                  setStep(4)
+                }}
+                style={PJ}
+                className={`${base} items-start text-left`}
+              >
+                <div className="flex items-center gap-2 w-full">
+                  <span className="material-symbols-outlined text-[18px] opacity-60">stacked_bar_chart</span>
+                  <span className="text-[13px] font-bold">{cat.label}</span>
+                </div>
+                <span className="text-[10px] text-[#94a3b8] w-full">{cat.desc}</span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -248,6 +256,39 @@ export default function ChartSelectionModal({
                 )
               })}
             </div>
+            {barCategory === 'competitors' && (
+              <div className="border-t border-[#f0f1f2] pt-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Competitors</span>
+                  {availableCompetitors.length > 0 && (
+                    <button
+                      onClick={() => setCompetitorIds(competitorIds.length === allCompIds.length ? [] : allCompIds)}
+                      className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold"
+                    >
+                      {competitorIds.length === allCompIds.length ? 'Clear all' : 'Select all'}
+                    </button>
+                  )}
+                </div>
+                {availableCompetitors.length === 0 ? (
+                  <p className="text-[11px] text-[#94a3b8]">Belum ada competitor dengan data untuk channel/periode ini.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-[140px] overflow-y-auto">
+                    {availableCompetitors.map(c => {
+                      const on = competitorIds.includes(c.id)
+                      return (
+                        <button key={c.id} onClick={() => toggleComp(c.id)} style={PJ}
+                          className={`p-2.5 rounded-lg border flex items-center gap-2 text-left transition-all ${on ? selected : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${on ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>
+                            {on && '✓'}
+                          </span>
+                          <span className="text-[12px] font-medium truncate" title={c.label}>{c.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             <button onClick={confirm} disabled={barMetrics.length === 0} style={PJ}
               className={`w-full py-3 rounded-xl font-bold text-[13px] transition-all ${barMetrics.length > 0 ? 'bg-[#1e4f49] text-white hover:bg-[#163a35]' : 'bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed'}`}>
               Apply ({barMetrics.length} selected)

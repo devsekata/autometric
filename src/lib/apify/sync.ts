@@ -1,13 +1,71 @@
-import { fetchFbProfile, fetchFbPosts, fetchTiktokPosts } from './client'
+import { fetchFbProfile, fetchFbPosts, fetchTiktokPosts, fetchIgProfile, fetchIgPosts } from './client'
 import type { ApifyTiktokPost } from './client'
 import {
   saveFbCompetitorSnapshot, saveFbCompetitorMedias,
   saveTiktokCompetitorSnapshot, saveTiktokCompetitorMedias,
+  saveIgCompetitorSnapshot, saveIgCompetitorMedias,
 } from './queries'
 import { updateSocialAccountProfile } from '@/lib/brands/queries'
 import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
 
 const COMPETITOR_POST_DAYS = 30
+
+export type IgCompetitorSyncResult = {
+  ig_competitor_profile: { count: number; error: string | null }
+  ig_competitor_posts:   { count: number; error: string | null }
+}
+
+// Initial sync for an Instagram competitor — profile + posts (last 30 days) via
+// Apify (apify~instagram-scraper). Mirrors the Facebook flow: the profile fetch
+// (incl. avatar upload + social_account backfill) runs here in the background
+// because Apify runs take minutes.
+export async function initialIgCompetitorSync(
+  socialAccountId: string,
+  username: string,
+): Promise<IgCompetitorSyncResult> {
+  const [profileResult, postsResult] = await Promise.allSettled([
+    // 1. Profile snapshot (today) + avatar upload + social_account backfill
+    (async () => {
+      const profile = await fetchIgProfile(username)
+      if (!profile) throw new Error(`Instagram account "${username}" not found`)
+
+      await saveIgCompetitorSnapshot(socialAccountId, username, profile)
+
+      const avatarSource = profile.profilePicUrlHD ?? profile.profilePicUrl ?? null
+      const avatarUrl = avatarSource
+        ? await uploadAvatarFromUrl(avatarSource, `competitor_ig_${username}`)
+        : null
+
+      await updateSocialAccountProfile(socialAccountId, {
+        avatarUrl,
+        profileUrl:     `https://www.instagram.com/${username}`,
+        platformUserId: profile.id ?? null,
+      })
+      return 1
+    })(),
+
+    // 2. Posts — last 30 days
+    (async () => {
+      const posts = await fetchIgPosts(username, COMPETITOR_POST_DAYS)
+      await saveIgCompetitorMedias(socialAccountId, posts)
+      return posts.length
+    })(),
+  ])
+
+  const errMsg = (r: PromiseSettledResult<unknown>) =>
+    r.status === 'rejected'
+      ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
+      : null
+
+  return {
+    ig_competitor_profile: profileResult.status === 'fulfilled'
+      ? { count: 1,                           error: null }
+      : { count: 0,                           error: errMsg(profileResult) },
+    ig_competitor_posts:   postsResult.status === 'fulfilled'
+      ? { count: postsResult.value as number, error: null }
+      : { count: 0,                           error: errMsg(postsResult) },
+  }
+}
 
 export type FbCompetitorSyncResult = {
   fb_competitor_profile: { count: number; error: string | null }

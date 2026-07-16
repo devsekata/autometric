@@ -23,12 +23,12 @@ const platformParam = (p: PlatformFilter) => (p === 'All' ? 'all' : p)
 export default function ContentDashboard({ orgId }: { orgId: string }) {
   return (
     <DashboardChrome title="Content Overview" subtitle="What's working in your content">
-      {(state) => <ContentBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} />}
+      {(state) => <ContentBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} start={state.start} end={state.end} />}
     </DashboardChrome>
   )
 }
 
-function ContentBody({ orgId, brandId, platform, period }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period }) {
+function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period; start: string | null; end: string | null }) {
   const [format, setFormat] = useState<(typeof FORMATS)[number]>('All Formats')
   const [data, setData] = useState<ContentOverviewPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -36,13 +36,14 @@ function ContentBody({ orgId, brandId, platform, period }: { orgId: string; bran
   useEffect(() => {
     let cancelled = false
     setData(null); setError(null)
-    const url = `/api/organizations/${orgId}/dashboard/content?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}&brand=${encodeURIComponent(brandId)}`
+    const range = start && end ? `&start=${start}&end=${end}` : ''
+    const url = `/api/organizations/${orgId}/dashboard/content?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}${range}&brand=${encodeURIComponent(brandId)}`
     fetch(url)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: ContentOverviewPayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
     return () => { cancelled = true }
-  }, [orgId, brandId, platform, period])
+  }, [orgId, brandId, platform, period, start, end])
 
   const rows = useMemo(
     () => (!data ? [] : format === 'All Formats' ? data.topPosts : data.topPosts.filter(r => r.format === format)),

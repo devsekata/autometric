@@ -1,9 +1,8 @@
-import { fetchHikerIgUserByUsername, fetchAllHikerIgMedias } from '@/lib/hiker/client'
-import { saveCompetitorSnapshot, saveCompetitorMedias } from '@/lib/hiker/queries'
-import { fetchFbProfile, fetchFbPosts, fetchTiktokPosts } from '@/lib/apify/client'
+import { fetchFbProfile, fetchFbPosts, fetchTiktokPosts, fetchIgProfile, fetchIgPosts } from '@/lib/apify/client'
 import {
   saveFbCompetitorSnapshot, saveFbCompetitorMedias,
   saveTiktokCompetitorSnapshot, saveTiktokCompetitorMedias,
+  saveIgCompetitorSnapshot, saveIgCompetitorMedias,
 } from '@/lib/apify/queries'
 import type { CompetitorSyncAccount } from './queries'
 
@@ -15,8 +14,9 @@ const COMPETITOR_POST_DAYS = 30
 export async function syncCompetitorProfile(acct: CompetitorSyncAccount): Promise<number> {
   switch (acct.platform) {
     case 'instagram': {
-      const user = await fetchHikerIgUserByUsername(acct.username)
-      await saveCompetitorSnapshot(acct.socialAccountId, user)
+      const profile = await fetchIgProfile(acct.username)
+      if (!profile) throw new Error(`Instagram account "${acct.username}" not found`)
+      await saveIgCompetitorSnapshot(acct.socialAccountId, acct.username, profile)
       return 1
     }
     case 'facebook': {
@@ -44,10 +44,9 @@ export async function syncCompetitorProfile(acct: CompetitorSyncAccount): Promis
 export async function syncCompetitorPosts(acct: CompetitorSyncAccount): Promise<number> {
   switch (acct.platform) {
     case 'instagram': {
-      const pk = acct.platformUserId ?? (await fetchHikerIgUserByUsername(acct.username)).pk
-      const items = await fetchAllHikerIgMedias(pk, COMPETITOR_POST_DAYS)
-      await saveCompetitorMedias(acct.socialAccountId, items)
-      return items.length
+      const posts = await fetchIgPosts(acct.username, COMPETITOR_POST_DAYS)
+      await saveIgCompetitorMedias(acct.socialAccountId, posts)
+      return posts.length
     }
     case 'facebook': {
       const posts = await fetchFbPosts(acct.username, COMPETITOR_POST_DAYS)

@@ -16,7 +16,10 @@ import pool from '@/lib/db'
 import type { DashPlatform } from '@/components/dashboard/data'
 import {
   TABLE_TYPES, MetricPair, SectionMetrics, ReportTableMetrics, SentimentTable, TableChannel,
+  CompetitorEntity, CompetitorSection, CustomMetricColumn,
 } from './tableTypes'
+import { getOrgCustomMetrics } from './customMetricsStore'
+import { evaluateExpression, type CustomMetricDef } from './customMetrics'
 
 const PLATFORMS: DashPlatform[] = ['instagram', 'facebook', 'tiktok']
 
@@ -41,6 +44,13 @@ interface GoldRow {
   video_views_sum: number | null; post_count: number | null
 }
 interface SentPostRow { platform: string; sentiment: string | null; posts: number | null }
+// One competitor of the brand + its current-month gold aggregate (null when the
+// competitor has no gold rows in the period → the row renders "—").
+interface CompRow {
+  sid: string; username: string; platform: string
+  first_foll: number | null; last_foll: number | null
+  post_count: number | null; engagement: number | null
+}
 
 // ── per-window aggregates ────────────────────────────────────────────────────
 interface PostAgg {
@@ -152,6 +162,13 @@ function lastEod(rows: GoldRow[]): number | null {
   for (const r of rows) { if (r.follower_count_eod != null && r.metric_date > bd) { bd = r.metric_date; best = Number(r.follower_count_eod) } }
   return best
 }
+function firstEod(rows: GoldRow[]): number | null {
+  let best: number | null = null, bd = ''
+  for (const r of rows) {
+    if (r.follower_count_eod != null && (bd === '' || r.metric_date < bd)) { bd = r.metric_date; best = Number(r.follower_count_eod) }
+  }
+  return best
+}
 function aggGold(rows: GoldRow[]): GoldAgg {
   return {
     followers: lastEod(rows),
@@ -219,6 +236,50 @@ function channelValue(ch: TableChannel, id: string, a: PostAgg, g: GoldAgg): num
   }
 }
 
+// Resolve a custom-metric registry field id → its aggregated period scalar, reusing the
+// same per-channel column sources as contentValue/channelValue (FB likes = reactions,
+// TikTok impressions live in `views`, etc.). Field ids mirror METRIC_FIELDS in customMetrics.
+function fieldValue(ch: TableChannel, fieldId: string, a: PostAgg, g: GoldAgg): number | null {
+  switch (fieldId) {
+    case 'likes': return ch === 'facebook' ? a.reactions : a.likes
+    case 'comments': return a.comments
+    case 'shares': return a.shares
+    case 'saves': return a.saves
+    case 'engagement': return a.eng
+    case 'reach': return a.reach
+    case 'views': return a.views
+    case 'impressions': return ch === 'tiktok' ? a.views : a.impr
+    case 'er_reach': return a.erReach
+    case 'er_followers': return a.erFollowers
+    case 'watch_time': return a.avgWatch
+    case 'followers': return g.followers
+    case 'net_growth': return g.netGrowth
+    case 'new_follows': return g.newFollows
+    case 'profile_views': return g.profileViews
+    case 'profile_reach': return g.profileReach
+    case 'video_views': return g.videoViews
+    case 'total_posts': return a.cnt > 0 ? a.cnt : null
+    default: return null
+  }
+}
+
+// Evaluate every org custom metric for a channel (current + previous window) and write the
+// resulting pairs into BOTH the content and channel sections (same value — the expression
+// runs over the same period aggregates), keyed by the metric's id.
+function injectCustomMetrics(
+  defs: CustomMetricDef[], ch: TableChannel,
+  content: SectionMetrics, channel: SectionMetrics,
+  cur: PostAgg, prev: PostAgg, curG: GoldAgg, prevG: GoldAgg,
+): void {
+  for (const cm of defs) {
+    const curr = evaluateExpression(cm.terms, cm.multiply100, fid => fieldValue(ch, fid, cur, curG))
+    const prevV = evaluateExpression(cm.terms, cm.multiply100, fid => fieldValue(ch, fid, prev, prevG))
+    const pair: MetricPair = { prev: prevV, curr }
+    content[cm.id] = pair
+    channel[cm.id] = pair
+  }
+}
+
 function buildSection(
   section: 'content_level' | 'channel_level', ch: TableChannel,
   cur: PostAgg, prev: PostAgg, curG: GoldAgg, prevG: GoldAgg,
@@ -231,6 +292,47 @@ function buildSection(
     out[col.id] = pair
   }
   return out
+}
+
+// Brand row of the Brand-vs-Competitor table (current month, one platform).
+// Growth = last − first end-of-day followers in the month (symmetric with the
+// competitor rows). Reach columns are real for the brand (unlike competitors).
+function brandCompetitorValues(pRows: PostRow[], gRows: GoldRow[]): Record<string, number | null> {
+  const first = firstEod(gRows), last = lastEod(gRows)
+  const growth = first != null && last != null ? last - first : null
+  const eng = sumOrNull(pRows, 'engagement')
+  const cnt = pRows.length
+  return {
+    followers_growth:     growth,
+    followers_growth_pct: growth != null && first ? (growth / first) * 100 : null,
+    post_count:           cnt > 0 ? cnt : null,
+    engagement:           eng,
+    // ER by followers = avg engagement PER POST ÷ followers (comparable to the
+    // brand's channel-level ER), not total monthly engagement ÷ followers.
+    er_followers:         eng != null && cnt > 0 && last ? (eng / cnt / last) * 100 : null,
+    post_reach:           sumOrNull(pRows, 'reach'),
+    profile_reach:        goldSumPos(gRows, 'profile_reach_sum'),
+  }
+}
+
+// One competitor row (current-month gold aggregate). Public scraping has no reach,
+// so post_reach / profile_reach are always null → "—".
+function competitorRowValues(r: CompRow): Record<string, number | null> {
+  const first = r.first_foll != null ? Number(r.first_foll) : null
+  const last  = r.last_foll  != null ? Number(r.last_foll)  : null
+  const growth = first != null && last != null ? last - first : null
+  const eng = r.engagement != null ? Number(r.engagement) : null
+  const cnt = r.post_count != null ? Number(r.post_count) : null
+  return {
+    followers_growth:     growth,
+    followers_growth_pct: growth != null && first ? (growth / first) * 100 : null,
+    post_count:           cnt,
+    engagement:           eng,
+    // ER by followers = avg engagement PER POST ÷ followers (see brand row).
+    er_followers:         eng != null && cnt && last ? (eng / cnt / last) * 100 : null,
+    post_reach:           null,
+    profile_reach:        null,
+  }
 }
 
 /**
@@ -288,6 +390,41 @@ export async function getReportTableMetrics(
     [orgId, brandId, curStart, rangeEnd],
   )
 
+  // Brand-vs-Competitor: every competitor of this brand per platform, LEFT JOINed
+  // to its current-month gold aggregate (competitors without data still list, with
+  // null values → "—"). Ordered by end-of-month followers so the picker/rows read
+  // biggest-first. Source is 100% l2_gold (never l0_raw).
+  const compRows = await pool.query<CompRow>(
+    `WITH comp AS (
+       SELECT csa.id AS sid, csa.username, cp.key AS platform
+         FROM public.brand_competitors bc
+         JOIN public.social_accounts csa ON csa.id = bc.social_account_id
+         JOIN public.platforms cp        ON cp.id  = csa.platform_id
+        WHERE bc.brand_id = $1 AND cp.key IN ('instagram','facebook','tiktok')
+     ),
+     agg AS (
+       SELECT competitor_social_account_id AS sid, platform,
+              (array_agg(follower_count ORDER BY metric_date)
+                 FILTER (WHERE follower_count IS NOT NULL))[1]      AS first_foll,
+              (array_agg(follower_count ORDER BY metric_date DESC)
+                 FILTER (WHERE follower_count IS NOT NULL))[1]      AS last_foll,
+              SUM(post_count)::int                                   AS post_count,
+              SUM(like_count + comment_count + share_count)::bigint AS engagement
+         FROM l2_gold.competitor_profile_metric_daily
+        WHERE brand_id = $1 AND metric_date >= $2 AND metric_date < $3
+        GROUP BY competitor_social_account_id, platform
+     )
+     SELECT comp.sid, comp.username, comp.platform,
+            agg.first_foll, agg.last_foll, agg.post_count, agg.engagement
+       FROM comp
+       LEFT JOIN agg ON agg.sid = comp.sid AND agg.platform = comp.platform
+      ORDER BY comp.platform, agg.last_foll DESC NULLS LAST, comp.username`,
+    [brandId, curStart, rangeEnd],
+  )
+
+  // Org custom metrics (free expressions over l1/l2 fields) — evaluated per channel below.
+  const customDefs = await getOrgCustomMetrics(orgId)
+
   const content: ReportTableMetrics['content'] = {}
   const channel: ReportTableMetrics['channel'] = {}
 
@@ -305,6 +442,7 @@ export async function getReportTableMetrics(
     if (prevGold.followers != null) { allPrevFoll += prevGold.followers; hasPrevFoll = true }
     content[ch] = buildSection('content_level', ch, curPosts, prevPosts, curGold, prevGold)
     channel[ch] = buildSection('channel_level', ch, curPosts, prevPosts, curGold, prevGold)
+    injectCustomMetrics(customDefs, ch, content[ch]!, channel[ch]!, curPosts, prevPosts, curGold, prevGold)
   }
 
   // "All channels" aggregate — counts summed, rates/averages recomputed across every
@@ -317,6 +455,7 @@ export async function getReportTableMetrics(
   allPrevGold.followers = hasPrevFoll ? allPrevFoll : null
   content['all'] = buildSection('content_level', 'all', allCurPosts, allPrevPosts, allCurGold, allPrevGold)
   channel['all'] = buildSection('channel_level', 'all', allCurPosts, allPrevPosts, allCurGold, allPrevGold)
+  injectCustomMetrics(customDefs, 'all', content['all']!, channel['all']!, allCurPosts, allPrevPosts, allCurGold, allPrevGold)
 
   const sentiment: Partial<Record<DashPlatform, SentimentTable>> = {}
   for (const ch of PLATFORMS) {
@@ -336,5 +475,25 @@ export async function getReportTableMetrics(
     }
   }
 
-  return { content, channel, sentiment }
+  // Brand-vs-Competitor sections (per platform). A platform appears only when the
+  // brand actually has competitors on it. Brand row is always computed (current month).
+  const brandNameRes = await pool.query<{ name: string }>('SELECT name FROM public.brands WHERE id = $1', [brandId])
+  const brandName = brandNameRes.rows[0]?.name ?? 'Brand'
+  const competitors: Partial<Record<DashPlatform, CompetitorSection>> = {}
+  for (const ch of PLATFORMS) {
+    const rowsForCh = compRows.rows.filter(r => r.platform === ch)
+    if (rowsForCh.length === 0) continue
+    const pRowsCur = posts.rows.filter(r => r.platform === ch && r.post_date >= curStart)
+    const gRowsCur = gold.rows.filter(r => r.platform === ch && r.metric_date >= curStart)
+    const brand: CompetitorEntity = { id: 'brand', label: brandName, values: brandCompetitorValues(pRowsCur, gRowsCur) }
+    const comps: CompetitorEntity[] = rowsForCh.map(r => ({
+      id: r.sid, label: '@' + r.username, values: competitorRowValues(r),
+    }))
+    competitors[ch] = { brand, competitors: comps }
+  }
+
+  // Column defs for the selected-column picker + table headers (id/label/format).
+  const customMetrics: CustomMetricColumn[] = customDefs.map(d => ({ id: d.id, label: d.name, format: d.format }))
+
+  return { content, channel, sentiment, competitors, customMetrics }
 }

@@ -37,12 +37,12 @@ const platformParam = (p: PlatformFilter) => (p === 'All' ? 'all' : p)
 export default function AudienceDashboard({ orgId }: { orgId: string }) {
   return (
     <DashboardChrome title="Audience Deep Dive" subtitle="Who's watching and how they engage">
-      {(state) => <AudienceBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} />}
+      {(state) => <AudienceBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} start={state.start} end={state.end} />}
     </DashboardChrome>
   )
 }
 
-function AudienceBody({ orgId, brandId, platform, period }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period }) {
+function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period; start: string | null; end: string | null }) {
   const [data, setData] = useState<AudiencePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cPlatform, setCPlatform] = useState('All Platforms')
@@ -51,13 +51,14 @@ function AudienceBody({ orgId, brandId, platform, period }: { orgId: string; bra
   useEffect(() => {
     let cancelled = false
     setData(null); setError(null)
-    const url = `/api/organizations/${orgId}/dashboard/audience?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}&brand=${encodeURIComponent(brandId)}`
+    const range = start && end ? `&start=${start}&end=${end}` : ''
+    const url = `/api/organizations/${orgId}/dashboard/audience?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}${range}&brand=${encodeURIComponent(brandId)}`
     fetch(url)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: AudiencePayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
     return () => { cancelled = true }
-  }, [orgId, brandId, platform, period])
+  }, [orgId, brandId, platform, period, start, end])
 
   const platformOpts = ['All Platforms', ...Object.values(PLATFORM_META).map(m => m.label)]
   const tierOpts = ['All Tiers', 'Super Fan', 'Active', 'Casual']

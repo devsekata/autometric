@@ -6,7 +6,7 @@
 import { CoverColors, noHash, tint } from '../cover/colors'
 import { CoverConfig, SLIDE_IN, addCoverSlide, addContainImage, svgToPng } from './exportCover'
 import { ChartConfig, resolveBarData, resolveLineData, chartSummary, SENTIMENT_PALETTES } from '../data/chartData'
-import { TableConfig, TABLE_TYPES, SectionMetrics, SentimentTable, ReportTableMetrics, buildTable, sentimentTableFor } from '../data/tableTypes'
+import { TableColumn, TableConfig, TABLE_TYPES, SectionMetrics, SentimentTable, CompetitorSection, ReportTableMetrics, buildTable, sentimentTableFor, customColumnsFrom } from '../data/tableTypes'
 import { cloudWordsFrom, type ReportChartMetrics, type CloudWordData } from '../data/chartTypes'
 import { computeWordCloud, WC_W, WC_H, WC_FONT } from '../data/wordcloudLayout'
 import { KpiMetric, ReportKpiMetrics, deltaIsGood, kpiMetricFor } from '../data/kpiMetrics'
@@ -208,14 +208,20 @@ function sectionFor(metrics: ReportTableMetrics | undefined, config: TableConfig
   return metrics[section][channel as DashPlatform] ?? null
 }
 
-function tableCard(slide: Slide, config: TableConfig | null, colors: CoverColors, x: number, y: number, w: number, h: number, sm: SectionMetrics | null = null, sent: SentimentTable | null = null) {
+// The Brand-vs-Competitor section for a table on a channel (export side).
+function competitorFor(metrics: ReportTableMetrics | undefined, config: TableConfig | null, channel: string): CompetitorSection | null {
+  if (!metrics?.competitors || !config) return null
+  return metrics.competitors[channel as DashPlatform] ?? null
+}
+
+function tableCard(slide: Slide, config: TableConfig | null, colors: CoverColors, x: number, y: number, w: number, h: number, sm: SectionMetrics | null = null, sent: SentimentTable | null = null, comp: CompetitorSection | null = null, customCols: TableColumn[] = []) {
   if (!config) { placeholder(slide, x, y, w, h, 'CONFIGURE DATA TABLE'); return }
   card(slide, x, y, w, h)
   const pad = W(1.6)
   const def = TABLE_TYPES[config.type]
   slide.addText((def?.label ?? 'Data table').toUpperCase(), { x: x + pad, y: y + H(1.4), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '94A3B8', fontFace: PJ })
 
-  const { header, columns, rows } = buildTable(config, sm, sent)
+  const { header, columns, rows } = buildTable(config, sm, sent, comp, customCols)
   const headOpt = { bold: true, color: '94A3B8', fontSize: FS(1.0), fill: { color: 'F8FAFB' }, valign: 'middle' as const }
   const headRow = [
     { text: header, options: { ...headOpt, align: 'left' as const } },
@@ -332,7 +338,7 @@ async function addDashboardSlide(pptx: any, slide: ContentSlide, chrome: SlideCh
   const chartW = W(58.4), insW = W(31.6)
   await chartCard(pptx, s, slide.chart, colors, hx, ry, chartW, rh, 'MAIN CHART AREA', chartMetrics, slide.channel)
   insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx + chartW + W(2), ry, insW, rh, 'KEY INSIGHTS')
-  tableCard(s, slide.table, colors, hx, H(57), hw, H(30), sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel))
+  tableCard(s, slide.table, colors, hx, H(57), hw, H(30), sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel), competitorFor(metrics, slide.table, slide.channel), customColumnsFrom(metrics))
   await footer(s, chrome, colors, hx, H(89), hw)
 }
 
@@ -457,7 +463,7 @@ async function addOverviewSlide(pptx: any, slide: ContentSlide, chrome: SlideChr
 
   const vy = H(18), vh = H(47)
   if (slide.visualMode === 'chart') await chartCard(pptx, s, slide.chart, colors, hx, vy, hw, vh, 'SELECT VISUALIZATION', chartMetrics, slide.channel)
-  else if (slide.visualMode === 'table') tableCard(s, slide.table, colors, hx, vy, hw, vh, sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel))
+  else if (slide.visualMode === 'table') tableCard(s, slide.table, colors, hx, vy, hw, vh, sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel), competitorFor(metrics, slide.table, slide.channel), customColumnsFrom(metrics))
   else placeholder(s, hx, vy, hw, vh, 'SELECT A CHART OR TABLE')
 
   insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx, H(67), hw, H(20), 'COMPARATIVE ANALYSIS & NOTES')

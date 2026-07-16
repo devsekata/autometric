@@ -19,6 +19,7 @@ export interface ChartConfig {
   barOrientation?: BarOrientation
   barCategory?: string
   barMetrics?: string[]
+  competitorIds?: string[]  // 'competitors' bar category only — chosen competitors (undefined = all)
   // wordcloud
   sentiment?: string
 }
@@ -75,12 +76,12 @@ export const BAR_CATEGORIES = [
     ],
   },
   {
+    // Only metrics computable for BOTH brand and competitors (public scraping has
+    // no reach, so ER-Reach / Reach are excluded from this comparison category).
     id: 'competitors', label: 'Competitors Comparison', desc: 'Compare with competitors',
     metrics: [
-      { id: 'avg_engagements', label: 'Avg Engagements' },
       { id: 'engagements', label: 'Engagements' },
-      { id: 'avg_er_reach', label: 'Avg ER Reach' },
-      { id: 'avg_reach', label: 'Avg Reach' },
+      { id: 'avg_engagements', label: 'Avg Engagements' },
       { id: 'followers_growth', label: 'Followers Growth' },
       { id: 'followers_growth_pct', label: 'Followers Growth (%)' },
     ],
@@ -200,6 +201,28 @@ export function resolveBarData(
 ): { labels: string[]; series: BarSeries[] } {
   const cat = config.barCategory
   const ids = config.barMetrics ?? []
+  const paletteBar = [colors.primary, colors.accent, colors.secondary, '#d96d6d']
+
+  // Competitors category: entity-based (Brand + chosen competitors), assembled here
+  // so the selection (config.competitorIds) can change without refetching. Each
+  // metric becomes a bar series with one value per entity. Real data only.
+  if (cat === 'competitors') {
+    const sec = ctx?.competitors?.[channel as keyof NonNullable<typeof ctx.competitors>]
+    if (!sec) return { labels: barCategoryLabels('competitors'), series: [] }
+    const sel = config.competitorIds
+    const chosen = sel ? sec.competitors.filter(c => sel.includes(c.id)) : sec.competitors
+    const entities = [sec.brand, ...chosen]
+    const labels = entities.map(e => e.label)
+    const series: BarSeries[] = []
+    ids.forEach((id, idx) => {
+      const data = entities.map(e => e.metrics[id] ?? 0)
+      if (data.some(v => Number.isFinite(v) && v !== 0)) {
+        series.push({ name: METRIC_LABELS[id] ?? id, color: paletteBar[idx % paletteBar.length], data, scale: barScale(data) })
+      }
+    })
+    return { labels, series }
+  }
+
   const catData = barCategoryFor(ctx, channel, cat)
   const labels = catData?.labels.length ? catData.labels : barCategoryLabels(cat)
   const n = labels.length

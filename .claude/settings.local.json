@@ -147,7 +147,28 @@
       "Bash(find src *)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(ls docs *)",
-      "Bash(ls *.md)"
+      "Bash(ls *.md)",
+      "Bash(npm --version)",
+      "Bash(git rm *)",
+      "Bash([ -f \"$SP/askpass.sh\" ])",
+      "Bash(git status *)",
+      "Bash(git stash *)",
+      "Bash(grep -rnA40 \"generateGeminiContent\" app/utils/api.ts)",
+      "Bash(grep -nA12 \"export interface ReportKpiMetrics\" src/lib/reports/data/kpiMetrics.ts)",
+      "Bash(grep -nA10 \"export interface ReportChartMetrics\" src/lib/reports/data/chartTypes.ts)",
+      "Bash(grep -nA10 \"export interface ReportPostMetrics\" src/lib/reports/data/posts.ts)",
+      "Bash(grep -nA6 \"export function kpiMetricFor\" src/lib/reports/data/kpiMetrics.ts)",
+      "Bash(grep -nA14 \"export function buildTable\" src/lib/reports/data/tableTypes.ts)",
+      "Bash(grep -nA6 \"export function resolveLineData|export function resolveBarData\" src/lib/reports/data/chartData.ts)",
+      "Bash(grep -nA3 \"export function buildPosts\" src/lib/reports/data/posts.ts)",
+      "Bash(pip --version)",
+      "Read(//c/Program Files/LibreOffice/program/**)",
+      "Read(//c/Program Files/Microsoft Office/root/Office16/**)",
+      "Bash(echo \"---exit:$?---\")",
+      "PowerShell($ProgressPreference='SilentlyContinue'; try { $t = Invoke-RestMethod -Uri \"http://127.0.0.1:4040/api/tunnels\" -TimeoutSec 8; foreach\\($x in $t.tunnels\\){ \"$\\($x.public_url\\)  ->  $\\($x.config.addr\\)\" } } catch { \"ERROR: $\\($_.Exception.Message\\)\" })",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "PowerShell(foreach \\($t in 'ssh','plink','sshpass','pscp','scp'\\) { $c = Get-Command $t -ErrorAction SilentlyContinue; if \\($c\\) { \"{0}: {1}\" -f $t, $c.Source } else { \"{0}: not found\" -f $t } })"
     ]
   }
 }

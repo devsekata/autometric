@@ -25,25 +25,26 @@ function niceMax(n: number) {
 export default function StoriesDashboard({ orgId }: { orgId: string }) {
   return (
     <DashboardChrome title="Stories" subtitle="Instagram & Facebook story performance">
-      {(state) => <StoriesBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} />}
+      {(state) => <StoriesBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} start={state.start} end={state.end} />}
     </DashboardChrome>
   )
 }
 
-function StoriesBody({ orgId, brandId, platform, period }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period }) {
+function StoriesBody({ orgId, brandId, platform, period, start, end }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period; start: string | null; end: string | null }) {
   const [data, setData] = useState<StoriesPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setData(null); setError(null)
-    const url = `/api/organizations/${orgId}/dashboard/stories?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}&brand=${encodeURIComponent(brandId)}`
+    const range = start && end ? `&start=${start}&end=${end}` : ''
+    const url = `/api/organizations/${orgId}/dashboard/stories?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}${range}&brand=${encodeURIComponent(brandId)}`
     fetch(url)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: StoriesPayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
     return () => { cancelled = true }
-  }, [orgId, brandId, platform, period])
+  }, [orgId, brandId, platform, period, start, end])
 
   if (error) {
     return (

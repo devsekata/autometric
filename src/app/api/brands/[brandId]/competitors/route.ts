@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { verifyBrandAccess, addCompetitor, listBrandCompetitors } from '@/lib/brands/queries'
 import { PLATFORM_LIST } from '@/lib/brands/types'
-import { fetchHikerIgUserByUsername, HikerNotFoundError, HikerInsufficientFundsError, HikerValidationError, HikerIgUser } from '@/lib/hiker/client'
-import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
-import { initialCompetitorSync } from '@/lib/hiker/sync'
-import { initialFbCompetitorSync, initialTiktokCompetitorSync } from '@/lib/apify/sync'
+import { initialFbCompetitorSync, initialTiktokCompetitorSync, initialIgCompetitorSync } from '@/lib/apify/sync'
 import { competitorHasSnapshot } from '@/lib/competitors/queries'
 import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
 
@@ -60,18 +57,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     let profile: { avatarUrl?: string; profileUrl?: string; platformUserId?: string } | undefined
-    let hikerUser: HikerIgUser | null = null
 
     if (platform === 'instagram') {
-      hikerUser = await fetchHikerIgUserByUsername(username)
-      const avatarUrl = hikerUser.profile_pic_url
-        ? await uploadAvatarFromUrl(hikerUser.profile_pic_url, `competitor_ig_${username}`)
-        : null
-      profile = {
-        avatarUrl:      avatarUrl ?? undefined,
-        profileUrl:     `https://www.instagram.com/${username}`,
-        platformUserId: hikerUser.pk,
-      }
+      // Instagram profile (incl. avatar) is fetched in the background Apify sync —
+      // runs take minutes, so we don't block. Avatar/platform_user_id are
+      // backfilled by initialIgCompetitorSync.
+      profile = { profileUrl: `https://www.instagram.com/${username}` }
     } else if (platform === 'facebook') {
       // Facebook profile (incl. avatar) is fetched in the background sync —
       // Apify runs take minutes, so we don't block the request. Store the page
@@ -95,10 +86,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     const alreadySynced = await competitorHasSnapshot(accountId, platform)
 
     if (!alreadySynced) {
-      if (platform === 'instagram' && hikerUser) {
-        const user = hikerUser
-        initialCompetitorSync(accountId, user).catch(err =>
-          console.error('[competitor initial-sync]', err)
+      // Instagram: fire-and-forget Apify sync (profile + posts 30 hari)
+      if (platform === 'instagram') {
+        initialIgCompetitorSync(accountId, username).catch(err =>
+          console.error('[ig competitor initial-sync]', err)
         )
       }
 
@@ -119,15 +110,6 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     return NextResponse.json({ data: competitor }, { status: 201 })
   } catch (err) {
-    if (err instanceof HikerNotFoundError) {
-      return NextResponse.json({ error: err.message }, { status: 404 })
-    }
-    if (err instanceof HikerInsufficientFundsError) {
-      return NextResponse.json({ error: err.message }, { status: 402 })
-    }
-    if (err instanceof HikerValidationError) {
-      return NextResponse.json({ error: err.message }, { status: 400 })
-    }
     console.error('[POST /api/brands/[brandId]/competitors]', err)
     return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
   }

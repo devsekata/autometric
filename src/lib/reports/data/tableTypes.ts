@@ -28,8 +28,9 @@ export interface TableType {
   disabled?: boolean
 }
 
-/** A configured table on a slide. */
-export interface TableConfig { type: string; columns: string[] }
+/** A configured table on a slide. `competitorIds` applies to the competitors
+ *  table only — the chosen competitor social_account_ids (undefined = all). */
+export interface TableConfig { type: string; columns: string[]; competitorIds?: string[] }
 
 /** Real metric value for a comparison table: previous vs current period. */
 export interface MetricPair { prev: number | null; curr: number | null }
@@ -40,11 +41,38 @@ export interface SentimentTableCell { number_of_posts: number; percentage: numbe
 export type SentimentTable = Record<'positive' | 'neutral' | 'negative', SentimentTableCell>
 /** Table channel key: a specific platform, or 'all' (cross-channel aggregate). */
 export type TableChannel = DashPlatform | 'all'
-/** Full report metrics payload: content + channel level + sentiment breakdown. */
+/**
+ * One row of the Brand vs Competitor table: the brand itself or a competitor.
+ * `values` is keyed by the brand_vs_competitor column id (null → renders "—",
+ * e.g. reach columns which public competitor scraping never provides).
+ */
+export interface CompetitorEntity {
+  id: string      // 'brand' for the brand row, else the competitor's social_account_id
+  label: string   // brand name, or '@username'
+  values: Record<string, number | null>
+}
+/** Competitor comparison for one platform: the brand + every competitor with a row. */
+export interface CompetitorSection {
+  brand: CompetitorEntity
+  competitors: CompetitorEntity[]  // all of the brand's competitors on this platform
+}
+
+/** One org custom-metric column: id + display label + value format. Its per-channel
+ *  values live in the content/channel SectionMetrics (keyed by this id). */
+export interface CustomMetricColumn { id: string; label: string; format: TableFormat }
+
+/** Full report metrics payload: content + channel level + sentiment + competitor. */
 export interface ReportTableMetrics {
   content: Partial<Record<TableChannel, SectionMetrics>>   // per channel + 'all'
   channel: Partial<Record<TableChannel, SectionMetrics>>   // per channel + 'all'
   sentiment?: Partial<Record<DashPlatform, SentimentTable>>   // per channel (comment_sentiment_post by dominant sentiment)
+  competitors?: Partial<Record<DashPlatform, CompetitorSection>>  // per channel (l2_gold.competitor_*)
+  customMetrics?: CustomMetricColumn[]   // org custom metrics (selectable columns)
+}
+
+/** Org custom metrics as TableColumns (for buildTable + the column picker). */
+export function customColumnsFrom(metrics: ReportTableMetrics | null | undefined): TableColumn[] {
+  return (metrics?.customMetrics ?? []).map(c => ({ id: c.id, label: c.label, format: c.format }))
 }
 
 export const TABLE_TYPES: Record<string, TableType> = {
@@ -106,7 +134,7 @@ export const TABLE_TYPES: Record<string, TableType> = {
   },
   brand_vs_competitor: {
     id: 'brand_vs_competitor', label: 'Brand vs Competitor', icon: 'group',
-    description: 'Compare brand performance against competitors.', rowType: 'competitors', disabled: true,
+    description: 'Compare brand performance against competitors.', rowType: 'competitors', channelScoped: true,
     columns: [
       { id: 'followers_growth', label: 'Followers Growth', format: 'compact' },
       { id: 'followers_growth_pct', label: 'Followers Growth %', format: 'percent' },
@@ -216,7 +244,13 @@ export function defaultColumnsFor(typeId: string, channel: string): string[] {
  * on "all" only the channel-agnostic columns are shown (see columnsForChannel).
  */
 export function isTypeEnabledForChannel(typeId: string, channel: string): boolean {
-  return typeId in TABLE_TYPES && channel !== ''
+  if (!(typeId in TABLE_TYPES) || channel === '') return false
+  // The Brand-vs-Competitor table is inherently per-platform (a competitor lives on
+  // one channel), so it's only available on a specific platform — not on "all".
+  if (typeId === 'brand_vs_competitor') {
+    return channel === 'instagram' || channel === 'facebook' || channel === 'tiktok'
+  }
+  return true
 }
 
 // Real DB values: percent keeps up to 2 decimals; time is already in seconds
@@ -254,19 +288,57 @@ function sentimentCell(rowId: string, col: TableColumn, s: SentimentTable): Tabl
   return { text: '—' }
 }
 
+// Real cell for a Brand-vs-Competitor row (value keyed by column id; null → "—").
+function competitorCell(entity: CompetitorEntity, col: TableColumn): TableCell {
+  const v = entity.values[col.id]
+  return { text: v == null ? '—' : fmtReal(col.format, v) }
+}
+
 /**
  * Build table rows. Real DB values for a comparison table (content_level /
- * channel_level) when `metrics` is supplied, and for the sentiments table when
- * `sentiment` is supplied — null values render "—". Anything without a real
- * source (competitor, or while data loads) renders "—" too: no seeded numbers.
+ * channel_level) when `metrics` is supplied, for the sentiments table when
+ * `sentiment` is supplied, and for the Brand-vs-Competitor table when
+ * `competitors` is supplied — null values render "—". Without a real source
+ * (or while data loads) rows render "—" too: no seeded numbers.
  */
 export function buildTable(
   config: TableConfig,
   metrics?: SectionMetrics | null,
   sentiment?: SentimentTable | null,
+  competitors?: CompetitorSection | null,
+  customCols: TableColumn[] = [],
 ): { header: string; columns: TableColumn[]; rows: TableRow[] } {
   const def = TABLE_TYPES[config.type] ?? TABLE_TYPES.content_level
-  const columns = def.columns.filter(c => config.columns.includes(c.id))
+  // Custom metrics attach to the comparison metric tables only (content/channel level).
+  const extra = def.rowType === 'comparison' ? customCols.filter(c => config.columns.includes(c.id)) : []
+  const columns = [...def.columns.filter(c => config.columns.includes(c.id)), ...extra]
+
+  // Competitor table: dynamic rows (Brand + chosen competitors by @username).
+  // config.competitorIds picks which competitors show (undefined = all). While
+  // data loads (competitors == null) fall back to placeholder rows of "—".
+  if (def.rowType === 'competitors') {
+    let rows: TableRow[]
+    if (competitors) {
+      const sel = config.competitorIds
+      const chosen = sel
+        ? competitors.competitors.filter(c => sel.includes(c.id))
+        : competitors.competitors
+      const entities = [competitors.brand, ...chosen]
+      rows = entities.map(e => {
+        const cells: Record<string, TableCell> = {}
+        columns.forEach(col => { cells[col.id] = competitorCell(e, col) })
+        return { id: e.id, label: e.label, cells }
+      })
+    } else {
+      rows = ROW_DEFS.competitors.map(r => {
+        const cells: Record<string, TableCell> = {}
+        columns.forEach(col => { cells[col.id] = { text: '—' } })
+        return { id: r.id, label: r.label, cells }
+      })
+    }
+    return { header: firstColHeader('competitors'), columns, rows }
+  }
+
   const useReal = def.rowType === 'comparison' && metrics != null
   const useSent = def.rowType === 'sentiments' && sentiment != null
   const rows: TableRow[] = ROW_DEFS[def.rowType].map(r => {

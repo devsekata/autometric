@@ -1,4 +1,5 @@
 import pool from '@/lib/db'
+import { windowsFromRange, type CustomRange } from './range'
 import type { OverviewKpi } from '@/components/dashboard/data'
 
 /**
@@ -51,7 +52,8 @@ function ptsStr(cur: number, prev: number): { delta: string; good: boolean; dir:
 
 interface Window { start: string; end: string }
 
-async function resolveWindows(orgId: string, days: number, brandId: string | null) {
+async function resolveWindows(orgId: string, days: number, brandId: string | null, custom: CustomRange | null = null) {
+  if (custom) return windowsFromRange(custom)
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(t.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.tiktok_churn_daily t
@@ -223,8 +225,9 @@ async function watchByPillar(orgId: string, w: Window, brandId: string | null) {
 
 export async function getTiktokData(
   orgId: string, _platform: PlatformParam, days: number, brandId: string | null = null,
+  custom: CustomRange | null = null,
 ): Promise<TiktokPayload> {
-  const win = await resolveWindows(orgId, days, brandId)
+  const win = await resolveWindows(orgId, days, brandId, custom)
   if (!win) {
     return {
       kpis: [], churnWeeks: [], churnTotals: { gained: 0, lost: 0, net: 0 }, churnInsight: '',

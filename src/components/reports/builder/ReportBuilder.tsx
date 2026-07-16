@@ -12,7 +12,7 @@ import { ReportTableMetrics } from '@/lib/reports/data/tableTypes'
 import { ReportChartMetrics } from '@/lib/reports/data/chartTypes'
 import { ReportKpiMetrics } from '@/lib/reports/data/kpiMetrics'
 import { ReportPostMetrics } from '@/lib/reports/data/posts'
-import { ReportMetricsContext, ReportChartContext, ReportKpiContext, ReportPostContext, ReportAIContext } from '@/lib/reports/data/metricsContext'
+import { ReportMetricsContext, ReportChartContext, ReportKpiContext, ReportPostContext, ReportAIContext, competitorSectionFor } from '@/lib/reports/data/metricsContext'
 import {
   ContentSlide, SlideType, SlideChrome, ConfigBlock, ChartConfig, TableConfig, makeSlide,
   type ReportTemplateConfig, type ReportTemplateRecord,
@@ -133,17 +133,30 @@ export default function ReportBuilder({
   // Live post pool (per channel) for this brand + report month, provided via context
   // so the Visual Analysis slide ranks real posts by Format / Pillar / metric.
   const [postMetrics, setPostMetrics] = useState<ReportPostMetrics | null>(null)
+  // Bumped when the org custom-metric library changes (create/edit/delete) so the table
+  // metrics refetch and newly-defined custom columns get their defs + live values.
+  const [cmVersion, setCmVersion] = useState(0)
+  // Table metrics — also refetched on custom-metric changes (cmVersion).
   useEffect(() => {
-    if (!brandId) { setTableMetrics(null); setChartMetrics(null); setKpiMetrics(null); setPostMetrics(null); return }
+    if (!brandId) { setTableMetrics(null); return }
     const monthNum = MONTHS.indexOf(month) + 1
     let alive = true
-    setTableMetrics(null); setChartMetrics(null); setKpiMetrics(null); setPostMetrics(null)
+    setTableMetrics(null)
     const base = `/api/organizations/${encodeURIComponent(orgId)}/reports`
     const qs = `brand=${encodeURIComponent(brandId)}&year=${year}&month=${monthNum}`
     fetch(`${base}/table-metrics?${qs}`, { cache: 'no-store' })
       .then(r => (r.ok ? r.json() : null))
       .then((d: ReportTableMetrics | null) => { if (alive) setTableMetrics(d) })
       .catch(e => { if (alive) { console.error('[report] table metrics fetch failed:', e); setTableMetrics(null) } })
+    return () => { alive = false }
+  }, [orgId, brandId, month, year, cmVersion])
+  useEffect(() => {
+    if (!brandId) { setChartMetrics(null); setKpiMetrics(null); setPostMetrics(null); return }
+    const monthNum = MONTHS.indexOf(month) + 1
+    let alive = true
+    setChartMetrics(null); setKpiMetrics(null); setPostMetrics(null)
+    const base = `/api/organizations/${encodeURIComponent(orgId)}/reports`
+    const qs = `brand=${encodeURIComponent(brandId)}&year=${year}&month=${monthNum}`
     fetch(`${base}/chart-metrics?${qs}`, { cache: 'no-store' })
       .then(r => (r.ok ? r.json() : null))
       .then((d: ReportChartMetrics | null) => { if (alive) setChartMetrics(d) })
@@ -561,14 +574,18 @@ export default function ReportBuilder({
       <ChartSelectionModal
         open={configBlock === 'chart' || configBlock === 'chartA' || configBlock === 'chartB'}
         allowWordCloud={activeSlide?.type === 'comparison'}
+        availableCompetitors={competitorSectionFor(tableMetrics, activeSlide?.channel ?? 'instagram')?.competitors.map(c => ({ id: c.id, label: c.label })) ?? []}
         onClose={() => setConfigBlock(null)}
         onSelect={applyChart}
       />
 
       <TableSelectionModal
         open={configBlock === 'table'}
+        orgId={orgId}
+        onCustomMetricsChanged={() => setCmVersion(v => v + 1)}
         initial={activeSlide?.table ?? null}
         channel={activeSlide?.channel ?? 'instagram'}
+        availableCompetitors={competitorSectionFor(tableMetrics, activeSlide?.channel ?? 'instagram')?.competitors.map(c => ({ id: c.id, label: c.label })) ?? []}
         onClose={() => setConfigBlock(null)}
         onConfirm={applyTable}
       />
