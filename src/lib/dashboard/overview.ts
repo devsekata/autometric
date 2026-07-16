@@ -1,4 +1,5 @@
 import pool from '@/lib/db'
+import { windowsFromRange, type CustomRange } from './range'
 import type {
   OverviewKpi, TrendSeries, TrendMetric, DashPlatform, BrandMatrixRow, ContentAttribute,
 } from '@/components/dashboard/data'
@@ -57,7 +58,8 @@ const PLAT = `($2 = 'all' OR {col}.platform = $2)`
 interface Window { start: string; end: string }
 
 // ── anchor + windows ──────────────────────────────────────────────────────────
-async function resolveWindows(orgId: string, platform: PlatformParam, days: number, brandId: string | null) {
+async function resolveWindows(orgId: string, platform: PlatformParam, days: number, brandId: string | null, custom: CustomRange | null = null) {
+  if (custom) return windowsFromRange(custom)
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(bmd.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.brand_metric_daily bmd
@@ -365,8 +367,9 @@ async function postingHeatmap(orgId: string, platform: PlatformParam, brandId: s
 // ── orchestrator ──────────────────────────────────────────────────────────────
 export async function getOverviewData(
   orgId: string, platform: PlatformParam, days: number, brandId: string | null = null,
+  custom: CustomRange | null = null,
 ): Promise<OverviewPayload> {
-  const win = await resolveWindows(orgId, platform, days, brandId)
+  const win = await resolveWindows(orgId, platform, days, brandId, custom)
   if (!win) {
     return {
       kpis: [], trendLabels: [''], platformReachShare: [], brandMatrix: [],

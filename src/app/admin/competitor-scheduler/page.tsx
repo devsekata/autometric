@@ -104,7 +104,7 @@ export default function CompetitorSchedulerSettingsPage() {
     <div style={{ maxWidth: 560 }}>
       <div className="mb-8">
         <h1 className="text-[28px] font-bold text-[#0f172a] tracking-[-0.03em]" style={PJB}>Competitor Scheduler</h1>
-        <p className="text-[13.5px] text-[#94a3b8] mt-1" style={PJB}>Jadwal sync otomatis data competitor (WIB) — Hiker &amp; Apify</p>
+        <p className="text-[13.5px] text-[#94a3b8] mt-1" style={PJB}>Jadwal sync otomatis data competitor (WIB) — Apify</p>
       </div>
 
       <div className="space-y-4">

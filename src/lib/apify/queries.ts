@@ -1,5 +1,9 @@
 import pool from '@/lib/db'
-import type { ApifyFbProfile, ApifyFbPost, ApifyFbPostMedia, ApifyTiktokAuthorMeta, ApifyTiktokPost } from './client'
+import type {
+  ApifyFbProfile, ApifyFbPost, ApifyFbPostMedia,
+  ApifyTiktokAuthorMeta, ApifyTiktokPost,
+  ApifyIgProfile, ApifyIgPost,
+} from './client'
 
 function extractHashtags(text: string | null | undefined): string[] {
   if (!text) return []
@@ -257,6 +261,151 @@ export async function saveTiktokCompetitorMedias(
         mentions, post.webVideoUrl ?? null, post.videoMeta?.coverUrl ?? null,
         post.isPinned ?? null, post.isSponsored ?? null, post.isAd ?? null,
         post.musicMeta?.musicName ?? null, post.musicMeta?.musicAuthor ?? null,
+      ],
+    )
+  }
+}
+
+// --- Instagram ---
+// Writes to the same l0_raw.ig_competitor_* tables the Hiker flow used — only the
+// data source changed (Apify apify~instagram-scraper), so the schema is untouched.
+
+// Apify IG post.type ('Image'|'Video'|'Sidecar') + productType ('clips' = reel)
+// → the media_type labels the medallion layer already expects.
+function igMediaTypeLabel(type: string | undefined, productType: string | undefined): string {
+  if (type === 'Sidecar') return 'CAROUSEL_ALBUM'
+  if (type === 'Video' && productType === 'clips') return 'REELS'
+  if (type === 'Video') return 'VIDEO'
+  return 'IMAGE'
+}
+
+function igMentions(taggedUsers: ApifyIgPost['taggedUsers']): string[] {
+  if (!Array.isArray(taggedUsers)) return []
+  return taggedUsers
+    .map(u => u?.username)
+    .filter((n): n is string => typeof n === 'string' && n.length > 0)
+}
+
+function igBioLinks(externalUrls: ApifyIgProfile['externalUrls'], externalUrl: string | null | undefined): string[] | null {
+  const links: string[] = []
+  if (Array.isArray(externalUrls)) {
+    for (const e of externalUrls) {
+      if (typeof e?.url === 'string' && e.url.length > 0) links.push(e.url)
+    }
+  }
+  if (externalUrl && !links.includes(externalUrl)) links.push(externalUrl)
+  return links.length > 0 ? links : null
+}
+
+export async function saveIgCompetitorSnapshot(
+  socialAccountId: string,
+  username: string,
+  profile: ApifyIgProfile,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO l0_raw.ig_competitor_snapshots
+       (social_account_id, username, full_name, biography, is_verified,
+        follower_count, following_count, media_count,
+        is_private, is_business, account_category, external_url, bio_links)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     ON CONFLICT (social_account_id, DATE(fetched_at AT TIME ZONE 'Asia/Jakarta'))
+     DO UPDATE SET
+       username         = EXCLUDED.username,
+       full_name        = EXCLUDED.full_name,
+       biography        = EXCLUDED.biography,
+       is_verified      = EXCLUDED.is_verified,
+       follower_count   = EXCLUDED.follower_count,
+       following_count  = EXCLUDED.following_count,
+       media_count      = EXCLUDED.media_count,
+       is_private       = EXCLUDED.is_private,
+       is_business      = EXCLUDED.is_business,
+       account_category = EXCLUDED.account_category,
+       external_url     = EXCLUDED.external_url,
+       bio_links        = EXCLUDED.bio_links`,
+    [
+      socialAccountId,
+      profile.username ?? username,
+      profile.fullName ?? null,
+      profile.biography ?? null,
+      profile.verified ?? null,
+      profile.followersCount ?? null,
+      profile.followsCount ?? null,
+      profile.postsCount ?? null,
+      profile.private ?? null,
+      profile.isBusinessAccount ?? null,
+      profile.businessCategoryName ?? null,
+      profile.externalUrl ?? null,
+      igBioLinks(profile.externalUrls, profile.externalUrl),
+    ],
+  )
+}
+
+export async function saveIgCompetitorMedias(
+  socialAccountId: string,
+  posts: ApifyIgPost[],
+): Promise<void> {
+  if (posts.length === 0) return
+
+  for (const post of posts) {
+    const mediaId = post.id
+    if (!mediaId) continue
+
+    const postedAt   = post.timestamp ? new Date(post.timestamp).toISOString() : null
+    const caption    = post.caption ?? null
+    const mediaType  = igMediaTypeLabel(post.type, post.productType)
+    const shortcode  = post.shortCode ?? null
+    const permalink  = post.url ?? (shortcode ? `https://www.instagram.com/p/${shortcode}/` : null)
+    const coverImage = post.displayUrl ?? null
+    const slideCount = post.type === 'Sidecar'
+      ? (post.childPosts?.length ?? post.images?.length ?? null)
+      : null
+    const videoDuration = post.videoDuration ?? null
+    const hashtags   = Array.isArray(post.hashtags) ? post.hashtags : []
+    const mentions   = igMentions(post.taggedUsers)
+    const isCollaborator    = (post.coauthorProducers?.length ?? 0) > 0
+    const isSponsored       = post.isSponsored ?? null
+    const isCommentDisabled = post.isCommentsDisabled ?? null
+    const isPinned          = post.isPinned ?? null
+    const musicTitle  = post.musicInfo?.song_name ?? null
+    const musicAuthor = post.musicInfo?.artist_name ?? null
+    const likeCount    = post.likesCount ?? null
+    const commentCount = post.commentsCount ?? null
+    const viewCount    = post.videoViewCount ?? post.videoPlayCount ?? null
+
+    await pool.query(
+      `INSERT INTO l0_raw.ig_competitor_media
+         (social_account_id, media_id, posted_at, caption, media_type,
+          shortcode, permalink, cover_image,
+          slide_count, video_duration,
+          hashtags_list, hashtags_count, mentions,
+          is_collaborator, is_sponsored, is_comment_disabled, is_pinned,
+          music_title, music_author,
+          like_count, comment_count, view_count)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+       ON CONFLICT (social_account_id, media_id) DO UPDATE SET
+         caption             = COALESCE(ig_competitor_media.caption, EXCLUDED.caption),
+         cover_image         = COALESCE(ig_competitor_media.cover_image, EXCLUDED.cover_image),
+         hashtags_list       = COALESCE(ig_competitor_media.hashtags_list, EXCLUDED.hashtags_list),
+         hashtags_count      = COALESCE(ig_competitor_media.hashtags_count, EXCLUDED.hashtags_count),
+         mentions            = COALESCE(ig_competitor_media.mentions, EXCLUDED.mentions),
+         is_collaborator     = EXCLUDED.is_collaborator,
+         is_sponsored        = EXCLUDED.is_sponsored,
+         is_comment_disabled = EXCLUDED.is_comment_disabled,
+         is_pinned           = EXCLUDED.is_pinned,
+         music_title         = COALESCE(ig_competitor_media.music_title, EXCLUDED.music_title),
+         music_author        = COALESCE(ig_competitor_media.music_author, EXCLUDED.music_author),
+         like_count          = EXCLUDED.like_count,
+         comment_count       = EXCLUDED.comment_count,
+         view_count          = EXCLUDED.view_count,
+         fetched_at          = NOW()`,
+      [
+        socialAccountId, mediaId, postedAt, caption, mediaType,
+        shortcode, permalink, coverImage,
+        slideCount, videoDuration,
+        hashtags, hashtags.length, mentions,
+        isCollaborator, isSponsored, isCommentDisabled, isPinned,
+        musicTitle, musicAuthor,
+        likeCount, commentCount, viewCount,
       ],
     )
   }

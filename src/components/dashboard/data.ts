@@ -110,6 +110,22 @@ export function fmtNum(n: number): string {
   return String(n)
 }
 
+// Query fragment a tab appends to its data fetch. Custom ranges send explicit
+// start/end dates; presets send the label the API maps to a day count.
+export function buildPeriodQS(period: Period, start: string | null, end: string | null): string {
+  if (period === 'Custom' && start && end) return `period=Custom&start=${start}&end=${end}`
+  return `period=${encodeURIComponent(period)}`
+}
+
+// Human label for a custom range, e.g. "1 Jun – 30 Jun 2026". Shows the year on
+// both sides only when the range straddles two years.
+export function fmtRangeLabel(start: string, end: string): string {
+  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+  const day = (iso: string) => { const [, m, d] = iso.split('-').map(Number); return `${d} ${M[m - 1]}` }
+  const ys = start.slice(0, 4), ye = end.slice(0, 4)
+  return ys === ye ? `${day(start)} – ${day(end)} ${ye}` : `${day(start)} ${ys} – ${day(end)} ${ye}`
+}
+
 /* ─────────────────────────  CONTENT OVERVIEW  ───────────────────────── */
 
 // Unified headline KPIs for the Content tab (consistent with the niche matrix totals).

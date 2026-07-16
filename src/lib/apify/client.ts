@@ -5,6 +5,9 @@ const FB_PROFILE_ACTOR = 'apify~facebook-pages-scraper'
 const FB_POSTS_ACTOR   = 'apify~facebook-posts-scraper'
 // TikTok uses a single actor: the profile (authorMeta) is embedded in every post.
 const TIKTOK_ACTOR     = 'clockworks~tiktok-scraper'
+// Instagram uses one actor for both profile (resultsType 'details') and posts
+// (resultsType 'posts'). We call it twice — mirroring the FB two-actor flow.
+const IG_ACTOR         = 'apify~instagram-scraper'
 
 // Polling config for async actor runs (Facebook scrapers can take minutes)
 const POLL_INTERVAL_MS = 5_000
@@ -92,6 +95,55 @@ export interface ApifyTiktokPost {
   videoMeta?: { duration?: number; coverUrl?: string | null } | null
   musicMeta?: { musicName?: string | null; musicAuthor?: string | null } | null
   authorMeta?: ApifyTiktokAuthorMeta | null
+}
+
+// --- Instagram (apify~instagram-scraper) ---
+// Profile (resultsType 'details') and posts (resultsType 'posts') come from the
+// same actor, so we model both shapes here.
+export interface ApifyIgProfile {
+  id?: string
+  username?: string
+  fullName?: string
+  biography?: string | null
+  verified?: boolean
+  followersCount?: number
+  followsCount?: number
+  igtvVideoCount?: number
+  postsCount?: number
+  private?: boolean
+  isBusinessAccount?: boolean
+  businessCategoryName?: string | null
+  externalUrl?: string | null
+  externalUrls?: Array<{ url?: string }>
+  profilePicUrl?: string | null
+  profilePicUrlHD?: string | null
+}
+
+export interface ApifyIgPost {
+  id?: string
+  shortCode?: string
+  type?: string            // 'Image' | 'Video' | 'Sidecar'
+  productType?: string     // 'clips' for reels
+  caption?: string | null
+  url?: string | null
+  displayUrl?: string | null
+  timestamp?: string | null // ISO timestamp
+  likesCount?: number
+  commentsCount?: number
+  videoViewCount?: number
+  videoPlayCount?: number
+  videoDuration?: number
+  hashtags?: string[]       // already stripped of the leading '#'
+  mentions?: string[]
+  taggedUsers?: Array<{ username?: string }>
+  images?: unknown[]        // Sidecar slides
+  childPosts?: unknown[]    // Sidecar children
+  coauthorProducers?: Array<{ username?: string }>
+  ownerUsername?: string
+  isPinned?: boolean
+  isSponsored?: boolean
+  isCommentsDisabled?: boolean
+  musicInfo?: { song_name?: string | null; artist_name?: string | null } | null
 }
 
 // --- Generic Apify run helpers ---
@@ -225,6 +277,44 @@ export async function fetchTiktokPosts(
     input.newestPostDate        = new Date().toISOString().slice(0, 10)
   }
   return runActor<ApifyTiktokPost>(TIKTOK_ACTOR, input)
+}
+
+// --- Instagram fetchers ---
+
+function instagramUrlFromUsername(username: string): string {
+  const clean = username.trim().replace(/^@/, '')
+  if (/^https?:\/\//i.test(clean)) return clean
+  return `https://www.instagram.com/${clean}/`
+}
+
+export async function fetchIgProfile(username: string): Promise<ApifyIgProfile | null> {
+  const items = await runActor<ApifyIgProfile>(IG_ACTOR, {
+    directUrls:                        [instagramUrlFromUsername(username)],
+    resultsType:                       'details',
+    resultsLimit:                      1,
+    searchType:                        'user',
+    searchLimit:                       1,
+    addParentData:                     false,
+    enhanceUserSearchWithFacebookPage: false,
+    isUserReelFeedURL:                 false,
+    isUserTaggedFeedURL:               false,
+  })
+  return items[0] ?? null
+}
+
+export async function fetchIgPosts(username: string, days: number): Promise<ApifyIgPost[]> {
+  return runActor<ApifyIgPost>(IG_ACTOR, {
+    directUrls:                        [instagramUrlFromUsername(username)],
+    resultsType:                       'posts',
+    onlyPostsNewerThan:                `${days} days`,
+    resultsLimit:                      1000,
+    searchType:                        'user',
+    searchLimit:                       1,
+    addParentData:                     false,
+    enhanceUserSearchWithFacebookPage: false,
+    isUserReelFeedURL:                 false,
+    isUserTaggedFeedURL:               false,
+  })
 }
 
 export class ApifyAuthError extends Error {

@@ -20,6 +20,7 @@ import type { DashPlatform } from '@/components/dashboard/data'
 import {
   CHART_METRIC_IDS, ChartMetricId, ChartDimSeries, ChannelChartMetrics, ChannelBarMetrics, ReportChartMetrics,
   ChannelSentiment, ChannelWords, CloudWordData, SentimentKey,
+  CompetitorChartSection, CompetitorChartEntity,
 } from './chartTypes'
 
 const PLATFORMS: DashPlatform[] = ['instagram', 'facebook', 'tiktok']
@@ -64,6 +65,12 @@ interface SentimentRow {
 interface WordRow {
   platform: string; word: string; sentiment: string | null; freq: number | null
 }
+// A competitor + its current-month gold aggregate (null → no data for that metric).
+interface CompChartRow {
+  sid: string; username: string; platform: string
+  first_foll: number | null; last_foll: number | null
+  post_count: number | null; engagement: number | null
+}
 type GoldVals = { foll: number | null; pv: number | null; pr: number | null; ng: number | null }
 type PostVals = {
   likes: number | null; reactions: number | null; comments: number | null; shares: number | null; eng: number | null
@@ -72,6 +79,25 @@ type PostVals = {
 
 const num = (v: number | null | undefined): number | undefined =>
   v == null || !Number.isFinite(Number(v)) ? undefined : Number(v)
+
+// Sum keeping null when there's no datum at all (0 ≠ "no data" here — a real 0 sum
+// stays 0, but an empty set → null so the bar is omitted).
+const sumFloatNull = (vals: (number | null | undefined)[]): number | null => {
+  let s = 0, has = false
+  for (const v of vals) if (v != null) { s += Number(v); has = true }
+  return has ? s : null
+}
+// The four comparable competitor bar metrics from a monthly aggregate (reach-based
+// metrics are excluded — public competitor scraping has none).
+function competitorMetrics(first: number | null, last: number | null, postCount: number | null, eng: number | null): Partial<Record<string, number>> {
+  const m: Partial<Record<string, number>> = {}
+  const growth = first != null && last != null ? last - first : null
+  if (eng != null) m.engagements = eng
+  if (eng != null && postCount) m.avg_engagements = eng / postCount
+  if (growth != null) m.followers_growth = growth
+  if (growth != null && first) m.followers_growth_pct = (growth / first) * 100
+  return m
+}
 
 // Per-metric daily value for a platform on a date, or undefined when there's no
 // usable datum (drives both the series and the "present" check).
@@ -221,7 +247,7 @@ export async function getReportChartMetrics(
   const monthLabels = [addMonths(year, month, -2), addMonths(year, month, -1), { y: year, m: month }]
     .map(({ m }) => MONTH_ABBR[m - 1])
 
-  const [gold, posts, pillars, sentiment, words] = await Promise.all([
+  const [gold, posts, pillars, sentiment, words, compProfile] = await Promise.all([
     pool.query<GoldRow>(
       `SELECT bmd.platform, to_char(bmd.metric_date, 'YYYY-MM-DD') metric_date,
               bmd.follower_count_eod::float foll, bmd.profile_visit_sum::float pv,
@@ -288,6 +314,35 @@ export async function getReportChartMetrics(
           AND csp.platform IN ('instagram','facebook','tiktok')
         GROUP BY csp.platform, pw.word, csp.dominant_sentiment`,
       [orgId, brandId, monthStart(year, month), windowEnd],
+    ),
+    // Competitors of this brand + current-month gold aggregate (l2_gold only).
+    // LEFT JOIN so competitors without data still list (null → no bar).
+    pool.query<CompChartRow>(
+      `WITH comp AS (
+         SELECT csa.id AS sid, csa.username, cp.key AS platform
+           FROM public.brand_competitors bc
+           JOIN public.social_accounts csa ON csa.id = bc.social_account_id
+           JOIN public.platforms cp        ON cp.id  = csa.platform_id
+          WHERE bc.brand_id = $1 AND cp.key IN ('instagram','facebook','tiktok')
+       ),
+       agg AS (
+         SELECT competitor_social_account_id AS sid, platform,
+                (array_agg(follower_count ORDER BY metric_date)
+                   FILTER (WHERE follower_count IS NOT NULL))[1]      AS first_foll,
+                (array_agg(follower_count ORDER BY metric_date DESC)
+                   FILTER (WHERE follower_count IS NOT NULL))[1]      AS last_foll,
+                SUM(post_count)::int                                   AS post_count,
+                SUM(like_count + comment_count + share_count)::bigint AS engagement
+           FROM l2_gold.competitor_profile_metric_daily
+          WHERE brand_id = $1 AND metric_date >= $2 AND metric_date < $3
+          GROUP BY competitor_social_account_id, platform
+       )
+       SELECT comp.sid, comp.username, comp.platform,
+              agg.first_foll, agg.last_foll, agg.post_count, agg.engagement
+         FROM comp
+         LEFT JOIN agg ON agg.sid = comp.sid AND agg.platform = comp.platform
+        ORDER BY comp.platform, agg.last_foll DESC NULLS LAST, comp.username`,
+      [brandId, monthStart(year, month), windowEnd],
     ),
   ])
 
@@ -357,6 +412,38 @@ export async function getReportChartMetrics(
     }
   }
 
+  // Brand-vs-Competitor bar entities (per platform, current month only). Brand
+  // aggregate reuses the already-fetched gold/posts; competitors come from the gold
+  // competitor rollup. A platform appears only when the brand has competitors on it.
+  const curMonthStart = monthStart(year, month)
+  const brandNameRes = await pool.query<{ name: string }>('SELECT name FROM public.brands WHERE id = $1', [brandId])
+  const brandName = brandNameRes.rows[0]?.name ?? 'Brand'
+  const competitorsOut: Partial<Record<DashPlatform, CompetitorChartSection>> = {}
+  for (const p of PLATFORMS) {
+    const compRowsP = compProfile.rows.filter(r => r.platform === p)
+    if (compRowsP.length === 0) continue
+    const goldCur = gold.rows
+      .filter(r => r.platform === p && r.metric_date >= curMonthStart && r.foll != null)
+      .sort((a, b) => (a.metric_date < b.metric_date ? -1 : 1))
+    const postsCur = posts.rows.filter(r => r.platform === p && r.post_date >= curMonthStart)
+    const bFirst = goldCur.length ? Number(goldCur[0].foll) : null
+    const bLast = goldCur.length ? Number(goldCur[goldCur.length - 1].foll) : null
+    const brand: CompetitorChartEntity = {
+      id: 'brand', label: brandName,
+      metrics: competitorMetrics(bFirst, bLast, sumFloatNull(postsCur.map(r => r.posts)), sumFloatNull(postsCur.map(r => r.eng))),
+    }
+    const competitors: CompetitorChartEntity[] = compRowsP.map(r => ({
+      id: r.sid, label: '@' + r.username,
+      metrics: competitorMetrics(
+        r.first_foll != null ? Number(r.first_foll) : null,
+        r.last_foll != null ? Number(r.last_foll) : null,
+        r.post_count != null ? Number(r.post_count) : null,
+        r.engagement != null ? Number(r.engagement) : null,
+      ),
+    }))
+    competitorsOut[p] = { brand, competitors }
+  }
+
   return {
     meta: {
       year, month,
@@ -368,5 +455,6 @@ export async function getReportChartMetrics(
     bars,
     sentiment: sentimentByChannel,
     words: wordsByChannel,
+    competitors: competitorsOut,
   }
 }

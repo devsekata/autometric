@@ -1,14 +1,14 @@
 'use client'
 
 import { CoverColors } from '@/lib/reports/cover/colors'
-import { TABLE_TYPES, TableConfig, SectionMetrics, SentimentTable, buildTable, sentimentTableFor } from '@/lib/reports/data/tableTypes'
-import { useReportMetrics, sectionMetricsFor } from '@/lib/reports/data/metricsContext'
+import { TABLE_TYPES, TableColumn, TableConfig, SectionMetrics, SentimentTable, CompetitorSection, buildTable, sentimentTableFor, customColumnsFrom } from '@/lib/reports/data/tableTypes'
+import { useReportMetrics, sectionMetricsFor, competitorSectionFor } from '@/lib/reports/data/metricsContext'
 import { PJ, Card, CardLabel, Placeholder } from './parts'
 
 // Renders a configured table, matching report_2's SmartTableBlock layout: sticky
 // first column (Period/Channel/…), metric columns, mono values, green/red Gap row.
-function TableView({ config, accent, metrics, sentiment }: { config: TableConfig; accent: string; metrics: SectionMetrics | null; sentiment: SentimentTable | null }) {
-  const { header, columns, rows } = buildTable(config, metrics, sentiment)
+function TableView({ config, accent, metrics, sentiment, competitors, customCols }: { config: TableConfig; accent: string; metrics: SectionMetrics | null; sentiment: SentimentTable | null; competitors: CompetitorSection | null; customCols: TableColumn[] }) {
+  const { header, columns, rows } = buildTable(config, metrics, sentiment, competitors, customCols)
   const mono = 'ui-monospace, SFMono-Regular, Menlo, monospace'
   return (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col rounded-[0.8cqw] border" style={{ borderColor: '#eef0f2', ...PJ }}>
@@ -44,10 +44,11 @@ export function TableBlock({ config, colors, channel, editable, onConfigure }: {
   const def = TABLE_TYPES[config.type]
   const sm = sectionMetricsFor(metrics, config.type, channel)
   const sentiment = sentimentTableFor(metrics?.sentiment, channel)
+  const competitors = competitorSectionFor(metrics, channel)
   return (
     <Card style={{ padding: '1.8cqh 1.8cqw', display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
       <CardLabel icon={def?.icon ?? 'table_chart'} accent={colors.primary} onEdit={editable ? onConfigure : undefined}>{def?.label ?? 'Data table'}</CardLabel>
-      <TableView config={config} accent={colors.primary} metrics={sm} sentiment={sentiment} />
+      <TableView config={config} accent={colors.primary} metrics={sm} sentiment={sentiment} competitors={competitors} customCols={customColumnsFrom(metrics)} />
     </Card>
   )
 }

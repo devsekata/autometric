@@ -50,9 +50,20 @@ export interface ChartMeta {
 
 /* ── bar chart ────────────────────────────────────────────────────────────── */
 
-/** Bar categories wired to the DB (competitors excluded — only in l0_raw). */
+// Grouped bar categories stored in `bars` (grid-shaped: labels × metric arrays).
+// The 'competitors' category is NOT here — it's per-entity (brand + N competitors,
+// chosen at insert time), so it rides in `competitors` below and is assembled
+// client-side by resolveBarData. Sourced from l2_gold.competitor_* (never l0_raw).
 export const BAR_CATEGORY_IDS = ['daily_performance', 'last3months_performance', 'content_pillars'] as const
 export type BarCategoryId = (typeof BAR_CATEGORY_IDS)[number]
+
+/* ── competitors (brand vs competitors, per platform) ───────────────────────── */
+
+/** One entity in the competitor chart: the brand or a competitor, with its bar
+ *  metric values (keyed by metric id; absent = no data for that metric). */
+export interface CompetitorChartEntity { id: string; label: string; metrics: Partial<Record<string, number>> }
+/** Competitor comparison for one platform: the brand + every competitor. */
+export interface CompetitorChartSection { brand: CompetitorChartEntity; competitors: CompetitorChartEntity[] }
 
 /** One bar category's grouped data: category labels + each metric's value per label. */
 export interface BarCategoryData {
@@ -69,6 +80,7 @@ export interface ReportChartMetrics {
   bars: Partial<Record<DashPlatform, ChannelBarMetrics>>         // bar categories
   sentiment: Partial<Record<DashPlatform, ChannelSentiment>>     // sentiment line (3 series)
   words: Partial<Record<DashPlatform, ChannelWords>>             // word cloud
+  competitors?: Partial<Record<DashPlatform, CompetitorChartSection>>  // brand vs competitors (l2_gold)
 }
 
 /** Sentiment series values for a channel + sentiment + dimension, or null when unavailable. */

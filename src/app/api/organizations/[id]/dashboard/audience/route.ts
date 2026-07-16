@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
+import { parseCustomRange } from '@/lib/dashboard/range'
 import { getAudienceData, type PlatformParam } from '@/lib/dashboard/audience'
 
 type Params = { params: Promise<{ id: string }> }
@@ -20,8 +21,9 @@ export async function GET(req: NextRequest, { params }: Params) {
       ? (platformRaw as PlatformParam) : 'all'
     const days = PERIOD_DAYS[sp.get('period') ?? '30 days'] ?? 30
     const brandId = sp.get('brand') || null
+    const custom = parseCustomRange(sp)
 
-    const data = await getAudienceData(orgId, platform, days, brandId)
+    const data = await getAudienceData(orgId, platform, days, brandId, custom)
     return NextResponse.json(data)
   } catch (err) {
     console.error('[GET /api/organizations/[id]/dashboard/audience]', err)

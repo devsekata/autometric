@@ -1,7 +1,8 @@
 'use client'
 
 import { createContext, useContext } from 'react'
-import type { ReportTableMetrics, SectionMetrics } from './tableTypes'
+import type { DashPlatform } from '@/components/dashboard/data'
+import type { ReportTableMetrics, SectionMetrics, CompetitorSection } from './tableTypes'
 import type { ReportChartMetrics } from './chartTypes'
 import type { ReportKpiMetrics } from './kpiMetrics'
 import type { ReportPostMetrics } from './posts'
@@ -70,4 +71,13 @@ export function sectionMetricsFor(
     : null
   if (!section) return null
   return metrics[section][channel as keyof typeof metrics.content] ?? null
+}
+
+/** The Brand-vs-Competitor section for a channel (a specific platform), or null. */
+export function competitorSectionFor(
+  metrics: ReportTableMetrics | null | undefined,
+  channel: string,
+): CompetitorSection | null {
+  if (!metrics?.competitors) return null
+  return metrics.competitors[channel as DashPlatform] ?? null
 }

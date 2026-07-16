@@ -57,25 +57,26 @@ const platformParam = (p: PlatformFilter) => (p === 'All' ? 'all' : p)
 export default function CommunityDashboard({ orgId }: { orgId: string }) {
   return (
     <DashboardChrome title="Community" subtitle="Comment activity & your most engaged audience">
-      {(state) => <CommunityBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} />}
+      {(state) => <CommunityBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} start={state.start} end={state.end} />}
     </DashboardChrome>
   )
 }
 
-function CommunityBody({ orgId, brandId, platform, period }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period }) {
+function CommunityBody({ orgId, brandId, platform, period, start, end }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period; start: string | null; end: string | null }) {
   const [data, setData] = useState<CommunityPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setData(null); setError(null)
-    const url = `/api/organizations/${orgId}/dashboard/community?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}&brand=${encodeURIComponent(brandId)}`
+    const range = start && end ? `&start=${start}&end=${end}` : ''
+    const url = `/api/organizations/${orgId}/dashboard/community?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}${range}&brand=${encodeURIComponent(brandId)}`
     fetch(url)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: CommunityPayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
     return () => { cancelled = true }
-  }, [orgId, brandId, platform, period])
+  }, [orgId, brandId, platform, period, start, end])
 
   if (error) {
     return (

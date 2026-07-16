@@ -1,4 +1,5 @@
 import pool from '@/lib/db'
+import { windowsFromRange, type CustomRange } from './range'
 import type { OverviewKpi, DashPlatform, TopPostRow } from '@/components/dashboard/data'
 
 /**
@@ -69,7 +70,8 @@ const CR_NUM = `NULLIF(regexp_replace({col}.completion_rate, '[^0-9.]', '', 'g')
 interface Window { start: string; end: string }
 
 // ── anchor + windows (anchored on gold, like overview) ────────────────────────
-async function resolveWindows(orgId: string, platform: PlatformParam, days: number, brandId: string | null) {
+async function resolveWindows(orgId: string, platform: PlatformParam, days: number, brandId: string | null, custom: CustomRange | null = null) {
+  if (custom) return windowsFromRange(custom)
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(bmd.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.brand_metric_daily bmd
@@ -372,8 +374,9 @@ async function reelWatch(orgId: string, w: Window, brandId: string | null) {
 // ── orchestrator ──────────────────────────────────────────────────────────────
 export async function getContentOverviewData(
   orgId: string, platform: PlatformParam, days: number, brandId: string | null = null,
+  custom: CustomRange | null = null,
 ): Promise<ContentOverviewPayload> {
-  const win = await resolveWindows(orgId, platform, days, brandId)
+  const win = await resolveWindows(orgId, platform, days, brandId, custom)
   if (!win) {
     return {
       kpis: [], postTypePerf: [], postTypeInsight: '', contentVolume: [], contentVolumeInsight: '',

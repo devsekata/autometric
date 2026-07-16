@@ -27,12 +27,12 @@ const platformParam = (p: PlatformFilter) => (p === 'All' ? 'all' : p)
 export default function OverviewDashboard({ orgId }: { orgId: string }) {
   return (
     <DashboardChrome title="Overview" subtitle="Portfolio performance at a glance">
-      {(state) => <OverviewBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} />}
+      {(state) => <OverviewBody orgId={orgId} brandId={state.brand.id} platform={state.platform} period={state.period} start={state.start} end={state.end} />}
     </DashboardChrome>
   )
 }
 
-function OverviewBody({ orgId, brandId, platform, period }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period }) {
+function OverviewBody({ orgId, brandId, platform, period, start, end }: { orgId: string; brandId: string; platform: ChromeState['platform']; period: Period; start: string | null; end: string | null }) {
   const [metric, setMetric] = useState<TrendMetric>('Engagement')
   const [data, setData] = useState<OverviewPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -40,13 +40,14 @@ function OverviewBody({ orgId, brandId, platform, period }: { orgId: string; bra
   useEffect(() => {
     let cancelled = false
     setData(null); setError(null)
-    const url = `/api/organizations/${orgId}/dashboard/overview?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}&brand=${encodeURIComponent(brandId)}`
+    const range = start && end ? `&start=${start}&end=${end}` : ''
+    const url = `/api/organizations/${orgId}/dashboard/overview?platform=${platformParam(platform)}&period=${encodeURIComponent(period)}${range}&brand=${encodeURIComponent(brandId)}`
     fetch(url)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: OverviewPayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
     return () => { cancelled = true }
-  }, [orgId, brandId, platform, period])
+  }, [orgId, brandId, platform, period, start, end])
 
   if (error) {
     return (

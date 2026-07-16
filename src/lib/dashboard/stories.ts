@@ -1,4 +1,5 @@
 import pool from '@/lib/db'
+import { windowsFromRange, type CustomRange } from './range'
 import type { OverviewKpi, TrendSeries } from '@/components/dashboard/data'
 
 /**
@@ -54,7 +55,8 @@ const PLAT = `($2 = 'all' OR {col}.platform = $2)`
 
 interface Window { start: string; end: string }
 
-async function resolveWindows(orgId: string, platform: PlatformParam, days: number, brandId: string | null) {
+async function resolveWindows(orgId: string, platform: PlatformParam, days: number, brandId: string | null, custom: CustomRange | null = null) {
+  if (custom) return windowsFromRange(custom)
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(s.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.story_metric_daily s
@@ -217,8 +219,9 @@ async function overTime(orgId: string, platform: PlatformParam, w: Window, brand
 
 export async function getStoriesData(
   orgId: string, platform: PlatformParam, days: number, brandId: string | null = null,
+  custom: CustomRange | null = null,
 ): Promise<StoriesPayload> {
-  const win = await resolveWindows(orgId, platform, days, brandId)
+  const win = await resolveWindows(orgId, platform, days, brandId, custom)
   if (!win) {
     return {
       kpis: [], funnel: [], funnelInsight: '', typePerf: [], typeInsight: '',

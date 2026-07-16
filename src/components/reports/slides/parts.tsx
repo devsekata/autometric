@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { SlideChrome, ContentSlide } from '@/lib/reports/data/slideModel'
-import { useReportKpi, useReportAI, useReportMetrics, useReportChart, useReportPosts, sectionMetricsFor } from '@/lib/reports/data/metricsContext'
+import { useReportKpi, useReportAI, useReportMetrics, useReportChart, useReportPosts, sectionMetricsFor, competitorSectionFor } from '@/lib/reports/data/metricsContext'
 import { kpiDefsForChannel, kpiMetricFor, type KpiMetric } from '@/lib/reports/data/kpiMetrics'
-import { TABLE_TYPES, buildTable } from '@/lib/reports/data/tableTypes'
+import { TABLE_TYPES, buildTable, customColumnsFrom } from '@/lib/reports/data/tableTypes'
 import { resolveLineData, resolveBarData, type ChartConfig } from '@/lib/reports/data/chartData'
 import { buildPosts } from '@/lib/reports/data/posts'
 import { PLATFORM_META } from '@/components/dashboard/data'
@@ -155,7 +155,7 @@ function gatherSlideData(
 
   // TABLE — dashboard always; overview only when it's showing the table.
   if (slide.table && (slide.type !== 'overview' || overviewMode === 'table')) {
-    const built = buildTable(slide.table, sectionMetricsFor(ctx.table, slide.table.type, ch), null)
+    const built = buildTable(slide.table, sectionMetricsFor(ctx.table, slide.table.type, ch), null, competitorSectionFor(ctx.table, ch), customColumnsFrom(ctx.table))
     out.table = {
       name: TABLE_TYPES[slide.table.type]?.label ?? 'Table',
       rows: built.rows.map(r => {
