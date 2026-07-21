@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { auth } from '@/auth'
 import { verifyBrandAccess, getConnectedIgAccount } from '@/lib/brands/queries'
 import { initialIgSync } from '@/lib/instagram/sync'
-import { logSyncEntries } from '@/lib/monitoring/logger'
+import { logSyncEntries, logInitialScrape, summarizeScrapeResult } from '@/lib/monitoring/logger'
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -41,6 +41,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
           startedAt, finishedAt,
         }))
     ).catch(e => console.error('[ig initial-sync] log failed:', e))
+
+    // Also record the first connect (aggregate) in the initial_scrape_logs audit trail.
+    await logInitialScrape({
+      socialAccountId, platform: 'instagram', brandId, orgId,
+      ...summarizeScrapeResult(result),
+      startedAt, finishedAt,
+    }).catch(e => console.error('[ig initial-scrape] log failed:', e))
 
     return NextResponse.json({ success: true }, { status: 200 })
   } catch (err) {

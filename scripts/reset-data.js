@@ -28,7 +28,8 @@ async function resetData() {
     CASCADE;
   `)
 
-  // scheduler_logs: truncate only if table exists (migration may not have run yet)
+  // scheduler_logs / initial_scrape_logs: truncate only if table exists
+  // (migration may not have run yet)
   await client.query(`
     DO $$ BEGIN
       IF EXISTS (
@@ -36,6 +37,12 @@ async function resetData() {
         WHERE table_schema = 'public' AND table_name = 'scheduler_logs'
       ) THEN
         TRUNCATE public.scheduler_logs CASCADE;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'initial_scrape_logs'
+      ) THEN
+        TRUNCATE public.initial_scrape_logs CASCADE;
       END IF;
     END $$;
   `)
