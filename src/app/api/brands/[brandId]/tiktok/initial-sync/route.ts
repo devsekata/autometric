@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { auth } from '@/auth'
 import { verifyBrandAccess, getConnectedTtAccount } from '@/lib/brands/queries'
 import { initialTtSync } from '@/lib/tiktok/sync'
-import { logSyncEntries } from '@/lib/monitoring/logger'
+import { logSyncEntries, logInitialScrape, summarizeScrapeResult } from '@/lib/monitoring/logger'
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -41,6 +41,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
           startedAt, finishedAt,
         }))
     ).catch(e => console.error('[tt initial-sync] log failed:', e))
+
+    // Also record the first connect (aggregate) in the initial_scrape_logs audit trail.
+    await logInitialScrape({
+      socialAccountId, platform: 'tiktok', brandId, orgId,
+      ...summarizeScrapeResult(result),
+      startedAt, finishedAt,
+    }).catch(e => console.error('[tt initial-scrape] log failed:', e))
 
     return NextResponse.json({ success: true, socialAccountId })
   } catch (err) {

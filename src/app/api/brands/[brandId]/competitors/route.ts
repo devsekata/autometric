@@ -4,6 +4,7 @@ import { verifyBrandAccess, addCompetitor, listBrandCompetitors } from '@/lib/br
 import { PLATFORM_LIST } from '@/lib/brands/types'
 import { initialFbCompetitorSync, initialTiktokCompetitorSync, initialIgCompetitorSync } from '@/lib/apify/sync'
 import { competitorHasSnapshot } from '@/lib/competitors/queries'
+import { logInitialScrape, summarizeScrapeResult, type ScrapeResult } from '@/lib/monitoring/logger'
 import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
 
 type Params = { params: Promise<{ brandId: string }> }
@@ -86,25 +87,38 @@ export async function POST(req: NextRequest, { params }: Params) {
     const alreadySynced = await competitorHasSnapshot(accountId, platform)
 
     if (!alreadySynced) {
+      // Record each initial competitor scrape in initial_scrape_logs once it finishes.
+      // Fire-and-forget: Apify runs take minutes, so we don't block the response — the
+      // log write is chained onto the sync's completion.
+      const startedAt = new Date()
+      const logScrape = (result: ScrapeResult) => {
+        const finishedAt = new Date()
+        return logInitialScrape({
+          socialAccountId: accountId, platform, brandId, orgId,
+          ...summarizeScrapeResult(result),
+          startedAt, finishedAt,
+        }).catch(e => console.error('[competitor initial-scrape] log failed:', e))
+      }
+
       // Instagram: fire-and-forget Apify sync (profile + posts 30 hari)
       if (platform === 'instagram') {
-        initialIgCompetitorSync(accountId, username).catch(err =>
-          console.error('[ig competitor initial-sync]', err)
-        )
+        initialIgCompetitorSync(accountId, username)
+          .then(logScrape)
+          .catch(err => console.error('[ig competitor initial-sync]', err))
       }
 
       // Facebook: fire-and-forget Apify sync (profile + posts 30 hari)
       if (platform === 'facebook') {
-        initialFbCompetitorSync(accountId, username).catch(err =>
-          console.error('[fb competitor initial-sync]', err)
-        )
+        initialFbCompetitorSync(accountId, username)
+          .then(logScrape)
+          .catch(err => console.error('[fb competitor initial-sync]', err))
       }
 
       // TikTok: fire-and-forget Apify sync (profile + posts 30 hari)
       if (platform === 'tiktok') {
-        initialTiktokCompetitorSync(accountId, username).catch(err =>
-          console.error('[tiktok competitor initial-sync]', err)
-        )
+        initialTiktokCompetitorSync(accountId, username)
+          .then(logScrape)
+          .catch(err => console.error('[tiktok competitor initial-sync]', err))
       }
     }
 
