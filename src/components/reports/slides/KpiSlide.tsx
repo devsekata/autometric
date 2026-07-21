@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide, ConfigBlock } from '@/lib/reports/data/slideModel'
-import { KpiMetric, deltaIsGood, kpiMetricFor } from '@/lib/reports/data/kpiMetrics'
-import { useReportKpi } from '@/lib/reports/data/metricsContext'
+import { KpiMetric, deltaIsGood, resolveKpiMetric } from '@/lib/reports/data/kpiMetrics'
+import { useReportKpi, useReportMetrics } from '@/lib/reports/data/metricsContext'
 import { PJ, AiInsightBlock } from './parts'
 import { ChartBlock } from './charts'
 
@@ -86,8 +86,10 @@ export default function KpiSlide({
   const [countOpen, setCountOpen] = useState(false)
   const count = slide.metricCount
   const kpi = useReportKpi()
+  const table = useReportMetrics()
   // Real scorecard values only — "—" while loading or when a metric has no data (never dummy).
-  const metricFor = (key: string | null) => kpiMetricFor(kpi, slide.channel, key)
+  // A custom-metric key resolves from the table payload (same value the table shows).
+  const metricFor = (key: string | null) => resolveKpiMetric(kpi, table, slide.channel, key)
 
   return (
     <>

@@ -19,8 +19,9 @@ export interface ChartDimSeries {
   last3months: number[]   // [month-2, month-1, month]
   days: number[]          // [Sun … Sat] — average per weekday within the report month
 }
-/** Present metrics for one channel, keyed by metric id (absent = no data → empty state). */
-export type ChannelChartMetrics = Partial<Record<ChartMetricId, ChartDimSeries>>
+/** Present metrics for one channel, keyed by metric id — a base ChartMetricId OR an org
+ *  custom-metric id (absent = no data → empty state). */
+export type ChannelChartMetrics = Partial<Record<string, ChartDimSeries>>
 
 /* ── sentiment (comment-based) ──────────────────────────────────────────────── */
 
@@ -76,11 +77,12 @@ export type ChannelBarMetrics = Partial<Record<BarCategoryId, BarCategoryData>>
 /** Full report chart payload: line series + bar categories + sentiment + words + period meta. */
 export interface ReportChartMetrics {
   meta: ChartMeta
-  channels: Partial<Record<DashPlatform, ChannelChartMetrics>>   // line series
+  channels: Partial<Record<DashPlatform, ChannelChartMetrics>>   // line series (base + custom ids)
   bars: Partial<Record<DashPlatform, ChannelBarMetrics>>         // bar categories
   sentiment: Partial<Record<DashPlatform, ChannelSentiment>>     // sentiment line (3 series)
   words: Partial<Record<DashPlatform, ChannelWords>>             // word cloud
   competitors?: Partial<Record<DashPlatform, CompetitorChartSection>>  // brand vs competitors (l2_gold)
+  customMetrics?: { id: string; label: string }[]               // org custom metrics available as line series
 }
 
 /** Sentiment series values for a channel + sentiment + dimension, or null when unavailable. */

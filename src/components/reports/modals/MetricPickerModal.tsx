@@ -1,26 +1,40 @@
 'use client'
 
-import { kpiDefsForChannel, buildKpiMetric, kpiPairFor, KpiMetric } from '@/lib/reports/data/kpiMetrics'
-import { useReportKpi } from '@/lib/reports/data/metricsContext'
+import { useEffect, useState } from 'react'
+import { kpiDefsForChannel, buildKpiMetric, kpiPairFor, customKpiMetricsList, KpiMetric } from '@/lib/reports/data/kpiMetrics'
+import { useReportKpi, useReportMetrics } from '@/lib/reports/data/metricsContext'
+import type { CustomMetricDef } from '@/lib/reports/data/customMetrics'
+import { listCustomMetrics } from '@/lib/reports/data/customMetricsApi'
+import CustomMetricModal from './CustomMetricModal'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
 export default function MetricPickerModal({
-  open, current, channel, onClose, onSelect,
+  open, orgId, current, channel, onClose, onSelect, onCustomMetricsChanged,
 }: {
   open: boolean
+  orgId: string
   current: string | null
   channel: string
   onClose: () => void
   onSelect: (key: string) => void
+  onCustomMetricsChanged?: () => void
 }) {
   const kpi = useReportKpi()
+  const table = useReportMetrics()
+  // Full custom-metric defs (with terms) for the builder; the picker OPTIONS + values come
+  // from the table payload (customKpiMetricsList) so they show real numbers.
+  const [customDefs, setCustomDefs] = useState<CustomMetricDef[]>([])
+  const [cmOpen, setCmOpen] = useState(false)
+  const loadCustom = () => { listCustomMetrics(orgId).then(setCustomDefs).catch(() => setCustomDefs([])) }
+  useEffect(() => { if (open) loadCustom() }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!open) return null
-  // Only metrics that carry data on this slide's channel; real value/delta from the
-  // DB — "—" while the payload is still loading or when there's no data (never dummy).
-  const metrics: KpiMetric[] = kpiDefsForChannel(channel).map(def =>
-    buildKpiMetric(def, kpiPairFor(kpi, channel, def.key)),
-  )
+  // Built-in KPIs (value/delta live from the DB — "—" while loading / no data) plus any
+  // org custom metrics (sourced from the table payload so their value matches the table).
+  const metrics: KpiMetric[] = [
+    ...kpiDefsForChannel(channel).map(def => buildKpiMetric(def, kpiPairFor(kpi, channel, def.key))),
+    ...customKpiMetricsList(table, channel),
+  ]
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-[#0f172a]/50 backdrop-blur-sm" />
@@ -54,7 +68,21 @@ export default function MetricPickerModal({
             )
           })}
         </div>
+        <div className="px-6 py-3 border-t border-[#f0f1f2] flex items-center">
+          <button onClick={() => setCmOpen(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-[#1e4f49] hover:underline">
+            <span className="material-symbols-outlined text-[16px]">{customDefs.length ? 'tune' : 'add'}</span>
+            {customDefs.length ? 'Manage custom metrics' : 'Create custom metric'}
+          </button>
+        </div>
       </div>
+
+      <CustomMetricModal
+        open={cmOpen}
+        orgId={orgId}
+        metrics={customDefs}
+        onClose={() => setCmOpen(false)}
+        onChanged={() => { loadCustom(); onCustomMetricsChanged?.() }}
+      />
     </div>
   )
 }

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide } from '@/lib/reports/data/slideModel'
-import { POST_COUNTS, POST_FILTERS, POST_METRICS, buildPosts, metricLabel, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, effectiveFilterId } from '@/lib/reports/data/posts'
+import { POST_COUNTS, POST_FILTERS, POST_METRICS, buildPosts, metricLabel, isErMetric, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, effectiveFilterId } from '@/lib/reports/data/posts'
 import { useReportPosts } from '@/lib/reports/data/metricsContext'
 import { PJ, AiInsightBlock } from './parts'
 
@@ -34,7 +34,7 @@ function PostCard({ id, tag, image, format, pillar, metrics, postMetrics, count 
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: count === 4 ? '0.5cqh' : '0.35cqh', columnGap: '0.6cqw' }}>
           {postMetrics.map(mid => {
-            const isER = mid === 'er'
+            const isER = isErMetric(mid)
             const v = metrics[mid] ?? '—'
             return (
               <span key={mid} className="contents">

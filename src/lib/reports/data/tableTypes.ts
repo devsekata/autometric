@@ -24,6 +24,15 @@ export interface TableType {
   columns: TableColumn[]
   /** core columns pre-checked when the type is picked (defaults to all when absent). */
   defaultColumns?: string[]
+  /**
+   * Columns used ONLY on the cross-channel "all" view. This layout follows the
+   * Content/Channel Performance spec: each "SUM & AVERAGE" metric contributes a
+   * SUM column plus an `Avg.` column, while "SUM Only" metrics contribute one.
+   * When absent, "all" falls back to the channel-agnostic subset of `columns`.
+   */
+  allColumns?: TableColumn[]
+  /** Pre-checked columns for the "all" view (defaults to allColumns when absent). */
+  allDefaultColumns?: string[]
   /** true = not selectable (greyed out) — e.g. competitor data isn't wired into reports. */
   disabled?: boolean
 }
@@ -80,6 +89,42 @@ export const TABLE_TYPES: Record<string, TableType> = {
     id: 'content_level', label: 'Content Level Metric', icon: 'dynamic_feed',
     description: 'Per-post metrics — this period vs last.', rowType: 'comparison', channelScoped: true,
     defaultColumns: ['reach', 'likes', 'comments', 'shares', 'eng_owned', 'er_reach'],
+    // Cross-channel "all" view (Content Performance spec). Count metrics carry a SUM
+    // column (period total) + an Avg. column (per post); ER carries a pooled SUM
+    // column (Σengagement ÷ Σdenominator) + a mean Avg. column (avg per-post ER).
+    // "New Follow from Content" is SUM only.
+    allColumns: [
+      { id: 'new_follow_content', label: 'New Follow from Content', format: 'number' },
+      { id: 'reach', label: 'Reach', format: 'compact' },
+      { id: 'avg_reach', label: 'Avg. Reach', format: 'compact' },
+      { id: 'impressions_views', label: 'Impressions/Views', format: 'compact' },
+      { id: 'avg_impressions_views', label: 'Avg. Impressions/Views', format: 'compact' },
+      { id: 'likes', label: 'Likes', format: 'number' },
+      { id: 'avg_likes', label: 'Avg. Likes', format: 'number' },
+      { id: 'comments', label: 'Comments', format: 'number' },
+      { id: 'avg_comments', label: 'Avg. Comments', format: 'number' },
+      { id: 'shares', label: 'Shares', format: 'number' },
+      { id: 'avg_shares', label: 'Avg. Shares', format: 'number' },
+      { id: 'saved', label: 'Saved', format: 'number' },
+      { id: 'avg_saved', label: 'Avg. Saved', format: 'number' },
+      { id: 'reposts', label: 'Reposts', format: 'number' },
+      { id: 'avg_reposts', label: 'Avg. Reposts', format: 'number' },
+      { id: 'eng_owned', label: 'Engagement', format: 'compact' },
+      { id: 'avg_eng_owned', label: 'Avg. Engagement', format: 'compact' },
+      { id: 'er_reach_pooled', label: 'ER Reach', format: 'percent' },
+      { id: 'er_reach', label: 'Avg. ER Reach', format: 'percent' },
+      { id: 'er_views_pooled', label: 'ER Views', format: 'percent' },
+      { id: 'er_views', label: 'Avg. ER Views', format: 'percent' },
+      { id: 'er_followers_pooled', label: 'ER Followers', format: 'percent' },
+      { id: 'er_followers', label: 'Avg. ER Followers', format: 'percent' },
+    ],
+    // Default = the 12 spec metrics as their primary (SUM / pooled) column; the
+    // Avg. columns stay available in the picker (kept off by default to keep the
+    // all-channel table readable).
+    allDefaultColumns: [
+      'new_follow_content', 'reach', 'impressions_views', 'likes', 'comments', 'shares',
+      'saved', 'reposts', 'eng_owned', 'er_reach_pooled', 'er_views_pooled', 'er_followers_pooled',
+    ],
     columns: [
       { id: 'likes', label: 'Likes', format: 'number' },
       { id: 'comments', label: 'Comments', format: 'number' },
@@ -107,6 +152,29 @@ export const TABLE_TYPES: Record<string, TableType> = {
     id: 'channel_level', label: 'Channel Level Metric', icon: 'insights',
     description: 'Profile-wide metrics — this period vs last.', rowType: 'comparison', channelScoped: true,
     defaultColumns: ['total_followers', 'followers_net_growth', 'profile_views', 'total_posts', 'avg_eng_owned', 'avg_er_reach'],
+    // Cross-channel "all" view (Channel Performance spec). Daily profile aggregates:
+    // SUM column (period total) + Avg. column (per day). Followers & Total Post are
+    // SUM only. "Profile Views" has no distinct gold source → renders "—".
+    allColumns: [
+      { id: 'total_followers', label: 'Followers', format: 'compact' },
+      { id: 'followers_net_growth', label: 'Followers Nett Growth', format: 'number' },
+      { id: 'avg_followers_net_growth', label: 'Avg. Followers Nett Growth', format: 'number' },
+      { id: 'new_follows', label: 'New Follow', format: 'number' },
+      { id: 'avg_new_follows', label: 'Avg. New Follow', format: 'number' },
+      { id: 'unfollows', label: 'Unfollows', format: 'number' },
+      { id: 'avg_unfollows', label: 'Avg. Unfollows', format: 'number' },
+      { id: 'profile_reach', label: 'Profile Reach', format: 'compact' },
+      { id: 'avg_profile_reach', label: 'Avg. Profile Reach', format: 'compact' },
+      { id: 'profile_views', label: 'Profile Views', format: 'number' },
+      { id: 'avg_profile_views', label: 'Avg. Profile Views', format: 'number' },
+      { id: 'profile_visit', label: 'Profile Visit', format: 'number' },
+      { id: 'avg_profile_visit', label: 'Avg. Profile Visit', format: 'number' },
+      { id: 'total_posts', label: 'Total Post', format: 'number' },
+    ],
+    allDefaultColumns: [
+      'total_followers', 'followers_net_growth', 'new_follows', 'unfollows',
+      'profile_reach', 'profile_views', 'profile_visit', 'total_posts',
+    ],
     columns: [
       { id: 'total_followers', label: 'Total Followers', format: 'compact' },
       { id: 'followers_net_growth', label: 'Followers Net Growth', format: 'number' },
@@ -223,17 +291,22 @@ export function isColumnOnChannel(col: TableColumn, channel: string): boolean {
   return !col.channels || col.channels.includes(channel as DashPlatform)
 }
 
-/** Columns of a type available for the given slide channel. */
+/** Columns of a type available for the given slide channel. On "all", a
+ *  channel-scoped type uses its `allColumns` layout when defined (Content/Channel
+ *  Performance spec), else the channel-agnostic subset of `columns`. */
 export function columnsForChannel(typeId: string, channel: string): TableColumn[] {
   const def = TABLE_TYPES[typeId]
   if (!def) return []
-  return def.channelScoped ? def.columns.filter(c => isColumnOnChannel(c, channel)) : def.columns
+  if (!def.channelScoped) return def.columns
+  if (channel === 'all') return def.allColumns ?? def.columns.filter(c => isColumnOnChannel(c, 'all'))
+  return def.columns.filter(c => isColumnOnChannel(c, channel))
 }
 
 /** Pre-checked columns for a type on a channel (core set, kept to what's available). */
 export function defaultColumnsFor(typeId: string, channel: string): string[] {
   const avail = columnsForChannel(typeId, channel)
-  const base = TABLE_TYPES[typeId]?.defaultColumns ?? avail.map(c => c.id)
+  const def = TABLE_TYPES[typeId]
+  const base = (channel === 'all' && def?.allColumns ? def.allDefaultColumns : def?.defaultColumns) ?? avail.map(c => c.id)
   const filtered = base.filter(id => avail.some(c => c.id === id))
   return filtered.length ? filtered : avail.map(c => c.id)
 }
@@ -303,6 +376,7 @@ function competitorCell(entity: CompetitorEntity, col: TableColumn): TableCell {
  */
 export function buildTable(
   config: TableConfig,
+  availableColumns: TableColumn[],
   metrics?: SectionMetrics | null,
   sentiment?: SentimentTable | null,
   competitors?: CompetitorSection | null,
@@ -311,7 +385,10 @@ export function buildTable(
   const def = TABLE_TYPES[config.type] ?? TABLE_TYPES.content_level
   // Custom metrics attach to the comparison metric tables only (content/channel level).
   const extra = def.rowType === 'comparison' ? customCols.filter(c => config.columns.includes(c.id)) : []
-  const columns = [...def.columns.filter(c => config.columns.includes(c.id)), ...extra]
+  // Universe = the columns available for this table on the slide's channel (per-channel
+  // columns, or the all-channel Content/Channel Performance layout on "all"). Order
+  // follows the universe so the all-channel SUM/AVG pairs stay in spec order.
+  const columns = [...availableColumns.filter(c => config.columns.includes(c.id)), ...extra]
 
   // Competitor table: dynamic rows (Brand + chosen competitors by @username).
   // config.competitorIds picks which competitors show (undefined = all). While

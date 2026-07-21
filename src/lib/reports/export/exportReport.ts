@@ -6,10 +6,10 @@
 import { CoverColors, noHash, tint } from '../cover/colors'
 import { CoverConfig, SLIDE_IN, addCoverSlide, addContainImage, svgToPng } from './exportCover'
 import { ChartConfig, resolveBarData, resolveLineData, chartSummary, SENTIMENT_PALETTES } from '../data/chartData'
-import { TableColumn, TableConfig, TABLE_TYPES, SectionMetrics, SentimentTable, CompetitorSection, ReportTableMetrics, buildTable, sentimentTableFor, customColumnsFrom } from '../data/tableTypes'
+import { TableColumn, TableConfig, TABLE_TYPES, SectionMetrics, SentimentTable, CompetitorSection, ReportTableMetrics, buildTable, columnsForChannel, sentimentTableFor, customColumnsFrom } from '../data/tableTypes'
 import { cloudWordsFrom, type ReportChartMetrics, type CloudWordData } from '../data/chartTypes'
 import { computeWordCloud, WC_W, WC_H, WC_FONT } from '../data/wordcloudLayout'
-import { KpiMetric, ReportKpiMetrics, deltaIsGood, kpiMetricFor } from '../data/kpiMetrics'
+import { KpiMetric, ReportKpiMetrics, deltaIsGood, resolveKpiMetric } from '../data/kpiMetrics'
 import { buildPosts, metricLabel as postMetricLabel, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, availableFilterIds, effectiveFilterId, type ReportPostMetrics } from '../data/posts'
 import { PLATFORM_META, type DashPlatform } from '@/components/dashboard/data'
 import type { ContentSlide, SlideChrome, AiInsight } from '../data/slideModel'
@@ -84,7 +84,8 @@ async function chartCard(
   if (!config) { placeholder(slide, x, y, w, h, placeholderLabel); return }
   card(slide, x, y, w, h)
   const pad = W(1.6)
-  slide.addText(chartSummary(config).toUpperCase(), { x: x + pad, y: y + H(1.6), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '94A3B8', fontFace: PJ })
+  const labelOf = (id: string) => chartMetrics?.customMetrics?.find(c => c.id === id)?.label
+  slide.addText(chartSummary(config, labelOf).toUpperCase(), { x: x + pad, y: y + H(1.6), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '94A3B8', fontFace: PJ })
 
   const cy = y + H(5), ch = h - H(6.6)
   if (config.chartType === 'wordcloud') {
@@ -214,14 +215,14 @@ function competitorFor(metrics: ReportTableMetrics | undefined, config: TableCon
   return metrics.competitors[channel as DashPlatform] ?? null
 }
 
-function tableCard(slide: Slide, config: TableConfig | null, colors: CoverColors, x: number, y: number, w: number, h: number, sm: SectionMetrics | null = null, sent: SentimentTable | null = null, comp: CompetitorSection | null = null, customCols: TableColumn[] = []) {
+function tableCard(slide: Slide, config: TableConfig | null, colors: CoverColors, channel: string, x: number, y: number, w: number, h: number, sm: SectionMetrics | null = null, sent: SentimentTable | null = null, comp: CompetitorSection | null = null, customCols: TableColumn[] = []) {
   if (!config) { placeholder(slide, x, y, w, h, 'CONFIGURE DATA TABLE'); return }
   card(slide, x, y, w, h)
   const pad = W(1.6)
   const def = TABLE_TYPES[config.type]
   slide.addText((def?.label ?? 'Data table').toUpperCase(), { x: x + pad, y: y + H(1.4), w: w - 2 * pad, h: H(3), fontSize: FS(1.2), bold: true, color: '94A3B8', fontFace: PJ })
 
-  const { header, columns, rows } = buildTable(config, sm, sent, comp, customCols)
+  const { header, columns, rows } = buildTable(config, columnsForChannel(config.type, channel), sm, sent, comp, customCols)
   const headOpt = { bold: true, color: '94A3B8', fontSize: FS(1.0), fill: { color: 'F8FAFB' }, valign: 'middle' as const }
   const headRow = [
     { text: header, options: { ...headOpt, align: 'left' as const } },
@@ -338,7 +339,7 @@ async function addDashboardSlide(pptx: any, slide: ContentSlide, chrome: SlideCh
   const chartW = W(58.4), insW = W(31.6)
   await chartCard(pptx, s, slide.chart, colors, hx, ry, chartW, rh, 'MAIN CHART AREA', chartMetrics, slide.channel)
   insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx + chartW + W(2), ry, insW, rh, 'KEY INSIGHTS')
-  tableCard(s, slide.table, colors, hx, H(57), hw, H(30), sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel), competitorFor(metrics, slide.table, slide.channel), customColumnsFrom(metrics))
+  tableCard(s, slide.table, colors, slide.channel, hx, H(57), hw, H(30), sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel), competitorFor(metrics, slide.table, slide.channel), customColumnsFrom(metrics))
   await footer(s, chrome, colors, hx, H(89), hw)
 }
 
@@ -377,7 +378,7 @@ function scorecard(slide: Slide, metric: KpiMetric | undefined, accent: string, 
   slide.addText(trend, { x: x + pad, y: y + H(11.8), w: w - 2 * pad, h: H(3), fontSize: FS(0.95), fontFace: PJ })
 }
 
-async function addKpiSlide(pptx: any, slide: ContentSlide, chrome: SlideChrome, colors: CoverColors, chartMetrics?: ReportChartMetrics, kpiMetrics?: ReportKpiMetrics) {
+async function addKpiSlide(pptx: any, slide: ContentSlide, chrome: SlideChrome, colors: CoverColors, chartMetrics?: ReportChartMetrics, kpiMetrics?: ReportKpiMetrics, metrics?: ReportTableMetrics) {
   const s = pptx.addSlide()
   s.background = { color: noHash(tint(colors.primary, 0.965)) }
   s.addShape('rect', { x: 0, y: 0, w: S.w, h: H(0.5), fill: { color: noHash(colors.primary) }, line: { width: 0 } })
@@ -390,7 +391,7 @@ async function addKpiSlide(pptx: any, slide: ContentSlide, chrome: SlideChrome, 
   const ry = H(18), rh = H(17)
   for (let i = 0; i < n; i++) {
     const key = slide.kpiMetrics[i] ?? null
-    const metric = kpiMetricFor(kpiMetrics ?? null, slide.channel, key)   // "—" when no data; never dummy
+    const metric = resolveKpiMetric(kpiMetrics ?? null, metrics ?? null, slide.channel, key)   // "—" when no data; never dummy
     scorecard(s, metric, colors.primary, n, hx + i * (cardW + gap), ry, cardW, rh)
   }
 
@@ -463,7 +464,7 @@ async function addOverviewSlide(pptx: any, slide: ContentSlide, chrome: SlideChr
 
   const vy = H(18), vh = H(47)
   if (slide.visualMode === 'chart') await chartCard(pptx, s, slide.chart, colors, hx, vy, hw, vh, 'SELECT VISUALIZATION', chartMetrics, slide.channel)
-  else if (slide.visualMode === 'table') tableCard(s, slide.table, colors, hx, vy, hw, vh, sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel), competitorFor(metrics, slide.table, slide.channel), customColumnsFrom(metrics))
+  else if (slide.visualMode === 'table') tableCard(s, slide.table, colors, slide.channel, hx, vy, hw, vh, sectionFor(metrics, slide.table, slide.channel), sentimentTableFor(metrics?.sentiment, slide.channel), competitorFor(metrics, slide.table, slide.channel), customColumnsFrom(metrics))
   else placeholder(s, hx, vy, hw, vh, 'SELECT A CHART OR TABLE')
 
   insightsCard(s, { text: slide.insights, ai: slide.aiInsight }, hx, H(67), hw, H(20), 'COMPARATIVE ANALYSIS & NOTES')
@@ -497,7 +498,7 @@ export async function exportReportPptx({ cover, slides, chromes, colors, brandNa
     const chrome = chromes[i]
     if (slide.type === 'section') await addSectionSlide(pptx, slide, chrome, colors)
     else if (slide.type === 'comparison') await addComparisonSlide(pptx, slide, chrome, colors, chartMetrics ?? undefined)
-    else if (slide.type === 'kpi') await addKpiSlide(pptx, slide, chrome, colors, chartMetrics ?? undefined, kpiMetrics ?? undefined)
+    else if (slide.type === 'kpi') await addKpiSlide(pptx, slide, chrome, colors, chartMetrics ?? undefined, kpiMetrics ?? undefined, metrics ?? undefined)
     else if (slide.type === 'visual') await addVisualSlide(pptx, slide, chrome, colors, postMetrics)
     else if (slide.type === 'overview') await addOverviewSlide(pptx, slide, chrome, colors, metrics ?? undefined, chartMetrics ?? undefined)
     else await addDashboardSlide(pptx, slide, chrome, colors, metrics ?? undefined, chartMetrics ?? undefined)

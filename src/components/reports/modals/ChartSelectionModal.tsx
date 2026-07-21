@@ -1,10 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   BAR_CATEGORIES, ChartConfig, LINE_DIMENSIONS, LINE_METRICS, MAX_LINE_METRICS,
   WORDCLOUD_SENTIMENTS, type BarOrientation, type ChartCategory, type LineDimension,
 } from '@/lib/reports/data/chartData'
+import type { CustomMetricDef } from '@/lib/reports/data/customMetrics'
+import { listCustomMetrics } from '@/lib/reports/data/customMetricsApi'
+import CustomMetricModal from './CustomMetricModal'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -15,13 +18,15 @@ const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
  *   Cloud → sentiment
  */
 export default function ChartSelectionModal({
-  open, allowWordCloud = false, availableCompetitors = [], onClose, onSelect,
+  open, orgId, allowWordCloud = false, availableCompetitors = [], onClose, onSelect, onCustomMetricsChanged,
 }: {
   open: boolean
+  orgId: string
   allowWordCloud?: boolean
   availableCompetitors?: { id: string; label: string }[]
   onClose: () => void
   onSelect: (config: ChartConfig) => void
+  onCustomMetricsChanged?: () => void
 }) {
   const [step, setStep] = useState(1)
   const [category, setCategory] = useState<ChartCategory | null>(null)
@@ -31,6 +36,11 @@ export default function ChartSelectionModal({
   const [barCategory, setBarCategory] = useState<string | null>(null)
   const [barMetrics, setBarMetrics] = useState<string[]>([])
   const [competitorIds, setCompetitorIds] = useState<string[]>([])
+  // Org custom metrics — selectable as line series (created/managed via CustomMetricModal).
+  const [customMetrics, setCustomMetrics] = useState<CustomMetricDef[]>([])
+  const [cmOpen, setCmOpen] = useState(false)
+  const loadCustom = () => { listCustomMetrics(orgId).then(setCustomMetrics).catch(() => setCustomMetrics([])) }
+  useEffect(() => { if (open) loadCustom() }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null
 
@@ -232,6 +242,36 @@ export default function ChartSelectionModal({
                 )
               })}
             </div>
+            {/* Custom metrics (org library) — selectable like a line metric. */}
+            {customMetrics.length > 0 ? (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Custom Metrics</span>
+                  <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+                    <span className="material-symbols-outlined text-[14px]">tune</span>Manage
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 max-h-[160px] overflow-y-auto">
+                  {customMetrics.map(cm => {
+                    const isSel = lineMetrics.includes(cm.id)
+                    const sentSel = lineMetrics.includes('sentiments')
+                    const disabled = !isSel && (lineMetrics.length >= MAX_LINE_METRICS || sentSel)
+                    return (
+                      <button key={cm.id} onClick={() => !disabled && toggleLine(cm.id)} disabled={disabled} style={PJ}
+                        className={`p-3 rounded-lg border flex items-center gap-2 text-left transition-all ${isSel ? selected : disabled ? 'border-[#e5e7eb] bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed opacity-60' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
+                        <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>{isSel && '✓'}</span>
+                        <span className={`material-symbols-outlined text-[15px] ${disabled ? 'opacity-30' : 'opacity-60'}`}>calculate</span>
+                        <span className="text-[12px] font-medium truncate" title={cm.name}>{cm.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setCmOpen(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#1e4f49] hover:text-[#1e4f49] hover:bg-[#f2f8f5] transition-all">
+                <span className="material-symbols-outlined text-[16px]">add</span>Create a custom metric
+              </button>
+            )}
             <button onClick={confirm} disabled={lineMetrics.length === 0} style={PJ}
               className={`w-full py-3 rounded-xl font-bold text-[13px] transition-all ${lineMetrics.length > 0 ? 'bg-[#1e4f49] text-white hover:bg-[#163a35]' : 'bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed'}`}>
               Apply ({lineMetrics.length} selected)
@@ -256,6 +296,36 @@ export default function ChartSelectionModal({
                 )
               })}
             </div>
+            {/* Custom metrics — only for the time-bucketed bar categories (data available). */}
+            {(barCategory === 'daily_performance' || barCategory === 'last3months_performance') && (
+              customMetrics.length > 0 ? (
+                <div className="border-t border-[#f0f1f2] pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Custom Metrics</span>
+                    <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+                      <span className="material-symbols-outlined text-[14px]">tune</span>Manage
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 max-h-[140px] overflow-y-auto">
+                    {customMetrics.map(cm => {
+                      const isSel = barMetrics.includes(cm.id)
+                      return (
+                        <button key={cm.id} onClick={() => toggleBar(cm.id)} style={PJ}
+                          className={`p-3 rounded-lg border flex items-center gap-2 text-left transition-all ${isSel ? selected : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
+                          <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>{isSel && '✓'}</span>
+                          <span className="material-symbols-outlined text-[15px] opacity-60">calculate</span>
+                          <span className="text-[12px] font-medium truncate" title={cm.name}>{cm.name}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setCmOpen(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#1e4f49] hover:text-[#1e4f49] hover:bg-[#f2f8f5] transition-all">
+                  <span className="material-symbols-outlined text-[16px]">add</span>Create a custom metric
+                </button>
+              )
+            )}
             {barCategory === 'competitors' && (
               <div className="border-t border-[#f0f1f2] pt-3">
                 <div className="flex justify-between items-center mb-2">
@@ -296,6 +366,14 @@ export default function ChartSelectionModal({
           </div>
         )}
       </div>
+
+      <CustomMetricModal
+        open={cmOpen}
+        orgId={orgId}
+        metrics={customMetrics}
+        onClose={() => setCmOpen(false)}
+        onChanged={() => { loadCustom(); onCustomMetricsChanged?.() }}
+      />
     </div>
   )
 }

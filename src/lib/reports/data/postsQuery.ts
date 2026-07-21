@@ -22,15 +22,19 @@ export async function getReportPostMetrics(
 
   const { rows } = await pool.query<Record<string, any>>(
     `SELECT p.id, p.platform, p.cover_image, p.format, p.content_pillar,
+            COALESCE(p.follows,0)::float      follows,
             COALESCE(p.reach,0)::float        reach,
             COALESCE(p.impressions,0)::float  impressions,
+            COALESCE(p.views,0)::float        views,
             COALESCE(p.engagement,0)::float   engagement,
             COALESCE(p.likes,0)::float        likes,
             COALESCE(p.comments,0)::float     comments,
             COALESCE(p.saves,0)::float        saves,
             COALESCE(p.shares,0)::float       shares,
-            COALESCE(p.views,0)::float        views,
-            COALESCE(p.engagement_rate,0)::float er
+            COALESCE(p.repost_count,0)::float reposts,
+            COALESCE(p.er_reach,0)::float     er_reach,
+            COALESCE(p.er_views,0)::float     er_views,
+            COALESCE(p.er_followers,0)::float er_followers
        FROM l1_silver.unified_post p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
        JOIN public.brands b ON b.id = bsa.brand_id
@@ -46,15 +50,24 @@ export async function getReportPostMetrics(
   for (const r of rows) {
     const f = normFormat(r.format)
     const pil = normPillar(r.content_pillar)
+    // Awareness: Facebook reports impressions, Instagram/TikTok report views.
+    const impressionsViews = r.platform === 'facebook' ? num(r.impressions) : num(r.views)
     const cand: PostCandidate = {
       id: Number(r.id),
       image: r.cover_image || null,
       formatId: f.id, format: f.label,
       pillarId: pil.id, pillar: pil.label,
       values: {
-        reach: num(r.reach), impressions: num(r.impressions), engagement: num(r.engagement),
-        likes: num(r.likes), comments: num(r.comments), saves: num(r.saves),
-        shares: num(r.shares), views: num(r.views), er: num(r.er),
+        new_follow: num(r.follows),
+        reach: num(r.reach),
+        impressions_views: impressionsViews,
+        likes: num(r.likes), comments: num(r.comments), shares: num(r.shares), saves: num(r.saves),
+        reposts: num(r.reposts),
+        engagement: num(r.engagement),
+        // silver stores er_* as a fraction (0.088) → ×100 for percent display.
+        er_reach: num(r.er_reach) * 100,
+        er_views: num(r.er_views) * 100,
+        er_followers: num(r.er_followers) * 100,
       },
     }
     ;(out[r.platform] ??= []).push(cand)

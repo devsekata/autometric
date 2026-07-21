@@ -22,6 +22,8 @@ import {
   ChannelSentiment, ChannelWords, CloudWordData, SentimentKey,
   CompetitorChartSection, CompetitorChartEntity,
 } from './chartTypes'
+import { getOrgCustomMetrics } from './customMetricsStore'
+import { evaluateExpression, type CustomMetricDef } from './customMetrics'
 
 const PLATFORMS: DashPlatform[] = ['instagram', 'facebook', 'tiktok']
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -48,11 +50,13 @@ function eachDate(startISO: string, endExclISO: string): string[] {
 interface GoldRow {
   platform: string; metric_date: string
   foll: number | null; pv: number | null; pr: number | null; ng: number | null
+  nf: number | null; vv: number | null
 }
 interface PostRow {
   platform: string; post_date: string
   likes: number | null; reactions: number | null; comments: number | null; shares: number | null; eng: number | null
   reach: number | null; er_sum: number | null; er_cnt: number | null; posts: number | null
+  saves: number | null; views: number | null; impressions: number | null
 }
 interface PillarRow {
   platform: string; content_pillar: string
@@ -71,10 +75,11 @@ interface CompChartRow {
   first_foll: number | null; last_foll: number | null
   post_count: number | null; engagement: number | null
 }
-type GoldVals = { foll: number | null; pv: number | null; pr: number | null; ng: number | null }
+type GoldVals = { foll: number | null; pv: number | null; pr: number | null; ng: number | null; nf: number | null; vv: number | null }
 type PostVals = {
   likes: number | null; reactions: number | null; comments: number | null; shares: number | null; eng: number | null
   reach: number | null; er_sum: number | null; er_cnt: number | null; posts: number | null
+  saves: number | null; views: number | null; impressions: number | null
 }
 
 const num = (v: number | null | undefined): number | undefined =>
@@ -161,6 +166,69 @@ function flowDimSeries(
   return { daymonth, last3months, days }
 }
 
+/* ── custom metrics (free expressions over l1/l2 fields, evaluated per time bucket) ── */
+
+// Aggregate a registry field over a set of dates (a time bucket), matching the table's
+// per-period semantics: counts SUM, followers = last EOD, ER = ΣerSum/ΣerCnt ×100.
+// Returns null when the field has no datum in the bucket, or isn't chart-sourced
+// (er_followers / watch_time have no per-day source here → the metric is omitted).
+function bucketFieldResolver(
+  dates: string[], p: DashPlatform, gold: Map<string, GoldVals>, post: Map<string, PostVals>,
+): (fieldId: string) => number | null {
+  const sumF = (pick: (d: string) => number | null | undefined): number | null => {
+    let s = 0, has = false
+    for (const d of dates) { const v = pick(d); if (v != null && Number.isFinite(Number(v))) { s += Number(v); has = true } }
+    return has ? s : null
+  }
+  const lastEod = (): number | null => {
+    let best: number | null = null, bd = ''
+    for (const d of dates) { const g = gold.get(d); if (g?.foll != null && d > bd) { bd = d; best = Number(g.foll) } }
+    return best
+  }
+  return (fieldId: string): number | null => {
+    switch (fieldId) {
+      case 'likes': return sumF(d => { const s = post.get(d); return s ? (p === 'facebook' ? s.reactions : s.likes) : null })
+      case 'comments': return sumF(d => post.get(d)?.comments)
+      case 'shares': return sumF(d => post.get(d)?.shares)
+      case 'saves': return sumF(d => post.get(d)?.saves)
+      case 'engagement': return sumF(d => post.get(d)?.eng)
+      case 'reach': return sumF(d => post.get(d)?.reach)
+      case 'views': return sumF(d => post.get(d)?.views)
+      case 'impressions': return sumF(d => post.get(d)?.impressions)
+      case 'total_posts': return sumF(d => post.get(d)?.posts)
+      case 'followers': return lastEod()
+      case 'net_growth': return sumF(d => gold.get(d)?.ng)
+      case 'new_follows': return sumF(d => gold.get(d)?.nf)
+      case 'profile_views': return sumF(d => gold.get(d)?.pv)
+      case 'profile_reach': return sumF(d => gold.get(d)?.pr)
+      case 'video_views': return sumF(d => gold.get(d)?.vv)
+      case 'er_reach': { const es = sumF(d => post.get(d)?.er_sum); const ec = sumF(d => post.get(d)?.er_cnt); return es != null && ec ? (es / ec) * 100 : null }
+      default: return null // er_followers, watch_time — not chart-sourced yet
+    }
+  }
+}
+
+// A custom metric's 3-dimension line series: per-day (daymonth), per-month (last3months —
+// aggregate-then-combine, matching the table), and weekday-average of the per-day values
+// (days). null when the expression yields nothing all month → omit (empty state).
+function buildCustomDimSeries(
+  def: CustomMetricDef, p: DashPlatform,
+  monthDates: string[], monthGroups: string[][],
+  gold: Map<string, GoldVals>, post: Map<string, PostVals>,
+): ChartDimSeries | null {
+  const perDay = monthDates.map(d => evaluateExpression(def.terms, def.multiply100, bucketFieldResolver([d], p, gold, post)))
+  if (!perDay.some(v => v != null && Number.isFinite(v))) return null
+  const daymonth = perDay.map(v => (v != null && Number.isFinite(v) ? v : 0))
+  const last3months = monthGroups.map(dates => {
+    const v = evaluateExpression(def.terms, def.multiply100, bucketFieldResolver(dates, p, gold, post))
+    return v != null && Number.isFinite(v) ? v : 0
+  })
+  const byWeekday: number[][] = Array.from({ length: 7 }, () => [])
+  monthDates.forEach((d, i) => byWeekday[weekday(d)].push(daymonth[i]))
+  const days = byWeekday.map(arr => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0))
+  return { daymonth, last3months, days }
+}
+
 /* ── bar categories ──────────────────────────────────────────────────────────── */
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]                              // Mon…Sun
@@ -174,6 +242,7 @@ const put = (into: Record<string, number[]>, id: string, arr: number[]) => { if 
 function buildBars(
   monthDates: string[], monthGroups: string[][], monthLabels: string[],
   gold: Map<string, GoldVals>, post: Map<string, PostVals>, pillars: Map<string, PillarAgg>,
+  p: DashPlatform, customDefs: CustomMetricDef[],
 ): ChannelBarMetrics {
   const out: ChannelBarMetrics = {}
   const sumPost = (dates: string[], pick: (v: PostVals) => number | null | undefined) =>
@@ -191,6 +260,15 @@ function buildBars(
     put(m, 'engagement', byWd(d => num(post.get(d)?.eng)))
     put(m, 'followers', byWd(d => num(gold.get(d)?.foll)))
     put(m, 'net_followers_growth', byWd(d => num(gold.get(d)?.ng)))
+    // custom metrics — weekday average of per-day custom values (matches the line 'days' dim)
+    for (const def of customDefs) {
+      const perDay = monthDates.map(d => evaluateExpression(def.terms, def.multiply100, bucketFieldResolver([d], p, gold, post)))
+      put(m, def.id, WD_ORDER.map(wd => {
+        let s = 0, c = 0
+        monthDates.forEach((d, i) => { if (weekday(d) === wd) { const v = perDay[i]; if (v != null && Number.isFinite(v)) { s += v; c++ } } })
+        return c ? s / c : 0
+      }))
+    }
     if (Object.keys(m).length) out.daily_performance = { labels: WD_LABELS, metrics: m }
   }
 
@@ -209,6 +287,13 @@ function buildBars(
     put(m, 'engagements', engagements)
     put(m, 'avg_engagements', engagements.map((e, i) => (postsCnt[i] > 0 ? e / postsCnt[i] : 0)))
     put(m, 'total_reach', monthGroups.map(dates => sumPost(dates, v => v.reach)))
+    // custom metrics — per-month value (aggregate-then-combine, matches table + line last3months)
+    for (const def of customDefs) {
+      put(m, def.id, monthGroups.map(dates => {
+        const v = evaluateExpression(def.terms, def.multiply100, bucketFieldResolver(dates, p, gold, post))
+        return v != null && Number.isFinite(v) ? v : 0
+      }))
+    }
     if (Object.keys(m).length) out.last3months_performance = { labels: monthLabels, metrics: m }
   }
 
@@ -251,7 +336,8 @@ export async function getReportChartMetrics(
     pool.query<GoldRow>(
       `SELECT bmd.platform, to_char(bmd.metric_date, 'YYYY-MM-DD') metric_date,
               bmd.follower_count_eod::float foll, bmd.profile_visit_sum::float pv,
-              bmd.profile_reach_sum::float pr, bmd.net_growth_sum::float ng
+              bmd.profile_reach_sum::float pr, bmd.net_growth_sum::float ng,
+              bmd.new_followers_sum::float nf, bmd.video_views_sum::float vv
          FROM l2_gold.brand_metric_daily bmd
          JOIN public.brands b ON b.id = bmd.brand_id
         WHERE b.organization_id = $1 AND bmd.brand_id = $2
@@ -264,6 +350,7 @@ export async function getReportChartMetrics(
               SUM(p.likes)::float likes, SUM(p.reactions)::float reactions,
               SUM(p.comments)::float comments, SUM(p.shares)::float shares,
               SUM(p.engagement)::float eng, SUM(p.reach)::float reach,
+              SUM(p.saves)::float saves, SUM(p.views)::float views, SUM(p.impressions)::float impressions,
               SUM(p.er_reach)::float er_sum, count(p.er_reach)::int er_cnt, count(*)::int posts
          FROM l1_silver.unified_post p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
@@ -346,6 +433,9 @@ export async function getReportChartMetrics(
     ),
   ])
 
+  // Org custom metrics (free expressions) — evaluated per channel as extra line series.
+  const customDefs = await getOrgCustomMetrics(orgId)
+
   const channels: Partial<Record<DashPlatform, ChannelChartMetrics>> = {}
   const bars: Partial<Record<DashPlatform, ChannelBarMetrics>> = {}
   const sentimentByChannel: Partial<Record<DashPlatform, ChannelSentiment>> = {}
@@ -365,9 +455,13 @@ export async function getReportChartMetrics(
       const series = buildDimSeries(metric, p, windowDates, monthDates, monthGroups, goldMap, postMap)
       if (series) metrics[metric] = series
     }
+    for (const def of customDefs) {
+      const cs = buildCustomDimSeries(def, p, monthDates, monthGroups, goldMap, postMap)
+      if (cs) metrics[def.id] = cs
+    }
     if (Object.keys(metrics).length) channels[p] = metrics
 
-    const barCats = buildBars(monthDates, monthGroups, monthLabels, goldMap, postMap, pillarMap)
+    const barCats = buildBars(monthDates, monthGroups, monthLabels, goldMap, postMap, pillarMap, p, customDefs)
     if (Object.keys(barCats).length) bars[p] = barCats
 
     // Sentiment — 3 daily-count series (present if the platform has any comments in the window).
@@ -456,5 +550,6 @@ export async function getReportChartMetrics(
     sentiment: sentimentByChannel,
     words: wordsByChannel,
     competitors: competitorsOut,
+    customMetrics: customDefs.map(d => ({ id: d.id, label: d.name })),
   }
 }

@@ -3,17 +3,28 @@
 // fallback — when there is no live pool the slide shows a loading / empty state.
 import { groupInt } from './format'
 
+// Ordered by the Content Performance categories (Acquisition → Awareness →
+// Engagement → Efficiency). "Impressions/Views" is one combined metric (Facebook
+// = impressions, Instagram/TikTok = views). ER is split into Reach/Views/Followers.
+// Metrics with no data on a channel are hidden by availableMetricsFor.
 export const POST_METRICS: { id: string; label: string }[] = [
+  { id: 'new_follow', label: 'New Follow' },
   { id: 'reach', label: 'Reach' },
-  { id: 'impressions', label: 'Impressions' },
-  { id: 'engagement', label: 'Engagement' },
+  { id: 'impressions_views', label: 'Impressions/Views' },
   { id: 'likes', label: 'Likes' },
   { id: 'comments', label: 'Comments' },
-  { id: 'saves', label: 'Saves' },
   { id: 'shares', label: 'Shares' },
-  { id: 'views', label: 'Views' },
-  { id: 'er', label: 'ER' },
+  { id: 'saves', label: 'Saved' },
+  { id: 'reposts', label: 'Reposts' },
+  { id: 'engagement', label: 'Engagement' },
+  { id: 'er_reach', label: 'ER Reach' },
+  { id: 'er_views', label: 'ER Views' },
+  { id: 'er_followers', label: 'ER Followers' },
 ]
+
+// ER metrics render as percentages (and get the ER highlight color in the card).
+const ER_METRIC_IDS = new Set(['er_reach', 'er_views', 'er_followers'])
+export const isErMetric = (id: string) => ER_METRIC_IDS.has(id)
 
 export const POST_FILTERS: { id: string; label: string }[] = [
   { id: 'top', label: 'Top performing' },
@@ -39,7 +50,7 @@ export interface PostCandidate {
   image: string | null
   formatId: string; format: string
   pillarId: string; pillar: string
-  values: Record<string, number>   // numeric per POST_METRICS id (er = percent number)
+  values: Record<string, number>   // numeric per POST_METRICS id (er_* are percent numbers)
 }
 
 // Live candidate pool for a report (brand + month), keyed by channel. Built by
@@ -68,7 +79,7 @@ export function normPillar(raw?: string | null): { id: string; label: string } {
   return { id: t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''), label: t }
 }
 
-const fmtValue = (id: string, v: number) => (id === 'er' ? v.toFixed(2) + '%' : groupInt(v))
+const fmtValue = (id: string, v: number) => (isErMetric(id) ? v.toFixed(2) + '%' : groupInt(v))
 
 export interface PostOptions {
   format?: string

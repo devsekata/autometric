@@ -33,6 +33,7 @@ interface PostRow {
   likes: number | null; reactions: number | null; comments: number | null; shares: number | null
   saves: number | null; repost_count: number | null; engagement: number | null; engagement_public: number | null
   reach: number | null; views: number | null; impressions: number | null; follows: number | null
+  followers_on_post_day: number | null
   avg_watch_time: number | null; duration_s: number | null; completion_rate: string | null
   er_reach: number | null; er_views: number | null; er_impressions: number | null; er_followers: number | null
 }
@@ -280,6 +281,93 @@ function injectCustomMetrics(
   }
 }
 
+// ── "All channels" section builders (Content/Channel Performance spec) ────────
+// The all-channel tables present each "SUM & AVERAGE" metric as a SUM column plus
+// an Avg. column: content averages are per POST, channel (profile) averages per
+// DAY. ER carries a POOLED SUM column (Σengagement ÷ Σdenominator) and a MEAN Avg.
+// column (avg of per-post ER). Column ids mirror the *.allColumns definitions.
+
+// Combined awareness per post: Facebook = impressions, Instagram/TikTok = views.
+function awarenessValue(r: PostRow): number | null {
+  const v = r.platform === 'facebook' ? r.impressions : r.views
+  return v == null ? null : Number(v)
+}
+function sumAwareness(rows: PostRow[]): number | null {
+  let s = 0, hasPos = false
+  for (const r of rows) { const v = awarenessValue(r); if (v != null) { s += v; if (v > 0) hasPos = true } }
+  return hasPos ? s : null
+}
+// "all" likes = reactions on Facebook, else likes (matches aggPostsAll's effective likes).
+function sumLikesAll(rows: PostRow[]): number | null {
+  let s = 0, hasPos = false
+  for (const r of rows) {
+    const v = r.platform === 'facebook' ? r.reactions : r.likes
+    if (v != null) { s += Number(v); if (Number(v) > 0) hasPos = true }
+  }
+  return hasPos ? s : null
+}
+// Pooled ER (%) = Σengagement ÷ Σdenominator over posts with a positive denominator.
+function pooledER(rows: PostRow[], denom: keyof PostRow): number | null {
+  let e = 0, d = 0, has = false
+  for (const r of rows) {
+    const dv = r[denom] as number | null, ev = r.engagement
+    if (dv != null && Number(dv) > 0 && ev != null) { e += Number(ev); d += Number(dv); has = true }
+  }
+  return has && d > 0 ? (e / d) * 100 : null
+}
+const perPostAvg = (sum: number | null, cnt: number): number | null => (cnt > 0 && sum != null ? sum / cnt : null)
+
+// One window's Content Performance values, keyed by content_level.allColumns ids.
+function allContentValues(rows: PostRow[]): Record<string, number | null> {
+  const cnt = rows.length
+  const reach = sumOrNull(rows, 'reach')
+  const iv = sumAwareness(rows)
+  const likes = sumLikesAll(rows)
+  const comments = sumOrNull(rows, 'comments')
+  const shares = sumOrNull(rows, 'shares')
+  const saved = sumOrNull(rows, 'saves')
+  const reposts = sumOrNull(rows, 'repost_count')
+  const eng = sumOrNull(rows, 'engagement')
+  return {
+    new_follow_content: sumOrNull(rows, 'follows'),
+    reach, avg_reach: perPostAvg(reach, cnt),
+    impressions_views: iv, avg_impressions_views: perPostAvg(iv, cnt),
+    likes, avg_likes: perPostAvg(likes, cnt),
+    comments, avg_comments: perPostAvg(comments, cnt),
+    shares, avg_shares: perPostAvg(shares, cnt),
+    saved, avg_saved: perPostAvg(saved, cnt),
+    reposts, avg_reposts: perPostAvg(reposts, cnt),
+    eng_owned: eng, avg_eng_owned: perPostAvg(eng, cnt),
+    er_reach_pooled: pooledER(rows, 'reach'), er_reach: toPct(avgNonNull(rows, 'er_reach')),
+    er_views_pooled: pooledER(rows, 'views'), er_views: toPct(avgNonNull(rows, 'er_views')),
+    er_followers_pooled: pooledER(rows, 'followers_on_post_day'), er_followers: toPct(avgNonNull(rows, 'er_followers')),
+  }
+}
+
+// One window's Channel Performance values, keyed by channel_level.allColumns ids.
+// Averages are per day (distinct gold metric_date count in the window). "Profile
+// Views" has no distinct gold source, so it (and its average) is null → "—".
+function allChannelValues(g: GoldAgg, cnt: number, days: number): Record<string, number | null> {
+  const perDay = (sum: number | null): number | null => (days > 0 && sum != null ? sum / days : null)
+  return {
+    total_followers: g.followers,
+    followers_net_growth: g.netGrowth, avg_followers_net_growth: perDay(g.netGrowth),
+    new_follows: g.newFollows, avg_new_follows: perDay(g.newFollows),
+    unfollows: g.unfollows, avg_unfollows: perDay(g.unfollows),
+    profile_reach: g.profileReach, avg_profile_reach: perDay(g.profileReach),
+    profile_views: null, avg_profile_views: null,
+    profile_visit: g.profileViews, avg_profile_visit: perDay(g.profileViews), // g.profileViews = profile_visit_sum
+    total_posts: cnt > 0 ? cnt : null,
+  }
+}
+
+// Pair two windows (previous vs current) into a SectionMetrics keyed by column id.
+function pairSection(cur: Record<string, number | null>, prev: Record<string, number | null>): SectionMetrics {
+  const out: SectionMetrics = {}
+  for (const id of Object.keys(cur)) out[id] = { prev: prev[id] ?? null, curr: cur[id] ?? null }
+  return out
+}
+
 function buildSection(
   section: 'content_level' | 'channel_level', ch: TableChannel,
   cur: PostAgg, prev: PostAgg, curG: GoldAgg, prevG: GoldAgg,
@@ -351,6 +439,7 @@ export async function getReportTableMetrics(
     `SELECT p.platform, to_char(p.post_date, 'YYYY-MM-DD') post_date, p.post_type,
             p.likes, p.reactions, p.comments, p.shares, p.saves, p.repost_count,
             p.engagement, p.engagement_public, p.reach, p.views, p.impressions, p.follows,
+            p.followers_on_post_day,
             p.avg_watch_time, p.duration_s, p.completion_rate,
             p.er_reach, p.er_views, p.er_impressions, p.er_followers
        FROM l1_silver.unified_post p
@@ -445,16 +534,26 @@ export async function getReportTableMetrics(
     injectCustomMetrics(customDefs, ch, content[ch]!, channel[ch]!, curPosts, prevPosts, curGold, prevGold)
   }
 
-  // "All channels" aggregate — counts summed, rates/averages recomputed across every
-  // channel's posts; total followers = sum of each channel's end-of-period count.
-  const allCurPosts = aggPostsAll(posts.rows.filter(r => r.post_date >= curStart))
-  const allPrevPosts = aggPostsAll(posts.rows.filter(r => r.post_date < curStart))
-  const allCurGold = aggGold(gold.rows.filter(r => r.metric_date >= curStart))
-  const allPrevGold = aggGold(gold.rows.filter(r => r.metric_date < curStart))
+  // "All channels" aggregate — the Content/Channel Performance layout: counts summed
+  // across every channel's posts, per-post & per-day averages, pooled + mean ER, and
+  // total followers = sum of each channel's end-of-period count. Keyed by *.allColumns
+  // ids (see tableTypes) so the all-channel tables read real values.
+  const allCurPostRows = posts.rows.filter(r => r.post_date >= curStart)
+  const allPrevPostRows = posts.rows.filter(r => r.post_date < curStart)
+  const allCurGoldRows = gold.rows.filter(r => r.metric_date >= curStart)
+  const allPrevGoldRows = gold.rows.filter(r => r.metric_date < curStart)
+  const allCurPosts = aggPostsAll(allCurPostRows)    // retained for custom-metric evaluation
+  const allPrevPosts = aggPostsAll(allPrevPostRows)
+  const allCurGold = aggGold(allCurGoldRows)
+  const allPrevGold = aggGold(allPrevGoldRows)
   allCurGold.followers = hasCurFoll ? allCurFoll : null
   allPrevGold.followers = hasPrevFoll ? allPrevFoll : null
-  content['all'] = buildSection('content_level', 'all', allCurPosts, allPrevPosts, allCurGold, allPrevGold)
-  channel['all'] = buildSection('channel_level', 'all', allCurPosts, allPrevPosts, allCurGold, allPrevGold)
+  const dayCount = (rows: GoldRow[]) => new Set(rows.map(r => r.metric_date)).size
+  content['all'] = pairSection(allContentValues(allCurPostRows), allContentValues(allPrevPostRows))
+  channel['all'] = pairSection(
+    allChannelValues(allCurGold, allCurPosts.cnt, dayCount(allCurGoldRows)),
+    allChannelValues(allPrevGold, allPrevPosts.cnt, dayCount(allPrevGoldRows)),
+  )
   injectCustomMetrics(customDefs, 'all', content['all']!, channel['all']!, allCurPosts, allPrevPosts, allCurGold, allPrevGold)
 
   const sentiment: Partial<Record<DashPlatform, SentimentTable>> = {}

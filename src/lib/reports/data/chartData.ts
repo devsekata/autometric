@@ -173,11 +173,12 @@ export function resolveLineData(
   }
 
   const palette = [colors.primary, colors.accent, colors.secondary]
+  const customLabel = (id: string) => ctx?.customMetrics?.find(c => c.id === id)?.label
   const series: LineSeries[] = []
   ;(config.metrics ?? []).forEach((id, idx) => {
     const data = chartSeriesFor(ctx, channel, id, dim)
     if (data && data.length) {
-      series.push({ name: METRIC_LABELS[id] ?? id, color: palette[idx % palette.length], data, scale: niceScale(data) })
+      series.push({ name: METRIC_LABELS[id] ?? customLabel(id) ?? id, color: palette[idx % palette.length], data, scale: niceScale(data) })
     }
   })
   return { labels, series }
@@ -201,6 +202,7 @@ export function resolveBarData(
 ): { labels: string[]; series: BarSeries[] } {
   const cat = config.barCategory
   const ids = config.barMetrics ?? []
+  const customLabel = (id: string) => ctx?.customMetrics?.find(c => c.id === id)?.label
   const paletteBar = [colors.primary, colors.accent, colors.secondary, '#d96d6d']
 
   // Competitors category: entity-based (Brand + chosen competitors), assembled here
@@ -217,7 +219,7 @@ export function resolveBarData(
     ids.forEach((id, idx) => {
       const data = entities.map(e => e.metrics[id] ?? 0)
       if (data.some(v => Number.isFinite(v) && v !== 0)) {
-        series.push({ name: METRIC_LABELS[id] ?? id, color: paletteBar[idx % paletteBar.length], data, scale: barScale(data) })
+        series.push({ name: METRIC_LABELS[id] ?? customLabel(id) ?? id, color: paletteBar[idx % paletteBar.length], data, scale: barScale(data) })
       }
     })
     return { labels, series }
@@ -233,7 +235,7 @@ export function resolveBarData(
   ids.forEach((id, idx) => {
     const real = catData?.metrics?.[id]
     if (real && real.length === n) {
-      series.push({ name: METRIC_LABELS[id] ?? id, color: palette[idx % palette.length], data: real, scale: barScale(real) })
+      series.push({ name: METRIC_LABELS[id] ?? customLabel(id) ?? id, color: palette[idx % palette.length], data: real, scale: barScale(real) })
     }
   })
   return { labels, series }
@@ -249,9 +251,11 @@ export const SENTIMENT_PALETTES: Record<Sentiment, string[]> = {
   negative: ['#b91c1c', '#dc2626', '#ef4444'],
 }
 
-export function chartSummary(c: ChartConfig): string {
-  if (c.chartType === 'line') return (c.metrics ?? []).map(m => METRIC_LABELS[m] ?? m).join(' · ')
-  if (c.chartType === 'bar') return (c.barMetrics ?? []).map(m => METRIC_LABELS[m] ?? m).join(' · ')
+// `labelOf` resolves ids not in the static catalog (org custom metrics) to their label.
+export function chartSummary(c: ChartConfig, labelOf?: (id: string) => string | undefined): string {
+  const lbl = (m: string) => METRIC_LABELS[m] ?? labelOf?.(m) ?? m
+  if (c.chartType === 'line') return (c.metrics ?? []).map(lbl).join(' · ')
+  if (c.chartType === 'bar') return (c.barMetrics ?? []).map(lbl).join(' · ')
   return `Word cloud${c.sentiment && c.sentiment !== 'all' ? ` · ${c.sentiment}` : ''}`
 }
 
