@@ -12,6 +12,7 @@ import { ReportTableMetrics } from '@/lib/reports/data/tableTypes'
 import { ReportChartMetrics } from '@/lib/reports/data/chartTypes'
 import { ReportKpiMetrics } from '@/lib/reports/data/kpiMetrics'
 import { ReportPostMetrics } from '@/lib/reports/data/posts'
+import type { AvailablePeriod } from '@/lib/reports/data/periodsQuery'
 import { ReportMetricsContext, ReportChartContext, ReportKpiContext, ReportPostContext, ReportAIContext, competitorSectionFor } from '@/lib/reports/data/metricsContext'
 import {
   ContentSlide, SlideType, SlideChrome, ConfigBlock, ChartConfig, TableConfig, makeSlide,
@@ -136,6 +137,30 @@ export default function ReportBuilder({
   // Bumped when the org custom-metric library changes (create/edit/delete) so the table
   // metrics refetch and newly-defined custom columns get their defs + live values.
   const [cmVersion, setCmVersion] = useState(0)
+  // Report periods that actually have data for the brand — drives the setup period
+  // picker: empty months/years are disabled and the default jumps to the latest.
+  const [availablePeriods, setAvailablePeriods] = useState<AvailablePeriod[] | null>(null)
+  useEffect(() => {
+    if (!brandId) { setAvailablePeriods(null); return }
+    let alive = true
+    setAvailablePeriods(null)
+    const url = `/api/organizations/${encodeURIComponent(orgId)}/reports/periods?brand=${encodeURIComponent(brandId)}`
+    fetch(url, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { periods: AvailablePeriod[] } | null) => { if (alive) setAvailablePeriods(d?.periods ?? []) })
+      .catch(e => { if (alive) { console.error('[report] periods fetch failed:', e); setAvailablePeriods([]) } })
+    return () => { alive = false }
+  }, [orgId, brandId])
+  // Default the period to the latest month with data — only when the current
+  // selection is empty, so a manual pick within the same brand is preserved.
+  useEffect(() => {
+    if (!availablePeriods || availablePeriods.length === 0) return
+    const monthNum = MONTHS.indexOf(month) + 1
+    if (availablePeriods.some(p => p.year === year && p.month === monthNum)) return
+    const latest = availablePeriods[0] // periods come back newest-first
+    setMonth(MONTHS[latest.month - 1])
+    setYear(latest.year)
+  }, [availablePeriods]) // eslint-disable-line react-hooks/exhaustive-deps
   // Table metrics — also refetched on custom-metric changes (cmVersion).
   useEffect(() => {
     if (!brandId) { setTableMetrics(null); return }
@@ -170,7 +195,8 @@ export default function ReportBuilder({
       .then((d: ReportPostMetrics | null) => { if (alive) setPostMetrics(d) })
       .catch(e => { if (alive) { console.error('[report] post metrics fetch failed:', e); setPostMetrics(null) } })
     return () => { alive = false }
-  }, [orgId, brandId, month, year])
+    // cmVersion: refetch chart (custom line series) + kpi when the custom-metric library changes.
+  }, [orgId, brandId, month, year, cmVersion])
 
   // Auto-fill the cover logo from the selected brand's logo (public.brands.profile_url),
   // treated exactly like an uploaded logo (fetched to a data URL + palette extracted).
@@ -376,6 +402,7 @@ export default function ReportBuilder({
             onUseTemplate={applyTemplate}
             brandId={brandId} onBrand={handleBrandChange}
             month={month} setMonth={setMonth} year={year} setYear={setYear}
+            availablePeriods={availablePeriods}
             title={title} setTitle={setTitle} subtitle={subtitle} setSubtitle={setSubtitle}
             font={font} setFont={setFont}
             onContinue={() => setStep('cover')}
@@ -573,6 +600,8 @@ export default function ReportBuilder({
 
       <ChartSelectionModal
         open={configBlock === 'chart' || configBlock === 'chartA' || configBlock === 'chartB'}
+        orgId={orgId}
+        onCustomMetricsChanged={() => setCmVersion(v => v + 1)}
         allowWordCloud={activeSlide?.type === 'comparison'}
         availableCompetitors={competitorSectionFor(tableMetrics, activeSlide?.channel ?? 'instagram')?.competitors.map(c => ({ id: c.id, label: c.label })) ?? []}
         onClose={() => setConfigBlock(null)}
@@ -592,6 +621,8 @@ export default function ReportBuilder({
 
       <MetricPickerModal
         open={typeof configBlock === 'string' && configBlock.startsWith('kpi-')}
+        orgId={orgId}
+        onCustomMetricsChanged={() => setCmVersion(v => v + 1)}
         current={kpiSlot !== null && activeSlide ? activeSlide.kpiMetrics[kpiSlot] ?? null : null}
         channel={activeSlide?.channel ?? 'instagram'}
         onClose={() => setConfigBlock(null)}

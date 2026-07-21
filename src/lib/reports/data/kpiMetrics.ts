@@ -3,6 +3,8 @@
 // No dummy fallback — a metric with no data for the brand+period renders "—".
 import type { DashPlatform } from '@/components/dashboard/data'
 import { groupInt } from './format'
+import type { ReportTableMetrics, TableChannel } from './tableTypes'
+import { formatMetric } from './customMetrics'
 
 export type KpiFmt = 'pct' | 'k500' | 'kfollow' | 'count' | 'time' | 'default'
 export type KpiKind = 'sum' | 'last' | 'ratio' | 'avg'
@@ -92,3 +94,40 @@ export function kpiMetricFor(metrics: ReportKpiMetrics | null | undefined, chann
 
 /** True when the delta should read as "good" (green) given the metric's polarity. */
 export const deltaIsGood = (m: KpiMetric) => (m.delta >= 0) === m.positiveIsGood
+
+/**
+ * Scorecard for an org custom metric, sourced from the TABLE payload so the KPI value
+ * equals the table's (same expression + period aggregates → consistent). undefined when
+ * `key` isn't a custom metric or the table payload is unavailable.
+ */
+export function customKpiMetricFor(
+  table: ReportTableMetrics | null | undefined, channel: string, key: string | null,
+): KpiMetric | undefined {
+  if (!key || !table?.customMetrics) return undefined
+  const def = table.customMetrics.find(c => c.id === key)
+  if (!def) return undefined
+  const sec = table.content?.[channel as TableChannel] ?? table.channel?.[channel as TableChannel]
+  const pair = sec?.[key] ?? null
+  const curr = pair?.curr ?? null
+  const prev = pair?.prev ?? null
+  const value = curr == null ? '—' : formatMetric(def.format, curr)
+  const hasDelta = curr != null && prev != null && prev !== 0
+  const delta = hasDelta ? round1(((curr - prev) / prev) * 100) : 0
+  return { key: def.id, label: def.label, icon: 'calculate', value, delta, positiveIsGood: true, hasDelta }
+}
+
+/** Resolve a scorecard for a key that may be a built-in KPI OR an org custom metric. */
+export function resolveKpiMetric(
+  kpi: ReportKpiMetrics | null | undefined,
+  table: ReportTableMetrics | null | undefined,
+  channel: string, key: string | null,
+): KpiMetric | undefined {
+  return kpiMetricFor(kpi, channel, key) ?? customKpiMetricFor(table, channel, key)
+}
+
+/** Org custom metrics as scorecards for the picker (built from the table payload). */
+export function customKpiMetricsList(table: ReportTableMetrics | null | undefined, channel: string): KpiMetric[] {
+  return (table?.customMetrics ?? [])
+    .map(c => customKpiMetricFor(table, channel, c.id))
+    .filter((m): m is KpiMetric => !!m)
+}

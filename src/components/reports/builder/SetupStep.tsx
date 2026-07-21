@@ -15,11 +15,22 @@ export default function SetupStep(props: {
   month: string; setMonth: (v: string) => void; year: number; setYear: (v: number) => void
   title: string; setTitle: (v: string) => void; subtitle: string; setSubtitle: (v: string) => void
   font: string; setFont: (v: string) => void
+  availablePeriods?: { year: number; month: number }[] | null
   onContinue: () => void
 }) {
   const noBrands = props.brands.length === 0
   const [pickedId, setPickedId] = useState('')
   const applied = props.templates.find(t => t.id === pickedId)
+
+  // Periods with data (null = still loading → don't disable anything yet). Years
+  // are the fixed recent list merged with any data years so no real period hides.
+  const periods = props.availablePeriods
+  const hasPeriodData = !!(periods && periods.length)
+  const availSet = new Set((periods ?? []).map(p => `${p.year}-${p.month}`))
+  const availYears = new Set((periods ?? []).map(p => p.year))
+  const yearOptions = [...new Set<number>([...YEARS, ...availYears])].sort((a, b) => b - a)
+  const yearHasData = (y: number) => !hasPeriodData || availYears.has(y)
+  const monthHasData = (name: string) => !hasPeriodData || availSet.has(`${props.year}-${MONTHS.indexOf(name) + 1}`)
 
   function handlePickTemplate(id: string) {
     if (!id) { setPickedId(''); return }
@@ -91,7 +102,11 @@ export default function SetupStep(props: {
                 style={PJ}
                 className="border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] bg-white focus:border-[#3d7e96] focus:outline-none"
               >
-                {MONTHS.map(m => <option key={m}>{m}</option>)}
+                {MONTHS.map(m => (
+                  <option key={m} value={m} disabled={!monthHasData(m)}>
+                    {m}{monthHasData(m) ? '' : ' — no data'}
+                  </option>
+                ))}
               </select>
               <select
                 value={props.year}
@@ -99,9 +114,18 @@ export default function SetupStep(props: {
                 style={PJ}
                 className="border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] bg-white focus:border-[#3d7e96] focus:outline-none"
               >
-                {YEARS.map(y => <option key={y}>{y}</option>)}
+                {yearOptions.map(y => (
+                  <option key={y} value={y} disabled={!yearHasData(y)}>
+                    {y}{yearHasData(y) ? '' : ' — no data'}
+                  </option>
+                ))}
               </select>
             </div>
+            {hasPeriodData
+              ? <p className="text-[11px] text-[#9ca3af] mt-1.5">Hanya periode yang punya data yang bisa dipilih.</p>
+              : periods
+                ? <p className="text-[11px] text-[#dc2626] mt-1.5">Brand ini belum punya data periode apa pun.</p>
+                : null}
           </div>
 
           <Field label="Report title" value={props.title} onChange={props.setTitle} />

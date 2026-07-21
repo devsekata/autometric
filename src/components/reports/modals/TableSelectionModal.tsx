@@ -11,7 +11,9 @@ import CustomMetricModal from './CustomMetricModal'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
-const defaultTypeFor = (channel: string) => (channel === 'all' ? 'sentiments' : 'content_level')
+// content_level now carries a proper all-channel layout (Content Performance spec),
+// so it's the sensible default on every channel including "all".
+const defaultTypeFor = (_channel: string) => 'content_level'
 
 /**
  * Two-pane table configurator: type list (left) + channel-scoped column picker

@@ -271,6 +271,13 @@ function RenderChart({ config, colors, channel }: { config: ChartConfig; colors:
   )
 }
 
+// Chart card subtitle — resolves org custom-metric ids to their labels (from context).
+function ChartSummaryText({ config }: { config: ChartConfig }) {
+  const ctx = useReportChart()
+  const labelOf = (id: string) => ctx?.customMetrics?.find(c => c.id === id)?.label
+  return <>{chartSummary(config, labelOf)}</>
+}
+
 export function ChartBlock({
   config, colors, channel = 'instagram', editable, onConfigure, placeholderLabel = 'Main chart area',
 }: {
@@ -284,7 +291,7 @@ export function ChartBlock({
   if (!config) return <Placeholder icon="bar_chart" label={placeholderLabel} editable={editable} onClick={onConfigure} />
   return (
     <Card style={{ padding: '2cqh 1.8cqw', display: 'flex', flexDirection: 'column', gap: '1.4cqh' }}>
-      <CardLabel icon={chartIcon(config)} accent={colors.primary} onEdit={editable ? onConfigure : undefined}>{chartSummary(config)}</CardLabel>
+      <CardLabel icon={chartIcon(config)} accent={colors.primary} onEdit={editable ? onConfigure : undefined}><ChartSummaryText config={config} /></CardLabel>
       <div className="flex-1 min-h-0"><RenderChart config={config} colors={colors} channel={channel} /></div>
     </Card>
   )
