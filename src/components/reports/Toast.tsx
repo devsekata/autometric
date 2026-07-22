@@ -18,7 +18,7 @@ export function useToast() {
 const STYLES: Record<ToastKind, { icon: string; ring: string; color: string }> = {
   success: { icon: 'check_circle', ring: 'border-[#cfe8df]', color: '#2f9e6f' },
   error:   { icon: 'error',        ring: 'border-[#f6d5d0]', color: '#d9534f' },
-  info:    { icon: 'info',         ring: 'border-[#d6e4ea]', color: '#3d7e96' },
+  info:    { icon: 'info',         ring: 'border-[#d6e4ea]', color: '#1B8A80' },
 }
 
 export function ToastHost({ toast, onClose }: { toast: ToastState | null; onClose: () => void }) {

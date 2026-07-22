@@ -71,7 +71,7 @@ export const kpiPairFor = (m: ReportKpiMetrics | null | undefined, channel: stri
 function fmtVal(format: KpiFmt, v: number): string {
   if (format === 'pct') return (Math.round(v * 100) / 100) + '%'
   if (format === 'time') return (Math.round(v * 10) / 10) + 's'
-  return groupInt(v) // counts / followers / reach → full numbers with dot separators
+  return groupInt(v) // counts / followers / reach → full numbers with comma separators
 }
 const round1 = (n: number) => Math.round(n * 10) / 10
 

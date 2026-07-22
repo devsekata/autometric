@@ -97,7 +97,7 @@ function OverviewBody({ orgId, brandId, platform, period, start, end }: { orgId:
               {TREND_METRICS.map(m => (
                 <button key={m} onClick={() => setMetric(m)} style={PJ}
                   className={`h-7 px-3 rounded-md text-[11.5px] font-semibold transition-colors ${
-                    metric === m ? 'bg-white text-[#1e4f49] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
+                    metric === m ? 'bg-white text-[#2C3079] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
                   }`}>{m}</button>
               ))}
             </div>

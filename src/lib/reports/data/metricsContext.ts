@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from 'react'
 import type { DashPlatform } from '@/components/dashboard/data'
-import type { ReportTableMetrics, SectionMetrics, CompetitorSection } from './tableTypes'
+import type { ReportTableMetrics, SectionMetrics, CompetitorSection, PlatformMetrics } from './tableTypes'
 import type { ReportChartMetrics } from './chartTypes'
 import type { ReportKpiMetrics } from './kpiMetrics'
 import type { ReportPostMetrics } from './posts'
@@ -80,4 +80,15 @@ export function competitorSectionFor(
 ): CompetitorSection | null {
   if (!metrics?.competitors) return null
   return metrics.competitors[channel as DashPlatform] ?? null
+}
+
+/** The per-platform values for a comparison table (content/channel by platform), or null. */
+export function platformMetricsFor(
+  metrics: ReportTableMetrics | null | undefined,
+  tableType: string,
+): PlatformMetrics | null {
+  if (!metrics) return null
+  if (tableType === 'content_by_platform') return metrics.contentByPlatform ?? null
+  if (tableType === 'channel_by_platform') return metrics.channelByPlatform ?? null
+  return null
 }

@@ -26,7 +26,7 @@ export default function AccountRow({ brand, account, orgSlug }: Props) {
       <div className="flex items-center gap-2 pr-4 min-w-0">
         <BrandAvatar brand={brand} size={22} />
         <Link href={`/organizations/${orgSlug}/brands/${brand.id}/overview`}
-          style={PJB} className="text-[13px] font-semibold text-[#111827] truncate hover:text-[#3d7e96] transition-colors">
+          style={PJB} className="text-[13px] font-semibold text-[#111827] truncate hover:text-[#1B8A80] transition-colors">
           {brand.name}
         </Link>
       </div>

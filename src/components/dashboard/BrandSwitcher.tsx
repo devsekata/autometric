@@ -46,7 +46,7 @@ export default function BrandSwitcher({ value, brands, onChange, children }: {
                 <BrandAvatar logo={b.logo} initials={b.initials} color={b.color} name={b.name}
                   className="w-8 h-8 rounded-lg" textClass="text-[11px]" />
                 <div className="flex-1 min-w-0">
-                  <span style={PJ} className={`block text-[13px] font-bold truncate ${active ? 'text-[#1e4f49]' : 'text-[#111827]'}`}>{b.name}</span>
+                  <span style={PJ} className={`block text-[13px] font-bold truncate ${active ? 'text-[#2C3079]' : 'text-[#111827]'}`}>{b.name}</span>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className="text-[11px] text-[#9ca3af]">{b.handle}</span>
                     <span className="text-[#d1d5db]">·</span>
@@ -59,7 +59,7 @@ export default function BrandSwitcher({ value, brands, onChange, children }: {
                       className="w-4 h-4 object-contain" title={PLATFORM_META[p].label} />
                   ))}
                 </div>
-                {active && <span className="material-symbols-outlined text-[18px] text-[#3d7e96] flex-shrink-0">check</span>}
+                {active && <span className="material-symbols-outlined text-[18px] text-[#1B8A80] flex-shrink-0">check</span>}
               </button>
             )
           })}

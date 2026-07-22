@@ -142,9 +142,12 @@ export function effectiveSortMetric(metric: string | undefined, available: strin
 }
 
 // Resolve which metrics show on the card — the user's picks intersected with what's
-// available; if none survive, the first few available metrics.
+// available; if none survive, the first few available metrics. Order ALWAYS follows
+// the canonical POST_METRICS sequence (Acquisition → Awareness → Engagement →
+// Efficiency), NOT the order the user clicked them.
 export function effectiveShownMetrics(selected: string[], available: string[]): string[] {
-  const shown = selected.filter(id => available.includes(id))
+  const sel = new Set(selected)
+  const shown = POST_METRICS.filter(m => sel.has(m.id) && available.includes(m.id)).map(m => m.id)
   return shown.length ? shown : available.slice(0, 3)
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   TABLE_TYPES, TableConfig,
-  columnsForChannel, defaultColumnsFor, isTypeEnabledForChannel,
+  columnsForChannel, defaultColumnsFor, isTypeEnabledForChannel, typeChannelHint,
 } from '@/lib/reports/data/tableTypes'
 import type { CustomMetricDef } from '@/lib/reports/data/customMetrics'
 import { listCustomMetrics } from '@/lib/reports/data/customMetricsApi'
@@ -108,19 +108,19 @@ export default function TableSelectionModal({
                     !enabled
                       ? 'border-transparent opacity-45 cursor-not-allowed'
                       : active
-                        ? 'bg-[#f2f8f5] border-[#1e4f49] ring-1 ring-[#1e4f49]'
+                        ? 'bg-[#F1F2FB] border-[#2C3079] ring-1 ring-[#2C3079]'
                         : 'border-transparent hover:bg-white hover:border-[#e5e7eb]'
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`material-symbols-outlined text-[17px] ${active ? 'text-[#1e4f49]' : 'text-[#9ca3af]'}`}>{t.icon}</span>
-                    <span style={PJ} className={`text-[13px] font-bold ${active ? 'text-[#1e4f49]' : 'text-[#475569]'}`}>{t.label}</span>
+                    <span className={`material-symbols-outlined text-[17px] ${active ? 'text-[#2C3079]' : 'text-[#9ca3af]'}`}>{t.icon}</span>
+                    <span style={PJ} className={`text-[13px] font-bold ${active ? 'text-[#2C3079]' : 'text-[#475569]'}`}>{t.label}</span>
                   </div>
                   <p className="text-[10.5px] text-[#94a3b8] leading-tight">
                     {t.disabled
                       ? 'Competitor data isn’t available in reports yet.'
                       : !enabled
-                        ? 'Pick a specific channel to use this table.'
+                        ? typeChannelHint(t.id)
                         : t.description}
                   </p>
                 </button>
@@ -137,7 +137,7 @@ export default function TableSelectionModal({
                   {availableCompetitors.length > 0 && (
                     <button
                       onClick={() => setCompetitorIds(competitorIds.length === allCompIds.length ? [] : allCompIds)}
-                      className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold"
+                      className="text-[10.5px] text-[#2C3079] hover:underline font-semibold"
                     >
                       {competitorIds.length === allCompIds.length ? 'Clear all' : 'Select all'}
                     </button>
@@ -152,12 +152,12 @@ export default function TableSelectionModal({
                     {availableCompetitors.map(c => {
                       const on = competitorIds.includes(c.id)
                       return (
-                        <label key={c.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#f2f8f5] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
-                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#1e4f49] border-[#1e4f49]' : 'border-[#cbd5e1] bg-white'}`}>
+                        <label key={c.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#F1F2FB] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#2C3079] border-[#2C3079]' : 'border-[#cbd5e1] bg-white'}`}>
                             {on && <span className="material-symbols-outlined text-[12px] text-white">check</span>}
                           </span>
                           <input type="checkbox" className="hidden" checked={on} onChange={() => toggleComp(c.id)} />
-                          <span style={PJ} className={`text-[12px] font-medium truncate ${on ? 'text-[#1e4f49]' : 'text-[#64748b]'}`} title={c.label}>{c.label}</span>
+                          <span style={PJ} className={`text-[12px] font-medium truncate ${on ? 'text-[#2C3079]' : 'text-[#64748b]'}`} title={c.label}>{c.label}</span>
                         </label>
                       )
                     })}
@@ -167,7 +167,7 @@ export default function TableSelectionModal({
             )}
             <div className="flex justify-between items-center mb-3">
               <h4 style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Visible Columns</h4>
-              <button onClick={() => setColumns(defaultColumnsFor(type, channel))} className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+              <button onClick={() => setColumns(defaultColumnsFor(type, channel))} className="text-[10.5px] text-[#2C3079] hover:underline font-semibold">
                 Reset to Default
               </button>
             </div>
@@ -175,12 +175,12 @@ export default function TableSelectionModal({
               {visibleColumns.map(col => {
                 const on = columns.includes(col.id)
                 return (
-                  <label key={col.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#f2f8f5] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
-                    <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#1e4f49] border-[#1e4f49]' : 'border-[#cbd5e1] bg-white'}`}>
+                  <label key={col.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#F1F2FB] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#2C3079] border-[#2C3079]' : 'border-[#cbd5e1] bg-white'}`}>
                       {on && <span className="material-symbols-outlined text-[12px] text-white">check</span>}
                     </span>
                     <input type="checkbox" className="hidden" checked={on} onChange={() => toggle(col.id)} />
-                    <span style={PJ} className={`text-[12px] font-medium ${on ? 'text-[#1e4f49]' : 'text-[#64748b]'}`}>{col.label}</span>
+                    <span style={PJ} className={`text-[12px] font-medium ${on ? 'text-[#2C3079]' : 'text-[#64748b]'}`}>{col.label}</span>
                   </label>
                 )
               })}
@@ -191,7 +191,7 @@ export default function TableSelectionModal({
               <div className="mt-5">
                 <div className="flex justify-between items-center mb-3">
                   <h4 style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Custom Metrics</h4>
-                  <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+                  <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#2C3079] hover:underline font-semibold">
                     <span className="material-symbols-outlined text-[14px]">tune</span>
                     {customMetrics.length ? 'Manage' : 'Create'}
                   </button>
@@ -199,7 +199,7 @@ export default function TableSelectionModal({
                 {customMetrics.length === 0 ? (
                   <button
                     onClick={() => setCmOpen(true)}
-                    className="w-full flex items-center justify-center gap-1.5 py-3 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#1e4f49] hover:text-[#1e4f49] hover:bg-[#f2f8f5] transition-all"
+                    className="w-full flex items-center justify-center gap-1.5 py-3 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#2C3079] hover:text-[#2C3079] hover:bg-[#F1F2FB] transition-all"
                   >
                     <span className="material-symbols-outlined text-[16px]">add</span>
                     Create a custom metric
@@ -209,12 +209,12 @@ export default function TableSelectionModal({
                     {customMetrics.map(cm => {
                       const on = columns.includes(cm.id)
                       return (
-                        <label key={cm.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#f2f8f5] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
-                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#1e4f49] border-[#1e4f49]' : 'border-[#cbd5e1] bg-white'}`}>
+                        <label key={cm.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${on ? 'bg-[#F1F2FB] border-[#bcd9cf]' : 'border-[#eef0f2] hover:bg-[#f9fafb]'}`}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${on ? 'bg-[#2C3079] border-[#2C3079]' : 'border-[#cbd5e1] bg-white'}`}>
                             {on && <span className="material-symbols-outlined text-[12px] text-white">check</span>}
                           </span>
                           <input type="checkbox" className="hidden" checked={on} onChange={() => toggle(cm.id)} />
-                          <span style={PJ} className={`text-[12px] font-medium truncate ${on ? 'text-[#1e4f49]' : 'text-[#64748b]'}`} title={cm.name}>{cm.name}</span>
+                          <span style={PJ} className={`text-[12px] font-medium truncate ${on ? 'text-[#2C3079]' : 'text-[#64748b]'}`} title={cm.name}>{cm.name}</span>
                         </label>
                       )
                     })}
@@ -231,7 +231,7 @@ export default function TableSelectionModal({
             onClick={() => onConfirm(isCompetitor ? { type, columns, competitorIds } : { type, columns })}
             disabled={columns.length === 0}
             style={PJ}
-            className="px-5 py-2.5 bg-[#1e4f49] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#163a35] disabled:opacity-50 transition-colors"
+            className="px-5 py-2.5 bg-[#2C3079] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#20224F] disabled:opacity-50 transition-colors"
           >
             Insert Table
           </button>

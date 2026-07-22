@@ -11,7 +11,7 @@ import { Invitation } from '@/lib/invitations/types';
 const BAR_HEIGHTS = [28, 44, 36, 54, 40, 62, 50, 68, 56, 82, 66, 78];
 
 const PERF_BRANDS = [
-  { name: 'Autometric HQ', score: 92, pct: 92, color: '#3d7e96', trend: '↑' },
+  { name: 'Kepiai HQ', score: 92, pct: 92, color: '#1B8A80', trend: '↑' },
   { name: 'Brand Studio', score: 87, pct: 87, color: '#7c5cbf', trend: '→' },
   { name: 'Research Team', score: 79, pct: 79, color: '#059669', trend: '↑' },
   { name: 'Growth Labs', score: 74, pct: 74, color: '#d97706', trend: '↓' },
@@ -123,7 +123,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           height: 54px;
           padding: 0 36px;
           border-radius: 100px;
-          background: #3d7e96;
+          background: #1B8A80;
           color: white;
           font-family: 'Plus Jakarta Sans', sans-serif;
           font-size: 15.5px;
@@ -171,7 +171,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           width: 22px;
           height: 22px;
           border-radius: 50%;
-          background: #3d7e96;
+          background: #1B8A80;
           color: white;
           font-size: 10px;
           font-weight: 700;
@@ -280,7 +280,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                         flex: 1,
                         borderRadius: '3px 3px 0 0',
                         height: `${h}%`,
-                        background: i >= 9 ? '#3d7e96' : 'rgba(0,0,0,0.08)',
+                        background: i >= 9 ? '#1B8A80' : 'rgba(0,0,0,0.08)',
                       }}
                     />
                   ))}
@@ -540,8 +540,8 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           <div className="wp-center">
             <div className="wp-product-icon">
               <img
-                src="/autometric-logo-icon.png"
-                alt="Autometric"
+                src="/kepiai-logo-icon.png"
+                alt="Kepiai"
                 style={{ width: 48, height: 48, objectFit: 'contain' }}
               />
             </div>

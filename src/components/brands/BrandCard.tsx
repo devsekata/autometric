@@ -29,7 +29,7 @@ export default function BrandCard({ brand, onDelete }: Props) {
   }, [menuOpen])
 
   return (
-    <div className="bg-white border border-[#e5e7eb] rounded-xl p-5 flex flex-col gap-0 hover:border-[#c5dce5] hover:shadow-md hover:shadow-[#3d7e96]/8 transition-all">
+    <div className="bg-white border border-[#e5e7eb] rounded-xl p-5 flex flex-col gap-0 hover:border-[#c5dce5] hover:shadow-md hover:shadow-[#1B8A80]/8 transition-all">
 
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">

@@ -8,7 +8,7 @@ import type { DashPlatform } from '@/components/dashboard/data'
 import { groupInt } from './format'
 
 export type TableFormat = 'compact' | 'number' | 'percent' | 'time'
-export type TableRowType = 'comparison' | 'competitors' | 'sentiments' | 'generic'
+export type TableRowType = 'comparison' | 'competitors' | 'sentiments' | 'platforms' | 'generic'
 
 // `channels` omitted = available on every channel; otherwise the metric only
 // exists for the listed platforms (per the ROBZ LAUNCH mapping).
@@ -70,10 +70,19 @@ export interface CompetitorSection {
  *  values live in the content/channel SectionMetrics (keyed by this id). */
 export interface CustomMetricColumn { id: string; label: string; format: TableFormat }
 
+/**
+ * Platform-comparison table values: the CURRENT-period value per platform, keyed
+ * by column id (the Content/Channel Performance combined-metric ids). Backs the
+ * "Content by Platform" / "Channel by Platform" tables (rows = IG/FB/TikTok).
+ */
+export type PlatformMetrics = Partial<Record<DashPlatform, Record<string, number | null>>>
+
 /** Full report metrics payload: content + channel level + sentiment + competitor. */
 export interface ReportTableMetrics {
   content: Partial<Record<TableChannel, SectionMetrics>>   // per channel + 'all'
   channel: Partial<Record<TableChannel, SectionMetrics>>   // per channel + 'all'
+  contentByPlatform?: PlatformMetrics   // current-period content values per platform (Content by Platform table)
+  channelByPlatform?: PlatformMetrics   // current-period channel values per platform (Channel by Platform table)
   sentiment?: Partial<Record<DashPlatform, SentimentTable>>   // per channel (comment_sentiment_post by dominant sentiment)
   competitors?: Partial<Record<DashPlatform, CompetitorSection>>  // per channel (l2_gold.competitor_*)
   customMetrics?: CustomMetricColumn[]   // org custom metrics (selectable columns)
@@ -84,47 +93,72 @@ export function customColumnsFrom(metrics: ReportTableMetrics | null | undefined
   return (metrics?.customMetrics ?? []).map(c => ({ id: c.id, label: c.label, format: c.format }))
 }
 
+// ── All-channel column sets (Content/Channel Performance spec) ────────────────
+// Shared by the cross-channel aggregate tables (content_level/channel_level on the
+// "all" view) AND by the per-platform comparison tables (content_by_platform /
+// channel_by_platform), which show the SAME combined metrics but one row per
+// platform. Each "SUM & AVERAGE" metric = a SUM column + an Avg. column; ER =
+// pooled SUM (Σengagement ÷ Σdenominator) + mean Avg.; counts are SUM only.
+const CONTENT_ALL_COLUMNS: TableColumn[] = [
+  { id: 'new_follow_content', label: 'New Follow from Content', format: 'number' },
+  { id: 'reach', label: 'Reach', format: 'compact' },
+  { id: 'avg_reach', label: 'Avg. Reach', format: 'compact' },
+  { id: 'impressions_views', label: 'Impressions/Views', format: 'compact' },
+  { id: 'avg_impressions_views', label: 'Avg. Impressions/Views', format: 'compact' },
+  { id: 'likes', label: 'Likes', format: 'number' },
+  { id: 'avg_likes', label: 'Avg. Likes', format: 'number' },
+  { id: 'comments', label: 'Comments', format: 'number' },
+  { id: 'avg_comments', label: 'Avg. Comments', format: 'number' },
+  { id: 'shares', label: 'Shares', format: 'number' },
+  { id: 'avg_shares', label: 'Avg. Shares', format: 'number' },
+  { id: 'saved', label: 'Saved', format: 'number' },
+  { id: 'avg_saved', label: 'Avg. Saved', format: 'number' },
+  { id: 'reposts', label: 'Reposts', format: 'number' },
+  { id: 'avg_reposts', label: 'Avg. Reposts', format: 'number' },
+  { id: 'eng_owned', label: 'Engagement', format: 'compact' },
+  { id: 'avg_eng_owned', label: 'Avg. Engagement', format: 'compact' },
+  { id: 'er_reach_pooled', label: 'ER Reach', format: 'percent' },
+  { id: 'er_reach', label: 'Avg. ER Reach', format: 'percent' },
+  { id: 'er_views_pooled', label: 'ER Views', format: 'percent' },
+  { id: 'er_views', label: 'Avg. ER Views', format: 'percent' },
+  { id: 'er_followers_pooled', label: 'ER Followers', format: 'percent' },
+  { id: 'er_followers', label: 'Avg. ER Followers', format: 'percent' },
+]
+const CONTENT_ALL_DEFAULTS = [
+  'new_follow_content', 'reach', 'impressions_views', 'likes', 'comments', 'shares',
+  'saved', 'reposts', 'eng_owned', 'er_reach_pooled', 'er_views_pooled', 'er_followers_pooled',
+]
+const CHANNEL_ALL_COLUMNS: TableColumn[] = [
+  { id: 'total_followers', label: 'Followers', format: 'compact' },
+  { id: 'followers_net_growth', label: 'Followers Nett Growth', format: 'number' },
+  { id: 'avg_followers_net_growth', label: 'Avg. Followers Nett Growth', format: 'number' },
+  { id: 'new_follows', label: 'New Follow', format: 'number' },
+  { id: 'avg_new_follows', label: 'Avg. New Follow', format: 'number' },
+  { id: 'unfollows', label: 'Unfollows', format: 'number' },
+  { id: 'avg_unfollows', label: 'Avg. Unfollows', format: 'number' },
+  { id: 'profile_reach', label: 'Profile Reach', format: 'compact' },
+  { id: 'avg_profile_reach', label: 'Avg. Profile Reach', format: 'compact' },
+  { id: 'profile_views', label: 'Profile Views', format: 'number' },
+  { id: 'avg_profile_views', label: 'Avg. Profile Views', format: 'number' },
+  { id: 'profile_visit', label: 'Profile Visit', format: 'number' },
+  { id: 'avg_profile_visit', label: 'Avg. Profile Visit', format: 'number' },
+  { id: 'total_posts', label: 'Total Post', format: 'number' },
+]
+const CHANNEL_ALL_DEFAULTS = [
+  'total_followers', 'followers_net_growth', 'new_follows', 'unfollows',
+  'profile_reach', 'profile_views', 'profile_visit', 'total_posts',
+]
+
 export const TABLE_TYPES: Record<string, TableType> = {
   content_level: {
     id: 'content_level', label: 'Content Level Metric', icon: 'dynamic_feed',
     description: 'Per-post metrics — this period vs last.', rowType: 'comparison', channelScoped: true,
     defaultColumns: ['reach', 'likes', 'comments', 'shares', 'eng_owned', 'er_reach'],
-    // Cross-channel "all" view (Content Performance spec). Count metrics carry a SUM
-    // column (period total) + an Avg. column (per post); ER carries a pooled SUM
-    // column (Σengagement ÷ Σdenominator) + a mean Avg. column (avg per-post ER).
-    // "New Follow from Content" is SUM only.
-    allColumns: [
-      { id: 'new_follow_content', label: 'New Follow from Content', format: 'number' },
-      { id: 'reach', label: 'Reach', format: 'compact' },
-      { id: 'avg_reach', label: 'Avg. Reach', format: 'compact' },
-      { id: 'impressions_views', label: 'Impressions/Views', format: 'compact' },
-      { id: 'avg_impressions_views', label: 'Avg. Impressions/Views', format: 'compact' },
-      { id: 'likes', label: 'Likes', format: 'number' },
-      { id: 'avg_likes', label: 'Avg. Likes', format: 'number' },
-      { id: 'comments', label: 'Comments', format: 'number' },
-      { id: 'avg_comments', label: 'Avg. Comments', format: 'number' },
-      { id: 'shares', label: 'Shares', format: 'number' },
-      { id: 'avg_shares', label: 'Avg. Shares', format: 'number' },
-      { id: 'saved', label: 'Saved', format: 'number' },
-      { id: 'avg_saved', label: 'Avg. Saved', format: 'number' },
-      { id: 'reposts', label: 'Reposts', format: 'number' },
-      { id: 'avg_reposts', label: 'Avg. Reposts', format: 'number' },
-      { id: 'eng_owned', label: 'Engagement', format: 'compact' },
-      { id: 'avg_eng_owned', label: 'Avg. Engagement', format: 'compact' },
-      { id: 'er_reach_pooled', label: 'ER Reach', format: 'percent' },
-      { id: 'er_reach', label: 'Avg. ER Reach', format: 'percent' },
-      { id: 'er_views_pooled', label: 'ER Views', format: 'percent' },
-      { id: 'er_views', label: 'Avg. ER Views', format: 'percent' },
-      { id: 'er_followers_pooled', label: 'ER Followers', format: 'percent' },
-      { id: 'er_followers', label: 'Avg. ER Followers', format: 'percent' },
-    ],
-    // Default = the 12 spec metrics as their primary (SUM / pooled) column; the
-    // Avg. columns stay available in the picker (kept off by default to keep the
-    // all-channel table readable).
-    allDefaultColumns: [
-      'new_follow_content', 'reach', 'impressions_views', 'likes', 'comments', 'shares',
-      'saved', 'reposts', 'eng_owned', 'er_reach_pooled', 'er_views_pooled', 'er_followers_pooled',
-    ],
+    // Cross-channel "all" view (Content Performance spec) — see CONTENT_ALL_COLUMNS.
+    // Default = the 12 spec metrics as their primary (SUM / pooled) column; the Avg.
+    // columns stay available in the picker (off by default to keep the table readable).
+    allColumns: CONTENT_ALL_COLUMNS,
+    allDefaultColumns: CONTENT_ALL_DEFAULTS,
     columns: [
       { id: 'likes', label: 'Likes', format: 'number' },
       { id: 'comments', label: 'Comments', format: 'number' },
@@ -152,29 +186,11 @@ export const TABLE_TYPES: Record<string, TableType> = {
     id: 'channel_level', label: 'Channel Level Metric', icon: 'insights',
     description: 'Profile-wide metrics — this period vs last.', rowType: 'comparison', channelScoped: true,
     defaultColumns: ['total_followers', 'followers_net_growth', 'profile_views', 'total_posts', 'avg_eng_owned', 'avg_er_reach'],
-    // Cross-channel "all" view (Channel Performance spec). Daily profile aggregates:
-    // SUM column (period total) + Avg. column (per day). Followers & Total Post are
-    // SUM only. "Profile Views" has no distinct gold source → renders "—".
-    allColumns: [
-      { id: 'total_followers', label: 'Followers', format: 'compact' },
-      { id: 'followers_net_growth', label: 'Followers Nett Growth', format: 'number' },
-      { id: 'avg_followers_net_growth', label: 'Avg. Followers Nett Growth', format: 'number' },
-      { id: 'new_follows', label: 'New Follow', format: 'number' },
-      { id: 'avg_new_follows', label: 'Avg. New Follow', format: 'number' },
-      { id: 'unfollows', label: 'Unfollows', format: 'number' },
-      { id: 'avg_unfollows', label: 'Avg. Unfollows', format: 'number' },
-      { id: 'profile_reach', label: 'Profile Reach', format: 'compact' },
-      { id: 'avg_profile_reach', label: 'Avg. Profile Reach', format: 'compact' },
-      { id: 'profile_views', label: 'Profile Views', format: 'number' },
-      { id: 'avg_profile_views', label: 'Avg. Profile Views', format: 'number' },
-      { id: 'profile_visit', label: 'Profile Visit', format: 'number' },
-      { id: 'avg_profile_visit', label: 'Avg. Profile Visit', format: 'number' },
-      { id: 'total_posts', label: 'Total Post', format: 'number' },
-    ],
-    allDefaultColumns: [
-      'total_followers', 'followers_net_growth', 'new_follows', 'unfollows',
-      'profile_reach', 'profile_views', 'profile_visit', 'total_posts',
-    ],
+    // Cross-channel "all" view (Channel Performance spec) — see CHANNEL_ALL_COLUMNS.
+    // Daily profile aggregates: SUM column (period total) + Avg. column (per day).
+    // Followers & Total Post are SUM only. "Profile Views" has no gold source → "—".
+    allColumns: CHANNEL_ALL_COLUMNS,
+    allDefaultColumns: CHANNEL_ALL_DEFAULTS,
     columns: [
       { id: 'total_followers', label: 'Total Followers', format: 'compact' },
       { id: 'followers_net_growth', label: 'Followers Net Growth', format: 'number' },
@@ -199,6 +215,22 @@ export const TABLE_TYPES: Record<string, TableType> = {
       { id: 'avg_impressions', label: 'Avg. Impressions', format: 'compact', channels: ['tiktok', 'facebook'] },
       { id: 'avg_video_views', label: 'Avg. Video Views', format: 'compact', channels: ['facebook'] },
     ],
+  },
+  // Per-platform comparison tables — only on the "All Channels" view. Rows are the
+  // platforms (Instagram / Facebook / TikTok); each cell is the CURRENT-period value.
+  // They reuse the Content/Channel Performance combined-metric columns so the numbers
+  // line up with the aggregate "all" tables, just broken out per platform.
+  content_by_platform: {
+    id: 'content_by_platform', label: 'Content by Platform', icon: 'compare_arrows',
+    description: 'Compare content metrics across Instagram, Facebook & TikTok.', rowType: 'platforms',
+    columns: CONTENT_ALL_COLUMNS,
+    defaultColumns: CONTENT_ALL_DEFAULTS,
+  },
+  channel_by_platform: {
+    id: 'channel_by_platform', label: 'Channel by Platform', icon: 'leaderboard',
+    description: 'Compare profile metrics across Instagram, Facebook & TikTok.', rowType: 'platforms',
+    columns: CHANNEL_ALL_COLUMNS,
+    defaultColumns: CHANNEL_ALL_DEFAULTS,
   },
   brand_vs_competitor: {
     id: 'brand_vs_competitor', label: 'Brand vs Competitor', icon: 'group',
@@ -240,6 +272,11 @@ const ROW_DEFS: Record<TableRowType, { id: string; label: string; isGap?: boolea
     { id: 'neutral', label: 'Neutral' },
     { id: 'negative', label: 'Negative' },
   ],
+  platforms: [
+    { id: 'instagram', label: 'Instagram' },
+    { id: 'facebook', label: 'Facebook' },
+    { id: 'tiktok', label: 'TikTok' },
+  ],
   generic: [
     { id: '1', label: 'Item 1' },
     { id: '2', label: 'Item 2' },
@@ -251,6 +288,7 @@ export function firstColHeader(rowType: TableRowType): string {
   return rowType === 'comparison' ? 'Period'
     : rowType === 'competitors' ? 'Brand'
     : rowType === 'sentiments' ? 'Sentiment'
+    : rowType === 'platforms' ? 'Platform'
     : 'Category'
 }
 
@@ -323,7 +361,20 @@ export function isTypeEnabledForChannel(typeId: string, channel: string): boolea
   if (typeId === 'brand_vs_competitor') {
     return channel === 'instagram' || channel === 'facebook' || channel === 'tiktok'
   }
+  // The per-platform comparison tables ARE the cross-channel breakdown, so they only
+  // make sense on the "All Channels" view (rows = each platform).
+  if (typeId === 'content_by_platform' || typeId === 'channel_by_platform') {
+    return channel === 'all'
+  }
   return true
+}
+
+/** Reason a table type is greyed out for the current channel (shown in the picker). */
+export function typeChannelHint(typeId: string): string {
+  if (typeId === 'content_by_platform' || typeId === 'channel_by_platform') {
+    return 'Only available on “All Channels”.'
+  }
+  return 'Pick a specific channel to use this table.'
 }
 
 // Real DB values: percent keeps up to 2 decimals; time is already in seconds
@@ -367,12 +418,19 @@ function competitorCell(entity: CompetitorEntity, col: TableColumn): TableCell {
   return { text: v == null ? '—' : fmtReal(col.format, v) }
 }
 
+// Row order + labels for the per-platform comparison tables.
+const PLATFORM_ROW_ORDER: DashPlatform[] = ['instagram', 'facebook', 'tiktok']
+const PLATFORM_ROW_LABEL: Record<DashPlatform, string> = {
+  instagram: 'Instagram', facebook: 'Facebook', tiktok: 'TikTok',
+}
+
 /**
  * Build table rows. Real DB values for a comparison table (content_level /
  * channel_level) when `metrics` is supplied, for the sentiments table when
- * `sentiment` is supplied, and for the Brand-vs-Competitor table when
- * `competitors` is supplied — null values render "—". Without a real source
- * (or while data loads) rows render "—" too: no seeded numbers.
+ * `sentiment` is supplied, for the Brand-vs-Competitor table when `competitors`
+ * is supplied, and for the per-platform tables when `platformMetrics` is supplied
+ * — null values render "—". Without a real source (or while data loads) rows
+ * render "—" too: no seeded numbers.
  */
 export function buildTable(
   config: TableConfig,
@@ -381,6 +439,7 @@ export function buildTable(
   sentiment?: SentimentTable | null,
   competitors?: CompetitorSection | null,
   customCols: TableColumn[] = [],
+  platformMetrics?: PlatformMetrics | null,
 ): { header: string; columns: TableColumn[]; rows: TableRow[] } {
   const def = TABLE_TYPES[config.type] ?? TABLE_TYPES.content_level
   // Custom metrics attach to the comparison metric tables only (content/channel level).
@@ -414,6 +473,24 @@ export function buildTable(
       })
     }
     return { header: firstColHeader('competitors'), columns, rows }
+  }
+
+  // Per-platform comparison table: one row per platform, current-period value per
+  // column. Only the platforms present in platformMetrics get a row; while data
+  // loads (platformMetrics == null) all three show as placeholders of "—".
+  if (def.rowType === 'platforms') {
+    const present = platformMetrics ? PLATFORM_ROW_ORDER.filter(p => platformMetrics[p]) : []
+    const shown = present.length ? present : PLATFORM_ROW_ORDER
+    const rows: TableRow[] = shown.map(p => {
+      const vals = platformMetrics?.[p]
+      const cells: Record<string, TableCell> = {}
+      columns.forEach(col => {
+        const v = vals ? vals[col.id] ?? null : null
+        cells[col.id] = { text: v == null ? '—' : fmtReal(col.format, v) }
+      })
+      return { id: p, label: PLATFORM_ROW_LABEL[p], cells }
+    })
+    return { header: firstColHeader('platforms'), columns, rows }
   }
 
   const useReal = def.rowType === 'comparison' && metrics != null

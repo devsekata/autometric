@@ -128,7 +128,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
             {FORMATS.map(f => (
               <button key={f} onClick={() => setFormat(f)} style={PJ}
                 className={`h-7 px-2.5 rounded-md text-[11px] font-semibold transition-colors ${
-                  format === f ? 'bg-white text-[#1e4f49] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
+                  format === f ? 'bg-white text-[#2C3079] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
                 }`}>{f}</button>
             ))}
           </div>

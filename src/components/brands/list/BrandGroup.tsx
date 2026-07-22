@@ -50,7 +50,7 @@ export default function BrandGroup({ brand, orgSlug, statusFilter, defaultOpen =
 
         <Link href={`/organizations/${orgSlug}/brands/${brand.id}/overview`}
           onClick={e => e.stopPropagation()} style={PJB}
-          className="text-[13.5px] font-bold text-[#111827] hover:text-[#3d7e96] hover:underline transition-colors">
+          className="text-[13.5px] font-bold text-[#111827] hover:text-[#1B8A80] hover:underline transition-colors">
           {brand.name}
         </Link>
 
@@ -90,8 +90,8 @@ export default function BrandGroup({ brand, orgSlug, statusFilter, defaultOpen =
               onClick={e => { e.stopPropagation(); setShowAddChannel(true) }}
               className="w-full flex items-center gap-1.5 px-6 py-2.5 border-b border-[#e5e7eb] hover:bg-[#f9fafb] transition-colors group/add"
             >
-              <span className="material-symbols-outlined text-[14px] text-[#d1d5db] group-hover/add:text-[#3d7e96] transition-colors">add</span>
-              <span style={PJB} className="text-[12px] text-[#d1d5db] group-hover/add:text-[#3d7e96] transition-colors">Add channel</span>
+              <span className="material-symbols-outlined text-[14px] text-[#d1d5db] group-hover/add:text-[#1B8A80] transition-colors">add</span>
+              <span style={PJB} className="text-[12px] text-[#d1d5db] group-hover/add:text-[#1B8A80] transition-colors">Add channel</span>
             </button>
           )}
         </div>

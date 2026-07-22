@@ -37,8 +37,8 @@ function StepIndicator({ step }: { step: Step }) {
         <div key={s.n} className="flex items-center">
           <div className="flex items-center gap-1.5">
             <div style={PJB} className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center flex-shrink-0 ${
-              step > s.n  ? 'bg-[#3d7e96] text-white' :
-              step === s.n ? 'bg-[#3d7e96] text-white' :
+              step > s.n  ? 'bg-[#1B8A80] text-white' :
+              step === s.n ? 'bg-[#1B8A80] text-white' :
               'bg-[#f3f4f6] text-[#9ca3af]'
             }`}>
               {step > s.n ? '✓' : s.n}
@@ -50,7 +50,7 @@ function StepIndicator({ step }: { step: Step }) {
             </span>
           </div>
           {i < steps.length - 1 && (
-            <div className={`w-5 h-px mx-2 flex-shrink-0 ${step > s.n ? 'bg-[#3d7e96]' : 'bg-[#e5e7eb]'}`} />
+            <div className={`w-5 h-px mx-2 flex-shrink-0 ${step > s.n ? 'bg-[#1B8A80]' : 'bg-[#e5e7eb]'}`} />
           )}
         </div>
       ))}
@@ -68,12 +68,12 @@ function PlatformPicker({ selected, onSelect }: { selected: Platform; onSelect: 
           onClick={() => onSelect(p)}
           className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
             selected === p
-              ? 'border-[#3d7e96] bg-[#3d7e96]/5'
+              ? 'border-[#1B8A80] bg-[#1B8A80]/5'
               : 'border-[#e5e7eb] hover:border-[#d1d5db] hover:bg-[#f9fafb]'
           }`}
         >
           <PlatformIcon platform={p} size={24} />
-          <span className={`text-[9px] font-bold ${selected === p ? 'text-[#3d7e96]' : 'text-[#9ca3af]'}`}>
+          <span className={`text-[9px] font-bold ${selected === p ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
             {PLATFORM_CONFIG[p].short}
           </span>
         </button>
@@ -288,7 +288,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
         {step === 1 && (
           <div className="px-6 py-5 flex flex-col gap-5">
             <div className="flex items-center gap-3">
-              <div style={{ width: 40, height: 40, background: '#3d7e96', borderRadius: 10, fontSize: 14 }}
+              <div style={{ width: 40, height: 40, background: '#1B8A80', borderRadius: 10, fontSize: 14 }}
                 className="flex items-center justify-center flex-shrink-0 font-bold text-white leading-none select-none">
                 {initials}
               </div>
@@ -312,7 +312,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 className={`h-9 px-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
                   nameErr
                     ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                    : 'border-[#e5e7eb] focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10'
+                    : 'border-[#e5e7eb] focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10'
                 }`}
               />
               {nameErr && <p className="text-[12px] text-red-500">{nameErr}</p>}
@@ -399,7 +399,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                         <span style={PJB} className="text-[11px] text-[#9ca3af] flex-shrink-0">Already connected</span>
                       ) : opt.method === 'manual' ? (
                         <button type="button" onClick={() => setTiktokOpen(o => !o)} style={PJB}
-                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#3d7e96] flex-shrink-0">
+                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] flex-shrink-0">
                           Connect
                           <span className="material-symbols-outlined text-[15px]">
                             {tiktokOpen ? 'expand_less' : 'chevron_right'}
@@ -411,7 +411,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                           disabled={oauthLoading}
                           onClick={() => connectAccount(opt)}
                           style={PJB}
-                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#3d7e96] disabled:opacity-40 flex-shrink-0"
+                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] disabled:opacity-40 flex-shrink-0"
                         >
                           Connect
                           <span className="material-symbols-outlined text-[15px]">chevron_right</span>
@@ -429,7 +429,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                           onChange={e => setTiktokInput(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && addTiktokAccount()}
                           placeholder="@username on TikTok"
-                          className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10 transition-all"
+                          className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 transition-all"
                         />
                         <button type="button" onClick={addTiktokAccount} style={PJB}
                           className="h-8 px-3 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[12.5px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0">
@@ -471,7 +471,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                       className={`h-9 px-3 text-[13px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
                         compErr
                           ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                          : 'border-[#e5e7eb] focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10'
+                          : 'border-[#e5e7eb] focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10'
                       }`}
                     />
                     {compErr && <p className="text-[11px] text-red-500">{compErr}</p>}
@@ -511,7 +511,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 Cancel
               </button>
               <button type="button" onClick={handleStep1} disabled={!name.trim() || loading} style={PJB}
-                className="h-8 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
                 {loading ? 'Creating…' : <><span>Next</span><span className="material-symbols-outlined text-[14px]">arrow_forward</span></>}
               </button>
             </>
@@ -540,7 +540,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 Skip
               </button>
               <button type="button" onClick={() => handleStep2(false)} disabled={loading} style={PJB}
-                className="h-8 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
                 {loading ? 'Saving…' : <><span>Next</span><span className="material-symbols-outlined text-[14px]">arrow_forward</span></>}
               </button>
             </>
@@ -553,7 +553,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 Skip
               </button>
               <button type="button" onClick={() => handleFinish(false)} disabled={loading} style={PJB}
-                className="h-8 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
                 {loading ? 'Saving…' : <><span>Finish</span><span className="material-symbols-outlined text-[14px]">check</span></>}
               </button>
             </>

@@ -113,7 +113,7 @@ function SyncButton({
         style={PJB}
         className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[#e2e8f0] bg-white text-[12.5px] font-semibold text-[#334155] hover:bg-[#f8fafc] hover:border-[#cbd5e1] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <span className={`material-symbols-outlined text-[14px] text-[#3d7e96] ${isPending ? 'animate-spin' : ''}`}>
+        <span className={`material-symbols-outlined text-[14px] text-[#1B8A80] ${isPending ? 'animate-spin' : ''}`}>
           {isPending ? 'progress_activity' : 'sync'}
         </span>
         {isPending ? 'Syncing…' : 'Sync now'}

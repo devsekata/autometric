@@ -17,7 +17,7 @@ export const PLATFORM_CONFIG: Record<Platform, PlatformConfig> = {
 
 export const PLATFORM_LIST: Platform[] = ['instagram', 'tiktok', 'facebook', 'youtube', 'twitter']
 
-export const BRAND_COLORS = ['#3d7e96', '#7c5cbf', '#059669', '#d97706', '#e11d48', '#2563eb', '#db2777', '#0891b2']
+export const BRAND_COLORS = ['#1B8A80', '#7c5cbf', '#059669', '#d97706', '#e11d48', '#2563eb', '#db2777', '#0891b2']
 
 export function getColorFromId(id: string): string {
   let hash = 0

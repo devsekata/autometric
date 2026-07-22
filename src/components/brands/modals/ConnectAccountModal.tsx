@@ -127,7 +127,7 @@ export default function ConnectAccountModal({ brandId, brandName, usedPlatforms 
                   ) : (
                     <button type="button" disabled={loading} style={PJB}
                       onClick={() => connect(opt.method)}
-                      className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#3d7e96] disabled:opacity-40 flex-shrink-0">
+                      className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] disabled:opacity-40 flex-shrink-0">
                       Connect
                       <span className="material-symbols-outlined text-[15px]">chevron_right</span>
                     </button>
@@ -155,7 +155,7 @@ export default function ConnectAccountModal({ brandId, brandName, usedPlatforms 
                 }
                 onClose()
               }}
-              className="h-8 px-4 text-[13px] font-semibold bg-[#3d7e96] text-white rounded-lg hover:bg-[#2d6e85] transition-colors flex items-center gap-1.5">
+              className="h-8 px-4 text-[13px] font-semibold bg-[#1B8A80] text-white rounded-lg hover:bg-[#177A70] transition-colors flex items-center gap-1.5">
               Simpan
               <span className="material-symbols-outlined text-[14px]">check</span>
             </button>

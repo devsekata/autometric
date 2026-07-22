@@ -17,11 +17,11 @@ export function AISynthesis() {
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <span className="w-6 h-6 rounded-md bg-gradient-to-br from-[#3d7e96] to-[#1e4f49] flex items-center justify-center">
+        <span className="w-6 h-6 rounded-md bg-gradient-to-br from-[#1B8A80] to-[#2C3079] flex items-center justify-center">
           <span className="material-symbols-outlined text-[15px] text-white">auto_awesome</span>
         </span>
         <h3 style={PJ} className="text-[12.5px] font-bold text-[#111827]">AI Performance Synthesis</h3>
-        <span className="text-[9px] font-bold uppercase tracking-wide text-[#3d7e96] bg-[#eef5f8] px-1.5 py-0.5 rounded">AI</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-[#1B8A80] bg-[#eef5f8] px-1.5 py-0.5 rounded">AI</span>
       </div>
       <p className="px-4 pb-4 text-[13px] leading-relaxed text-[#4b5563]">{AI_SYNTHESIS}</p>
     </Card>
@@ -48,7 +48,7 @@ export function PerformanceMatrix() {
               }`}>
               <div className="min-w-0 pr-2">
                 <div style={PJ} className="font-bold text-[#111827] text-[13px] truncate">{r.niche}</div>
-                <div className="text-[11px] text-[#3d7e96] font-medium truncate">{r.hashtag}</div>
+                <div className="text-[11px] text-[#1B8A80] font-medium truncate">{r.hashtag}</div>
               </div>
               <span className="text-[#374151] tabular-nums">{fmt(r.reach)}</span>
               <span className="text-[#374151] tabular-nums">{fmt(r.likes)}</span>
@@ -97,7 +97,7 @@ export function CommentRelevance({ span }: { span?: string }) {
         </ul>
         <div className="mt-auto pt-4">
           <div className="flex items-start gap-2 bg-[#f7f9fa] border border-[#eef0f2] rounded-lg px-3 py-2.5">
-            <span className="material-symbols-outlined text-[15px] text-[#3d7e96] mt-0.5 flex-shrink-0">lightbulb</span>
+            <span className="material-symbols-outlined text-[15px] text-[#1B8A80] mt-0.5 flex-shrink-0">lightbulb</span>
             <p className="text-[11.5px] leading-relaxed text-[#6b7280]">{RELEVANCE_INSIGHT}</p>
           </div>
         </div>
