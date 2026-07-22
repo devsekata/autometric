@@ -34,7 +34,7 @@ export async function forgotPassword(email: string): Promise<{ success: boolean;
   const { subject, html } = otpEmailTemplate(user.name, otp, 'reset')
 
   await transporter.sendMail({
-    from: `"Autometric" <${process.env.SMTP_USER}>`,
+    from: `"Kepiai" <${process.env.SMTP_USER}>`,
     to: email,
     subject,
     html,

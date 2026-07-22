@@ -84,7 +84,7 @@ export default function ChartSelectionModal({
 
   const totalSteps = category === 'bar' ? 4 : category === 'wordcloud' ? 2 : 3
   const base = 'p-4 rounded-xl border border-[#e5e7eb] flex flex-col items-center justify-center gap-2 text-[#475569] hover:bg-[#f9fafb] hover:border-[#cbd5e1] transition-all hover:scale-[1.02]'
-  const selected = 'border-[#1e4f49] bg-[#f2f8f5] text-[#1e4f49] ring-1 ring-[#1e4f49]'
+  const selected = 'border-[#2C3079] bg-[#F1F2FB] text-[#2C3079] ring-1 ring-[#2C3079]'
 
   const heading =
     step === 1 ? 'Select Chart Type'
@@ -233,7 +233,7 @@ export default function ChartSelectionModal({
                       isSel ? selected : disabled ? 'border-[#e5e7eb] bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed opacity-60' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'
                     }`}
                   >
-                    <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>
+                    <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#2C3079] border-[#2C3079] text-white' : 'border-[#cbd5e1]'}`}>
                       {isSel && '✓'}
                     </span>
                     <span className={`material-symbols-outlined text-[15px] ${disabled ? 'opacity-30' : 'opacity-60'}`}>{metric.icon}</span>
@@ -247,7 +247,7 @@ export default function ChartSelectionModal({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Custom Metrics</span>
-                  <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+                  <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#2C3079] hover:underline font-semibold">
                     <span className="material-symbols-outlined text-[14px]">tune</span>Manage
                   </button>
                 </div>
@@ -259,7 +259,7 @@ export default function ChartSelectionModal({
                     return (
                       <button key={cm.id} onClick={() => !disabled && toggleLine(cm.id)} disabled={disabled} style={PJ}
                         className={`p-3 rounded-lg border flex items-center gap-2 text-left transition-all ${isSel ? selected : disabled ? 'border-[#e5e7eb] bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed opacity-60' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
-                        <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>{isSel && '✓'}</span>
+                        <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#2C3079] border-[#2C3079] text-white' : 'border-[#cbd5e1]'}`}>{isSel && '✓'}</span>
                         <span className={`material-symbols-outlined text-[15px] ${disabled ? 'opacity-30' : 'opacity-60'}`}>calculate</span>
                         <span className="text-[12px] font-medium truncate" title={cm.name}>{cm.name}</span>
                       </button>
@@ -268,12 +268,12 @@ export default function ChartSelectionModal({
                 </div>
               </div>
             ) : (
-              <button onClick={() => setCmOpen(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#1e4f49] hover:text-[#1e4f49] hover:bg-[#f2f8f5] transition-all">
+              <button onClick={() => setCmOpen(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#2C3079] hover:text-[#2C3079] hover:bg-[#F1F2FB] transition-all">
                 <span className="material-symbols-outlined text-[16px]">add</span>Create a custom metric
               </button>
             )}
             <button onClick={confirm} disabled={lineMetrics.length === 0} style={PJ}
-              className={`w-full py-3 rounded-xl font-bold text-[13px] transition-all ${lineMetrics.length > 0 ? 'bg-[#1e4f49] text-white hover:bg-[#163a35]' : 'bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed'}`}>
+              className={`w-full py-3 rounded-xl font-bold text-[13px] transition-all ${lineMetrics.length > 0 ? 'bg-[#2C3079] text-white hover:bg-[#20224F]' : 'bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed'}`}>
               Apply ({lineMetrics.length} selected)
             </button>
           </div>
@@ -288,7 +288,7 @@ export default function ChartSelectionModal({
                 return (
                   <button key={metric.id} onClick={() => toggleBar(metric.id)} style={PJ}
                     className={`p-3 rounded-lg border flex items-center gap-2 text-left transition-all ${isSel ? selected : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
-                    <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>
+                    <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#2C3079] border-[#2C3079] text-white' : 'border-[#cbd5e1]'}`}>
                       {isSel && '✓'}
                     </span>
                     <span className="text-[12px] font-medium">{metric.label}</span>
@@ -302,7 +302,7 @@ export default function ChartSelectionModal({
                 <div className="border-t border-[#f0f1f2] pt-3">
                   <div className="flex items-center justify-between mb-2">
                     <span style={PJ} className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8]">Custom Metrics</span>
-                    <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#1e4f49] hover:underline font-semibold">
+                    <button onClick={() => setCmOpen(true)} className="flex items-center gap-1 text-[10.5px] text-[#2C3079] hover:underline font-semibold">
                       <span className="material-symbols-outlined text-[14px]">tune</span>Manage
                     </button>
                   </div>
@@ -312,7 +312,7 @@ export default function ChartSelectionModal({
                       return (
                         <button key={cm.id} onClick={() => toggleBar(cm.id)} style={PJ}
                           className={`p-3 rounded-lg border flex items-center gap-2 text-left transition-all ${isSel ? selected : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
-                          <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>{isSel && '✓'}</span>
+                          <span className={`w-5 h-5 rounded border flex items-center justify-center text-[11px] ${isSel ? 'bg-[#2C3079] border-[#2C3079] text-white' : 'border-[#cbd5e1]'}`}>{isSel && '✓'}</span>
                           <span className="material-symbols-outlined text-[15px] opacity-60">calculate</span>
                           <span className="text-[12px] font-medium truncate" title={cm.name}>{cm.name}</span>
                         </button>
@@ -321,7 +321,7 @@ export default function ChartSelectionModal({
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setCmOpen(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#1e4f49] hover:text-[#1e4f49] hover:bg-[#f2f8f5] transition-all">
+                <button onClick={() => setCmOpen(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-[#d7dde3] text-[11.5px] font-semibold text-[#94a3b8] hover:border-[#2C3079] hover:text-[#2C3079] hover:bg-[#F1F2FB] transition-all">
                   <span className="material-symbols-outlined text-[16px]">add</span>Create a custom metric
                 </button>
               )
@@ -333,7 +333,7 @@ export default function ChartSelectionModal({
                   {availableCompetitors.length > 0 && (
                     <button
                       onClick={() => setCompetitorIds(competitorIds.length === allCompIds.length ? [] : allCompIds)}
-                      className="text-[10.5px] text-[#1e4f49] hover:underline font-semibold"
+                      className="text-[10.5px] text-[#2C3079] hover:underline font-semibold"
                     >
                       {competitorIds.length === allCompIds.length ? 'Clear all' : 'Select all'}
                     </button>
@@ -348,7 +348,7 @@ export default function ChartSelectionModal({
                       return (
                         <button key={c.id} onClick={() => toggleComp(c.id)} style={PJ}
                           className={`p-2.5 rounded-lg border flex items-center gap-2 text-left transition-all ${on ? selected : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#475569]'}`}>
-                          <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${on ? 'bg-[#1e4f49] border-[#1e4f49] text-white' : 'border-[#cbd5e1]'}`}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${on ? 'bg-[#2C3079] border-[#2C3079] text-white' : 'border-[#cbd5e1]'}`}>
                             {on && '✓'}
                           </span>
                           <span className="text-[12px] font-medium truncate" title={c.label}>{c.label}</span>
@@ -360,7 +360,7 @@ export default function ChartSelectionModal({
               </div>
             )}
             <button onClick={confirm} disabled={barMetrics.length === 0} style={PJ}
-              className={`w-full py-3 rounded-xl font-bold text-[13px] transition-all ${barMetrics.length > 0 ? 'bg-[#1e4f49] text-white hover:bg-[#163a35]' : 'bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed'}`}>
+              className={`w-full py-3 rounded-xl font-bold text-[13px] transition-all ${barMetrics.length > 0 ? 'bg-[#2C3079] text-white hover:bg-[#20224F]' : 'bg-[#f1f3f5] text-[#b6bcc4] cursor-not-allowed'}`}>
               Apply ({barMetrics.length} selected)
             </button>
           </div>

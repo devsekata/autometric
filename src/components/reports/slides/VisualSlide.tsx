@@ -115,7 +115,7 @@ export default function VisualSlide({
           <button
             onClick={() => setCfgOpen(true)}
             title="Content settings"
-            className="absolute z-10 flex items-center justify-center rounded-[0.5cqw] bg-white border border-[#e2e8f0] text-[#94a3b8] hover:text-[#1e4f49] hover:border-[#cbd5e1] shadow-sm transition-colors"
+            className="absolute z-10 flex items-center justify-center rounded-[0.5cqw] bg-white border border-[#e2e8f0] text-[#94a3b8] hover:text-[#2C3079] hover:border-[#cbd5e1] shadow-sm transition-colors"
             style={{ top: '-3cqh', right: 0, width: '2.6cqw', height: '2.6cqw' }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: '1.5cqw' }}>tune</span>
@@ -168,7 +168,7 @@ export default function VisualSlide({
             <div className="grid grid-cols-3 gap-2 mb-4">
               {POST_FILTERS.map(f => (
                 <button key={f.id} onClick={() => onChange?.({ ...slide, postFilter: f.id })} style={PJ}
-                  className={`py-2.5 rounded-lg border text-[12px] font-semibold transition-all ${slide.postFilter === f.id ? 'border-[#1e4f49] bg-[#f2f8f5] text-[#1e4f49]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}>
+                  className={`py-2.5 rounded-lg border text-[12px] font-semibold transition-all ${slide.postFilter === f.id ? 'border-[#2C3079] bg-[#F1F2FB] text-[#2C3079]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}>
                   {f.label}
                 </button>
               ))}
@@ -184,7 +184,7 @@ export default function VisualSlide({
             <div className="grid grid-cols-3 gap-2 mb-4">
               {formatOptions.map(f => (
                 <button key={f.id} onClick={() => onChange?.({ ...slide, postFormat: f.id })} style={PJ}
-                  className={`py-2.5 rounded-lg border text-[12px] font-semibold transition-all ${postFormat === f.id ? 'border-[#1e4f49] bg-[#f2f8f5] text-[#1e4f49]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}>
+                  className={`py-2.5 rounded-lg border text-[12px] font-semibold transition-all ${postFormat === f.id ? 'border-[#2C3079] bg-[#F1F2FB] text-[#2C3079]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}>
                   {f.label}
                 </button>
               ))}
@@ -200,7 +200,7 @@ export default function VisualSlide({
             <div className="grid grid-cols-3 gap-2 mb-4">
               {POST_COUNTS.map(n => (
                 <button key={n} onClick={() => onChange?.({ ...slide, postCount: n })} style={PJ}
-                  className={`py-2.5 rounded-lg border text-[13px] font-bold transition-all ${count === n ? 'border-[#1e4f49] bg-[#f2f8f5] text-[#1e4f49]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}>
+                  className={`py-2.5 rounded-lg border text-[13px] font-bold transition-all ${count === n ? 'border-[#2C3079] bg-[#F1F2FB] text-[#2C3079]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}>
                   {n}
                 </button>
               ))}
@@ -212,7 +212,7 @@ export default function VisualSlide({
                 const on = slide.postMetrics.includes(m.id)
                 return (
                   <button key={m.id} onClick={() => toggleMetric(m.id)} style={PJ}
-                    className={`py-2 rounded-lg border text-[12px] font-medium transition-all ${on ? 'border-[#1e4f49] bg-[#f2f8f5] text-[#1e4f49]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#64748b]'}`}>
+                    className={`py-2 rounded-lg border text-[12px] font-medium transition-all ${on ? 'border-[#2C3079] bg-[#F1F2FB] text-[#2C3079]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#64748b]'}`}>
                     {m.label}
                   </button>
                 )

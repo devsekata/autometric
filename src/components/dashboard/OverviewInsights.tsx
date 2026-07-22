@@ -69,11 +69,11 @@ export function OverallAI() {
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <span className="w-6 h-6 rounded-md bg-gradient-to-br from-[#3d7e96] to-[#1e4f49] flex items-center justify-center">
+        <span className="w-6 h-6 rounded-md bg-gradient-to-br from-[#1B8A80] to-[#2C3079] flex items-center justify-center">
           <span className="material-symbols-outlined text-[15px] text-white">auto_awesome</span>
         </span>
         <h3 style={PJ} className="text-[12.5px] font-bold text-[#111827]">AI Analysis: Overall</h3>
-        <span className="text-[9px] font-bold uppercase tracking-wide text-[#3d7e96] bg-[#eef5f8] px-1.5 py-0.5 rounded">AI</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-[#1B8A80] bg-[#eef5f8] px-1.5 py-0.5 rounded">AI</span>
       </div>
       <p className="px-4 pb-4 text-[13px] leading-relaxed text-[#4b5563]">{OVERALL_AI}</p>
     </Card>

@@ -12,7 +12,7 @@ function ChooserButton({ icon, label, editable, onClick }: { icon: string; label
       onClick={editable ? onClick : undefined}
       disabled={!editable}
       className={`flex flex-col items-center justify-center rounded-[1.4cqw] border-2 border-dashed transition-colors ${
-        editable ? 'border-[#cbd5e1] text-[#94a3b8] hover:border-[#1e4f49] hover:text-[#1e4f49] hover:bg-[#f2f8f5] cursor-pointer' : 'border-[#dbe1e8] text-[#b6bcc4]'
+        editable ? 'border-[#cbd5e1] text-[#94a3b8] hover:border-[#2C3079] hover:text-[#2C3079] hover:bg-[#F1F2FB] cursor-pointer' : 'border-[#dbe1e8] text-[#b6bcc4]'
       }`}
       style={{ width: '22cqw', height: '22cqh', gap: '1.4cqh' }}
     >
@@ -27,7 +27,7 @@ function SwitchButton({ onClick }: { onClick?: () => void }) {
     <button
       onClick={onClick}
       title="Switch visualization type"
-      className="absolute z-10 flex items-center justify-center rounded-[0.5cqw] bg-white border border-[#e2e8f0] text-[#94a3b8] hover:text-[#1e4f49] hover:border-[#cbd5e1] shadow-sm transition-colors"
+      className="absolute z-10 flex items-center justify-center rounded-[0.5cqw] bg-white border border-[#e2e8f0] text-[#94a3b8] hover:text-[#2C3079] hover:border-[#cbd5e1] shadow-sm transition-colors"
       style={{ top: '0.6cqh', right: '0.6cqw', width: '2.6cqw', height: '2.6cqw' }}
     >
       <span className="material-symbols-outlined" style={{ fontSize: '1.5cqw' }}>swap_horiz</span>

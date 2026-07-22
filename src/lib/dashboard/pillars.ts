@@ -12,7 +12,7 @@ export interface PillarRow { id: string; name: string; color: string; hashtags: 
 export interface PillarComparison { name: string; color: string; er: number; posts: number }
 export interface PillarsPayload { pillars: PillarRow[]; comparison: PillarComparison[] }
 
-const DEFAULT_COLORS = ['#6c4cd6', '#d23f6f', '#3d7eea', '#5fa783', '#e0a458', '#8b5cf6', '#3d7e96', '#d97a7a']
+const DEFAULT_COLORS = ['#6c4cd6', '#d23f6f', '#3d7eea', '#5fa783', '#e0a458', '#8b5cf6', '#1B8A80', '#d97a7a']
 const colorFor = (name: string, given: string | null): string =>
   given || DEFAULT_COLORS[[...name].reduce((s, c) => s + c.charCodeAt(0), 0) % DEFAULT_COLORS.length]
 

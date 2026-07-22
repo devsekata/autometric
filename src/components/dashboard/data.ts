@@ -11,7 +11,7 @@ export const PLATFORM_META: Record<DashPlatform, { label: string; short: string;
 }
 
 // Accent palette used across charts (kept in the project's teal-forward family).
-export const PALETTE = ['#3d7e96', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
+export const PALETTE = ['#1B8A80', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
 
 export interface DashBrand {
   id: string
@@ -25,8 +25,8 @@ export interface DashBrand {
 }
 
 export const BRANDS: DashBrand[] = [
-  { id: 'b1', name: 'Aurora Coffee',  handle: '@auroracoffee',  initials: 'AC', color: '#1e4f49', followers: 128400, platforms: ['instagram', 'facebook', 'tiktok'] },
-  { id: 'b2', name: 'Nimbus Apparel', handle: '@nimbus.co',     initials: 'NA', color: '#3d7e96', followers: 96200,  platforms: ['instagram', 'tiktok'] },
+  { id: 'b1', name: 'Aurora Coffee',  handle: '@auroracoffee',  initials: 'AC', color: '#2C3079', followers: 128400, platforms: ['instagram', 'facebook', 'tiktok'] },
+  { id: 'b2', name: 'Nimbus Apparel', handle: '@nimbus.co',     initials: 'NA', color: '#1B8A80', followers: 96200,  platforms: ['instagram', 'tiktok'] },
   { id: 'b3', name: 'Verde Goods',    handle: '@verdegoods',    initials: 'VG', color: '#5fa783', followers: 41200,  platforms: ['instagram', 'facebook'] },
   { id: 'b4', name: 'Pace Athletics', handle: '@paceathletics', initials: 'PA', color: '#d97a7a', followers: 64500,  platforms: ['instagram', 'facebook', 'tiktok'] },
 ]
@@ -247,7 +247,7 @@ export interface Contributor {
 }
 
 export const TOP_CONTRIBUTORS: Contributor[] = [
-  { username: 'nayya070805',     initials: 'NA', tier: 'Super Fan',         comments: 42, relevancy: 94, color: '#3d7e96', quote: 'Udah sama Manda aja, udah dicintai secara ugal ugalan…' },
+  { username: 'nayya070805',     initials: 'NA', tier: 'Super Fan',         comments: 42, relevancy: 94, color: '#1B8A80', quote: 'Udah sama Manda aja, udah dicintai secara ugal ugalan…' },
   { username: 'astri.bachtera87', initials: 'AS', tier: 'Active Discussant', comments: 28, relevancy: 88, color: '#5fa783', quote: 'Kdu jadi lebih seruu nihh gara2 si panda n manda' },
   { username: 'ciwanbanderas',   initials: 'CI', tier: 'Casual Viewer',     comments: 15, relevancy: 72, color: '#e0a458', quote: 'Kdu jadi komedi' },
   { username: 'fitri80734',      initials: 'FI', tier: 'Casual Viewer',     comments: 12, relevancy: 65, color: '#e0a458', quote: 'Sama Manda aja cocok ko' },
@@ -363,7 +363,7 @@ export const CONTENT_ATTRIBUTES: ContentAttribute[] = [
   { label: 'Collabs',       count: 18,  er: 9.2, color: '#d97a7a' },
   { label: 'Campaign',      count: 52,  er: 5.1, color: '#8b7fc7' },
   { label: 'Organic',       count: 187, er: 3.9, color: '#5fa783' },
-  { label: 'Event',         count: 11,  er: 7.4, color: '#3d7e96' },
+  { label: 'Event',         count: 11,  er: 7.4, color: '#1B8A80' },
   { label: 'AON Posts',     count: 23,  er: 4.7, color: '#5b94b8' },
 ]
 
@@ -571,7 +571,7 @@ export const STORIES_KPIS: OverviewKpi[] = [
 // Story retention funnel — absolute counts per step.
 export const STORY_FUNNEL: { label: string; value: number; color: string }[] = [
   { label: 'Views',     value: 842000, color: '#6c4cd6' },
-  { label: 'Taps Back', value: 118000, color: '#3d7e96' },
+  { label: 'Taps Back', value: 118000, color: '#1B8A80' },
   { label: 'Taps Fwd',  value: 438000, color: '#3d7eea' },
   { label: 'Exits',     value: 152000, color: '#d6556f' },
   { label: 'Replies',   value: 50000,  color: '#d23f6f' },
@@ -633,7 +633,7 @@ export const WATCH_BY_PILLAR: { label: string; value: number; color: string }[] 
   { label: 'Live Recap',    value: 8.2,  color: '#3d7eea' },
   { label: 'Promotional',   value: 6.1,  color: '#5fa783' },
   { label: 'News Shorts',   value: 7.3,  color: '#e0a458' },
-  { label: 'Comedy Skit',   value: 10.8, color: '#3d7e96' },
+  { label: 'Comedy Skit',   value: 10.8, color: '#1B8A80' },
 ]
 export const WATCH_INSIGHT =
   'Drama clips average 12.4s watch time vs. 6.1s for promotional posts. Narrative beats hard-sell.'
@@ -673,7 +673,7 @@ export const PILLAR_META: Record<string, { label: string; color: string }> = {
 }
 
 // Palette offered in the pillar colour picker.
-export const PILLAR_COLORS = ['#6c4cd6', '#d23f6f', '#3d7eea', '#5fa783', '#e0a458', '#8b5cf6', '#3d7e96', '#d97a7a']
+export const PILLAR_COLORS = ['#6c4cd6', '#d23f6f', '#3d7eea', '#5fa783', '#e0a458', '#8b5cf6', '#1B8A80', '#d97a7a']
 
 export interface CampaignPost {
   id: string

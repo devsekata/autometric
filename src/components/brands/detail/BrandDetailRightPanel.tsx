@@ -44,7 +44,7 @@ export default function BrandDetailRightPanel() {
           Facebook, Instagram, and TikTok — all from your organization dashboard.
         </p>
         <Link href={`/organizations/${orgSlug}`} style={PJB}
-          className="text-[12px] font-semibold text-[#3d7e96] hover:text-[#2d6e85] transition-colors">
+          className="text-[12px] font-semibold text-[#1B8A80] hover:text-[#177A70] transition-colors">
           Go to Dashboard →
         </Link>
       </div>

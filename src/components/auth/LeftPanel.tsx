@@ -32,13 +32,13 @@ export default function LeftPanel({ mode }: { mode: Mode }) {
       />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col h-full pt-1 p-12">
+      <div className="relative z-10 flex flex-col h-full p-12">
         {/* Logo */}
-        <div className="shrink-0">
+        <div className="shrink-0 mt-4">
           <img
-            src="/auometric-logo-long.png"
-            alt="Autometric"
-            style={{ height: 150, width: 'auto', objectFit: 'contain' }}
+            src="/kepiai-logo-white.png"
+            alt="Kepiai"
+            style={{ height: 100, width: 'auto', objectFit: 'contain' }}
           />
         </div>
 
@@ -83,7 +83,7 @@ export default function LeftPanel({ mode }: { mode: Mode }) {
             fontFamily: 'Inter, sans-serif',
           }}
         >
-          © 2026 Autometric. All rights reserved.
+          © 2026 Kepiai. All rights reserved.
         </p>
       </div>
     </div>

@@ -6,11 +6,11 @@ import OrgAvatar from './OrgAvatar'
 import { Organization } from '@/lib/organizations/types'
 
 const roleMeta: Record<Organization['role'], { label: string; color: string; bg: string }> = {
-  ADMIN:  { label: 'Admin',  color: '#1e6278', bg: '#e0f0f6' },
+  ADMIN:  { label: 'Admin',  color: '#2C3079', bg: '#e0f0f6' },
   MEMBER: { label: 'Member', color: '#6b7280', bg: '#f3f4f6' },
 }
 
-const MEMBER_COLORS = ['#3d7e96', '#5b7a6e', '#64748b', '#7b6b8b', '#8b6b5e']
+const MEMBER_COLORS = ['#1B8A80', '#5b7a6e', '#64748b', '#7b6b8b', '#8b6b5e']
 
 function getMemberColor(name: string): string {
   let hash = 0

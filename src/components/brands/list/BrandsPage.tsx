@@ -98,7 +98,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
           <button
             onClick={() => setShowCreate(true)}
             style={PJB}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-[#3d7e96] hover:bg-[#2d6e85] transition-colors shadow-sm"
+            className="flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-[#1B8A80] hover:bg-[#177A70] transition-colors shadow-sm"
           >
             <span className="material-symbols-outlined text-[16px]">add</span>
             New Brand
@@ -115,7 +115,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
             onClick={() => { setShowGroupMenu(m => !m); setShowStatusMenu(false) }}
             style={PJB}
             className={`flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] font-medium transition-colors ${
-              showGroupMenu ? 'border-[#3d7e96] bg-[#f0f7fa] text-[#3d7e96]' : 'border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f9fafb]'
+              showGroupMenu ? 'border-[#1B8A80] bg-[#f0f7fa] text-[#1B8A80]' : 'border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f9fafb]'
             }`}
           >
             <span className="material-symbols-outlined text-[14px]">{currentGroup.icon}</span>
@@ -129,7 +129,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
                 <button key={o.value} onClick={() => { setGroupBy(o.value); setShowGroupMenu(false) }}
                   style={PJB}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12.5px] font-medium text-left transition-colors ${
-                    groupBy === o.value ? 'bg-[#f0f7fa] text-[#3d7e96]' : 'text-[#374151] hover:bg-[#f9fafb]'
+                    groupBy === o.value ? 'bg-[#f0f7fa] text-[#1B8A80]' : 'text-[#374151] hover:bg-[#f9fafb]'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[14px]">{o.icon}</span>
@@ -149,7 +149,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
               style={PJB}
               className={`flex items-center gap-1.5 h-8 px-3 rounded-md border text-[12.5px] font-medium transition-colors ${
                 statusFilter !== 'all' || showStatusMenu
-                  ? 'border-[#3d7e96] bg-[#f0f7fa] text-[#3d7e96]'
+                  ? 'border-[#1B8A80] bg-[#f0f7fa] text-[#1B8A80]'
                   : 'border-[#e5e7eb] bg-white text-[#374151] hover:bg-[#f9fafb]'
               }`}
             >
@@ -165,7 +165,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
                   <button key={o.value} onClick={() => { setStatusFilter(o.value); setShowStatusMenu(false) }}
                     style={PJB}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12.5px] font-medium text-left transition-colors ${
-                      statusFilter === o.value ? 'bg-[#f0f7fa] text-[#3d7e96]' : 'text-[#374151] hover:bg-[#f9fafb]'
+                      statusFilter === o.value ? 'bg-[#f0f7fa] text-[#1B8A80]' : 'text-[#374151] hover:bg-[#f9fafb]'
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full flex-shrink-0"
@@ -192,7 +192,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
           <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[15px] text-[#c4c9d4] pointer-events-none">search</span>
           <input type="text" placeholder="Search brands…" value={search} onChange={e => setSearch(e.target.value)}
             style={PJB}
-            className="h-8 w-[200px] pl-8 pr-3 text-[12.5px] border border-[#e5e7eb] rounded-md bg-white focus:outline-none focus:border-[#3d7e96] focus:ring-1 focus:ring-[#3d7e96]/20 placeholder:text-[#d1d5db] transition"
+            className="h-8 w-[200px] pl-8 pr-3 text-[12.5px] border border-[#e5e7eb] rounded-md bg-white focus:outline-none focus:border-[#1B8A80] focus:ring-1 focus:ring-[#1B8A80]/20 placeholder:text-[#d1d5db] transition"
           />
           {search && (
             <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#9ca3af] hover:text-[#374151]">
@@ -213,7 +213,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
             <p style={PJB} className="text-[16px] font-bold text-[#374151]">No brands yet</p>
             <p className="text-[13px] text-[#9ca3af] mt-1 mb-5">Create your first brand to start tracking</p>
             <button onClick={() => setShowCreate(true)} style={PJB}
-              className="flex items-center gap-1.5 h-9 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] text-white text-[13px] font-semibold rounded-lg transition-colors">
+              className="flex items-center gap-1.5 h-9 px-4 bg-[#1B8A80] hover:bg-[#177A70] text-white text-[13px] font-semibold rounded-lg transition-colors">
               <span className="material-symbols-outlined text-[15px]">add</span>
               New Brand
             </button>

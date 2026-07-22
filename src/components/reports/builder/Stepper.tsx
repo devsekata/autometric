@@ -23,7 +23,7 @@ export default function Stepper({ step }: { step: Step }) {
             <span
               style={PJ}
               className={`flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors ${
-                active ? 'bg-[#1e4f49] text-white' : done ? 'bg-[#e6f0ee] text-[#1e4f49]' : 'bg-[#f3f4f6] text-[#9ca3af]'
+                active ? 'bg-[#2C3079] text-white' : done ? 'bg-[#E6E7F3] text-[#2C3079]' : 'bg-[#f3f4f6] text-[#9ca3af]'
               }`}
             >
               <span className="w-4 h-4 rounded-full bg-white/25 flex items-center justify-center text-[10px]">{i + 1}</span>

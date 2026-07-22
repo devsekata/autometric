@@ -161,8 +161,8 @@ function ListView({
           <div className="space-y-2">
             {metrics.map(m => (
               <div key={m.id} className="group flex items-center gap-3 p-3 rounded-xl border border-[#eef0f2] hover:border-[#d7dde3] hover:bg-[#fafbfb] transition-all">
-                <span className="w-9 h-9 shrink-0 rounded-lg bg-[#f2f8f5] flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[18px] text-[#1e4f49]">calculate</span>
+                <span className="w-9 h-9 shrink-0 rounded-lg bg-[#F1F2FB] flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px] text-[#2C3079]">calculate</span>
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -172,7 +172,7 @@ function ListView({
                   <p className="text-[11px] text-[#94a3b8] truncate font-mono mt-0.5">{formulaText(m)}</p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => onEdit(m)} disabled={busy} className="w-7 h-7 flex items-center justify-center rounded-lg text-[#94a3b8] hover:text-[#1e4f49] hover:bg-[#f2f8f5] disabled:opacity-40">
+                  <button onClick={() => onEdit(m)} disabled={busy} className="w-7 h-7 flex items-center justify-center rounded-lg text-[#94a3b8] hover:text-[#2C3079] hover:bg-[#F1F2FB] disabled:opacity-40">
                     <span className="material-symbols-outlined text-[16px]">edit</span>
                   </button>
                   <button onClick={() => onDelete(m.id)} disabled={busy} className="w-7 h-7 flex items-center justify-center rounded-lg text-[#94a3b8] hover:text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-40">
@@ -186,7 +186,7 @@ function ListView({
       </div>
       <div className="p-4 px-6 border-t border-[#f0f1f2] flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <button onClick={onCreate} disabled={busy} style={PJ} className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1e4f49] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#163a35] disabled:opacity-50 transition-colors">
+          <button onClick={onCreate} disabled={busy} style={PJ} className="flex items-center gap-1.5 px-4 py-2.5 bg-[#2C3079] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#20224F] disabled:opacity-50 transition-colors">
             <span className="material-symbols-outlined text-[17px]">add</span>
             Create custom metric
           </button>
@@ -206,7 +206,7 @@ function FieldSelect({ value, onChange }: { value: string; onChange: (id: string
         value={value}
         onChange={e => onChange(e.target.value)}
         style={PJ}
-        className="w-full appearance-none px-3 py-2.5 pr-8 rounded-lg border border-[#e5e7eb] bg-white text-[12.5px] text-[#334155] outline-none focus:border-[#1e4f49] focus:ring-1 focus:ring-[#1e4f49] transition-all"
+        className="w-full appearance-none px-3 py-2.5 pr-8 rounded-lg border border-[#e5e7eb] bg-white text-[12.5px] text-[#334155] outline-none focus:border-[#2C3079] focus:ring-1 focus:ring-[#2C3079] transition-all"
       >
         <option value="">Select a field…</option>
         {FIELDS_BY_LAYER.map(([layer, fields]) => (
@@ -252,7 +252,7 @@ function EditView({
             onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
             placeholder="e.g. Interaction Score"
             style={PJ}
-            className="w-full px-3 py-2.5 rounded-lg border border-[#e5e7eb] text-[13px] text-[#334155] placeholder:text-[#cbd5e1] outline-none focus:border-[#1e4f49] focus:ring-1 focus:ring-[#1e4f49] transition-all"
+            className="w-full px-3 py-2.5 rounded-lg border border-[#e5e7eb] text-[13px] text-[#334155] placeholder:text-[#cbd5e1] outline-none focus:border-[#2C3079] focus:ring-1 focus:ring-[#2C3079] transition-all"
           />
         </div>
 
@@ -270,7 +270,7 @@ function EditView({
                     <select
                       value={term.op}
                       onChange={e => setTerm(i, { op: e.target.value as Op })}
-                      className="w-full appearance-none text-center px-1 py-2.5 rounded-lg border border-[#e5e7eb] bg-white text-[15px] font-bold text-[#1e4f49] outline-none focus:border-[#1e4f49] focus:ring-1 focus:ring-[#1e4f49] cursor-pointer"
+                      className="w-full appearance-none text-center px-1 py-2.5 rounded-lg border border-[#e5e7eb] bg-white text-[15px] font-bold text-[#2C3079] outline-none focus:border-[#2C3079] focus:ring-1 focus:ring-[#2C3079] cursor-pointer"
                     >
                       {OPS.map(o => <option key={o.id} value={o.id}>{o.symbol}</option>)}
                     </select>
@@ -281,7 +281,7 @@ function EditView({
                   <button
                     onClick={() => setTerm(i, { kind: 'field' })}
                     title="Use a field"
-                    className={`w-8 flex items-center justify-center transition-colors ${term.kind === 'field' ? 'bg-[#1e4f49] text-white' : 'text-[#94a3b8] hover:bg-[#f1f5f9]'}`}
+                    className={`w-8 flex items-center justify-center transition-colors ${term.kind === 'field' ? 'bg-[#2C3079] text-white' : 'text-[#94a3b8] hover:bg-[#f1f5f9]'}`}
                   >
                     <span className="material-symbols-outlined text-[17px]">database</span>
                   </button>
@@ -289,7 +289,7 @@ function EditView({
                     onClick={() => setTerm(i, { kind: 'const' })}
                     title="Use a number"
                     style={PJ}
-                    className={`w-8 flex items-center justify-center text-[11px] font-extrabold border-l border-[#e5e7eb] transition-colors ${term.kind === 'const' ? 'bg-[#1e4f49] text-white' : 'text-[#94a3b8] hover:bg-[#f1f5f9]'}`}
+                    className={`w-8 flex items-center justify-center text-[11px] font-extrabold border-l border-[#e5e7eb] transition-colors ${term.kind === 'const' ? 'bg-[#2C3079] text-white' : 'text-[#94a3b8] hover:bg-[#f1f5f9]'}`}
                   >
                     123
                   </button>
@@ -301,7 +301,7 @@ function EditView({
                     onChange={e => setTerm(i, { value: Number(e.target.value) })}
                     placeholder="0"
                     style={PJ}
-                    className="flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-[#e5e7eb] bg-white text-[12.5px] text-[#334155] outline-none focus:border-[#1e4f49] focus:ring-1 focus:ring-[#1e4f49]"
+                    className="flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-[#e5e7eb] bg-white text-[12.5px] text-[#334155] outline-none focus:border-[#2C3079] focus:ring-1 focus:ring-[#2C3079]"
                   />
                 ) : (
                   <FieldSelect value={term.field} onChange={id => setTerm(i, { field: id })} />
@@ -317,7 +317,7 @@ function EditView({
               </div>
             ))}
           </div>
-          <button onClick={addTerm} style={PJ} className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold text-[#1e4f49] hover:underline">
+          <button onClick={addTerm} style={PJ} className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold text-[#2C3079] hover:underline">
             <span className="material-symbols-outlined text-[15px]">add</span>
             Add field
           </button>
@@ -337,7 +337,7 @@ function EditView({
               value={draft.format}
               onChange={e => setDraft(d => ({ ...d, format: e.target.value as MetricFormat }))}
               style={PJ}
-              className="w-full appearance-none px-3 py-2.5 pr-8 rounded-lg border border-[#e5e7eb] bg-white text-[12.5px] text-[#334155] outline-none focus:border-[#1e4f49] focus:ring-1 focus:ring-[#1e4f49]"
+              className="w-full appearance-none px-3 py-2.5 pr-8 rounded-lg border border-[#e5e7eb] bg-white text-[12.5px] text-[#334155] outline-none focus:border-[#2C3079] focus:ring-1 focus:ring-[#2C3079]"
             >
               {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
@@ -352,7 +352,7 @@ function EditView({
             <span className="text-[10px] text-[#b0b8c1]">sample data</span>
           </div>
           <p className="text-[12.5px] font-mono text-[#475569]">{formulaText(draft)}</p>
-          <p style={PJ} className="text-[26px] font-extrabold text-[#1e4f49] mt-1 leading-none">
+          <p style={PJ} className="text-[26px] font-extrabold text-[#2C3079] mt-1 leading-none">
             {formatMetric(draft.format, preview)}
           </p>
         </div>
@@ -365,7 +365,7 @@ function EditView({
           onClick={onSave}
           disabled={!valid || busy}
           style={PJ}
-          className="px-5 py-2.5 bg-[#1e4f49] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#163a35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-5 py-2.5 bg-[#2C3079] text-white text-[12.5px] font-bold rounded-lg hover:bg-[#20224F] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {busy ? 'Saving…' : draft.id ? 'Save changes' : 'Save metric'}
         </button>

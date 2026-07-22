@@ -30,7 +30,7 @@ export default function ConfirmDialog({
           </button>
           <button type="button" onClick={onConfirm} disabled={busy}
             className={`h-9 px-4 text-[13px] font-bold text-white rounded-lg transition-colors disabled:opacity-60 ${
-              danger ? 'bg-[#dc2626] hover:bg-[#b91c1c]' : 'bg-[#1e4f49] hover:bg-[#163a35]'
+              danger ? 'bg-[#dc2626] hover:bg-[#b91c1c]' : 'bg-[#2C3079] hover:bg-[#20224F]'
             }`}>
             {busy ? 'Menghapus…' : confirmLabel}
           </button>

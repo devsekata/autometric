@@ -23,7 +23,7 @@ export interface CommunityPayload {
   empty: boolean
 }
 
-const PALETTE = ['#3d7e96', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
+const PALETTE = ['#1B8A80', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
 const PLAT_SERIES: { platform: DashPlatform; name: string; color: string }[] = [
   { platform: 'instagram', name: 'Instagram', color: '#d23f6f' },
   { platform: 'tiktok', name: 'TikTok', color: '#111827' },

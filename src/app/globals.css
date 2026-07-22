@@ -1,14 +1,20 @@
 @import "tailwindcss";
 
 @theme {
-  /* ── Colors ── */
-  --color-primary:                  #1e6278;
-  --color-primary-container:        #3d7e96;
+  /* ── Colors ── Kepiai brand: navy primary (#2C3079, wordmark) + teal accent
+     (#25BCB0, capybara). Dark teal (#1B8A80/#177A70) is the text-safe secondary. */
+  --color-primary:                  #2C3079;
+  --color-primary-container:        #1B8A80;
   --color-on-primary:               #ffffff;
   --color-on-primary-container:     #e3f2f8;
-  --color-inverse-primary:          #7ab8cc;
+  --color-inverse-primary:          #A9ABDD;
 
-  --color-secondary:                #2d6e85;
+  /* Brand accent (bright teal) + capybara gradient — for fills/highlights/charts. */
+  --color-accent:                   #25BCB0;
+  --color-accent-strong:            #1B8A80;
+  --gradient-brand:                 linear-gradient(135deg, #3DBE9C 0%, #25BCB0 50%, #34BFC5 100%);
+
+  --color-secondary:                #177A70;
   --color-secondary-container:      #edf5f8;
   --color-on-secondary:             #ffffff;
   --color-on-secondary-container:   #1a5166;

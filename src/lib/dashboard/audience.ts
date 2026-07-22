@@ -40,7 +40,7 @@ export interface AudiencePayload {
   empty: boolean
 }
 
-const PALETTE = ['#3d7e96', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
+const PALETTE = ['#1B8A80', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
 const AGE_LABELS: [string, string][] = [
   ['age_13_17', '13–17'], ['age_18_24', '18–24'], ['age_25_34', '25–34'],
   ['age_35_44', '35–44'], ['age_45_54', '45–54'], ['age_55_64', '55–64'], ['age_65_plus', '65+'],

@@ -29,7 +29,7 @@ export default function BrandCompetitorsTab() {
         <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
           title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
           className={`flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
-            COMPETITOR_ADD_ENABLED ? 'bg-[#3d7e96] hover:bg-[#2d6e85] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+            COMPETITOR_ADD_ENABLED ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
           }`}>
           <span className="material-symbols-outlined text-[15px]">add</span>
           Add Competitor
@@ -44,7 +44,7 @@ export default function BrandCompetitorsTab() {
           <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
             title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
             className={`mt-1 flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
-              COMPETITOR_ADD_ENABLED ? 'bg-[#3d7e96] hover:bg-[#2d6e85] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+              COMPETITOR_ADD_ENABLED ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
             }`}>
             <span className="material-symbols-outlined text-[15px]">add</span>
             Add Competitor
@@ -75,7 +75,7 @@ export default function BrandCompetitorsTab() {
               {comp.profile_url && (
                 <a href={comp.profile_url} target="_blank" rel="noopener noreferrer"
                   title="View profile"
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#e0f0f5] transition-colors text-[#9ca3af] hover:text-[#3d7e96]">
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#e0f0f5] transition-colors text-[#9ca3af] hover:text-[#1B8A80]">
                   <span className="material-symbols-outlined text-[16px]">open_in_new</span>
                 </a>
               )}

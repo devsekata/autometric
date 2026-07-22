@@ -59,10 +59,10 @@ export default function CompetitorModal({ brandName, onClose, onAdded }: Props) 
                 return (
                   <button key={p} type="button" onClick={() => { setPlatform(p); setError('') }}
                     className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border-2 transition-all ${
-                      active ? 'border-[#3d7e96] bg-[#f0f7fa]' : 'border-[#f3f4f6] hover:border-[#e5e7eb]'
+                      active ? 'border-[#1B8A80] bg-[#f0f7fa]' : 'border-[#f3f4f6] hover:border-[#e5e7eb]'
                     }`}>
                     <PlatformIcon platform={p} size={32} />
-                    <span style={PJB} className={`text-[10px] font-semibold ${active ? 'text-[#1e6278]' : 'text-[#9ca3af]'}`}>
+                    <span style={PJB} className={`text-[10px] font-semibold ${active ? 'text-[#2C3079]' : 'text-[#9ca3af]'}`}>
                       {cfg.label.replace(' (Twitter)', '')}
                     </span>
                   </button>
@@ -85,7 +85,7 @@ export default function CompetitorModal({ brandName, onClose, onAdded }: Props) 
                 placeholder={platform ? `competitor.${platform}.handle` : 'select a platform first'}
                 disabled={!platform}
                 maxLength={60}
-                className="w-full h-9 pl-7 pr-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none transition-all focus:border-[#3d7e96] focus:ring-2 focus:ring-[#3d7e96]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-9 pl-7 pr-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none transition-all focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -100,7 +100,7 @@ export default function CompetitorModal({ brandName, onClose, onAdded }: Props) 
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={!platform || !username.trim() || loading} style={PJB}
-            className="h-8 px-4 bg-[#3d7e96] hover:bg-[#2d6e85] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors">
+            className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors">
             {loading ? 'Adding…' : 'Add Competitor'}
           </button>
         </div>

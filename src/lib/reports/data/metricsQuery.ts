@@ -16,7 +16,7 @@ import pool from '@/lib/db'
 import type { DashPlatform } from '@/components/dashboard/data'
 import {
   TABLE_TYPES, MetricPair, SectionMetrics, ReportTableMetrics, SentimentTable, TableChannel,
-  CompetitorEntity, CompetitorSection, CustomMetricColumn,
+  CompetitorEntity, CompetitorSection, CustomMetricColumn, PlatformMetrics,
 } from './tableTypes'
 import { getOrgCustomMetrics } from './customMetricsStore'
 import { evaluateExpression, type CustomMetricDef } from './customMetrics'
@@ -516,6 +516,11 @@ export async function getReportTableMetrics(
 
   const content: ReportTableMetrics['content'] = {}
   const channel: ReportTableMetrics['channel'] = {}
+  // Per-platform CURRENT-period values for the "Content/Channel by Platform" tables
+  // (one row per platform). Reuse the same Content/Channel Performance combined
+  // metrics as the "all" aggregate, computed on each platform's own rows.
+  const contentByPlatform: PlatformMetrics = {}
+  const channelByPlatform: PlatformMetrics = {}
 
   // Per-channel followers summed for the "all" total (each channel's own EOD count).
   let allCurFoll = 0, allPrevFoll = 0, hasCurFoll = false, hasPrevFoll = false
@@ -523,15 +528,23 @@ export async function getReportTableMetrics(
   for (const ch of PLATFORMS) {
     const pRows = posts.rows.filter(r => r.platform === ch)
     const gRows = gold.rows.filter(r => r.platform === ch)
-    const curPosts = aggPosts(pRows.filter(r => r.post_date >= curStart))
+    const curPostRows = pRows.filter(r => r.post_date >= curStart)
+    const curGoldRows = gRows.filter(r => r.metric_date >= curStart)
+    const curPosts = aggPosts(curPostRows)
     const prevPosts = aggPosts(pRows.filter(r => r.post_date < curStart))
-    const curGold = aggGold(gRows.filter(r => r.metric_date >= curStart))
+    const curGold = aggGold(curGoldRows)
     const prevGold = aggGold(gRows.filter(r => r.metric_date < curStart))
     if (curGold.followers != null) { allCurFoll += curGold.followers; hasCurFoll = true }
     if (prevGold.followers != null) { allPrevFoll += prevGold.followers; hasPrevFoll = true }
     content[ch] = buildSection('content_level', ch, curPosts, prevPosts, curGold, prevGold)
     channel[ch] = buildSection('channel_level', ch, curPosts, prevPosts, curGold, prevGold)
     injectCustomMetrics(customDefs, ch, content[ch]!, channel[ch]!, curPosts, prevPosts, curGold, prevGold)
+    // Per-platform comparison rows — only for platforms that actually have data this
+    // period (a platform with no posts / no profile snapshots is left out).
+    if (curPostRows.length > 0) contentByPlatform[ch] = allContentValues(curPostRows)
+    if (curGoldRows.length > 0) {
+      channelByPlatform[ch] = allChannelValues(curGold, curPosts.cnt, new Set(curGoldRows.map(r => r.metric_date)).size)
+    }
   }
 
   // "All channels" aggregate — the Content/Channel Performance layout: counts summed
@@ -594,5 +607,5 @@ export async function getReportTableMetrics(
   // Column defs for the selected-column picker + table headers (id/label/format).
   const customMetrics: CustomMetricColumn[] = customDefs.map(d => ({ id: d.id, label: d.name, format: d.format }))
 
-  return { content, channel, sentiment, competitors, customMetrics }
+  return { content, channel, contentByPlatform, channelByPlatform, sentiment, competitors, customMetrics }
 }

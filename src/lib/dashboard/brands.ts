@@ -10,7 +10,7 @@ import type { DashBrand, DashPlatform } from '@/components/dashboard/data'
  *   - handle     : a representative username (prefers Instagram)
  */
 
-const COLORS = ['#1e4f49', '#3d7e96', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8', '#c79235', '#6f4e37']
+const COLORS = ['#2C3079', '#1B8A80', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8', '#c79235', '#6f4e37']
 const DASH_PLATFORMS: DashPlatform[] = ['instagram', 'facebook', 'tiktok']
 
 function initials(name: string): string {

@@ -16,7 +16,7 @@ export default function Sidebar({ fallbackOrgSlug, hasOrgs, initialOrgs }: Props
     <aside className="h-screen w-[280px] flex flex-col bg-white border-r-2 border-[#e2e8f0]">
       <div className="h-16 flex items-center justify-between gap-2 px-4 border-b border-[#e5e7eb] flex-shrink-0">
         <Link href="/" className="min-w-0">
-          <img src="/auometric-logo-long.png" alt="Autometric" className="w-full max-w-[168px] h-auto" />
+          <img src="/kepiai-logo-long.png" alt="Kepiai" className="w-full max-w-[168px] h-auto" />
         </Link>
         <SidebarToggle />
       </div>
@@ -31,9 +31,9 @@ export default function Sidebar({ fallbackOrgSlug, hasOrgs, initialOrgs }: Props
           <div className="px-3 pt-3 pb-3 border-b-2 border-[#e5e7eb]">
             <Link
               href="/organizations"
-              className="flex items-center gap-2.5 h-9 px-3 rounded-md text-[13.5px] font-medium bg-[#edf5f8] text-[#1e6278]"
+              className="flex items-center gap-2.5 h-9 px-3 rounded-md text-[13.5px] font-medium bg-[#edf5f8] text-[#2C3079]"
             >
-              <span className="material-symbols-outlined text-[18px] flex-shrink-0 text-[#3d7e96]">
+              <span className="material-symbols-outlined text-[18px] flex-shrink-0 text-[#1B8A80]">
                 corporate_fare
               </span>
               Organizations

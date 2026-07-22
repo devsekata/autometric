@@ -54,7 +54,7 @@ function toRecord(row: ReportExportRow): ReportRecord {
     brandId: c.brandId ?? '',
     templateId: c.templateId ?? 'diagonal',
     mode: c.mode ?? 'light',
-    colors: c.colors ?? { primary: '#1e4f49', secondary: '#3d7e96', accent: '#e0a458' },
+    colors: c.colors ?? { primary: '#2C3079', secondary: '#1B8A80', accent: '#e0a458' },
     month: c.month ?? '',
     year: c.year ?? new Date(row.exported_at).getFullYear(),
     exportedAt: new Date(row.exported_at).getTime(),

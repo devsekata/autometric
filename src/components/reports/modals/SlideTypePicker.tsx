@@ -106,13 +106,13 @@ export default function SlideTypePicker({
               <button
                 key={c.id}
                 onClick={() => setChannel(c.id)}
-                className="group flex items-center gap-3.5 p-4 rounded-xl border border-[#e5e7eb] hover:border-[#1e4f49] hover:bg-[#f2f8f5] hover:shadow-sm cursor-pointer text-left transition-all"
+                className="group flex items-center gap-3.5 p-4 rounded-xl border border-[#e5e7eb] hover:border-[#2C3079] hover:bg-[#F1F2FB] hover:shadow-sm cursor-pointer text-left transition-all"
               >
                 <span className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-[#f1f5f9] group-hover:bg-white transition-colors">
                   {c.logo ? (
                     <img src={c.logo} alt={c.name} className="w-6 h-6 object-contain" />
                   ) : (
-                    <span className="material-symbols-outlined text-[22px] text-[#1e4f49]">{c.icon}</span>
+                    <span className="material-symbols-outlined text-[22px] text-[#2C3079]">{c.icon}</span>
                   )}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -134,13 +134,13 @@ export default function SlideTypePicker({
                 onClick={() => t.enabled && onSelect(t.id as SlideType, channel)}
                 className={`group flex items-center gap-3.5 p-4 rounded-xl border text-left transition-all ${
                   t.enabled
-                    ? 'border-[#e5e7eb] hover:border-[#1e4f49] hover:bg-[#f2f8f5] hover:shadow-sm cursor-pointer'
+                    ? 'border-[#e5e7eb] hover:border-[#2C3079] hover:bg-[#F1F2FB] hover:shadow-sm cursor-pointer'
                     : 'border-[#eef0f2] bg-[#fafbfb] opacity-70 cursor-not-allowed'
                 }`}
               >
                 <span
                   className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    t.enabled ? 'bg-[#e6f0ee] text-[#1e4f49] group-hover:bg-[#1e4f49] group-hover:text-white' : 'bg-[#f1f3f5] text-[#cbd5e1]'
+                    t.enabled ? 'bg-[#E6E7F3] text-[#2C3079] group-hover:bg-[#2C3079] group-hover:text-white' : 'bg-[#f1f3f5] text-[#cbd5e1]'
                   } transition-colors`}
                 >
                   <span className="material-symbols-outlined text-[22px]">{t.icon}</span>

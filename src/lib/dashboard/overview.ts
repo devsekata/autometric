@@ -29,8 +29,8 @@ export interface OverviewPayload {
   empty: boolean
 }
 
-const PALETTE = ['#3d7e96', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
-const ATTR_COLORS = ['#5fa783', '#e0a458', '#d97a7a', '#8b7fc7', '#3d7e96', '#5b94b8', '#c79235', '#9ca3af']
+const PALETTE = ['#1B8A80', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
+const ATTR_COLORS = ['#5fa783', '#e0a458', '#d97a7a', '#8b7fc7', '#1B8A80', '#5b94b8', '#c79235', '#9ca3af']
 
 const TAG_LABEL: Record<string, string> = {
   organic: 'Organic', boosted: 'Boosted Posts', collab: 'Collabs', campaign: 'Campaign',

@@ -1,7 +1,7 @@
 const BAR_HEIGHTS = [32, 48, 40, 58, 44, 66, 54, 72, 60, 86, 70, 82]
 
 const TOP_BRANDS = [
-  { name: 'Autometric HQ', score: 92, color: '#3d7e96', pct: 92 },
+  { name: 'Kepiai HQ', score: 92, color: '#1B8A80', pct: 92 },
   { name: 'Brand Studio',  score: 87, color: '#7c5cbf', pct: 87 },
   { name: 'Research Team', score: 79, color: '#059669', pct: 79 },
 ]
@@ -29,7 +29,7 @@ export default function MockDashboard() {
             <div
               key={i}
               className="flex-1 rounded-t-sm"
-              style={{ height: `${h}%`, background: i >= 9 ? '#3d7e96' : '#e5e7eb' }}
+              style={{ height: `${h}%`, background: i >= 9 ? '#1B8A80' : '#e5e7eb' }}
             />
           ))}
         </div>
