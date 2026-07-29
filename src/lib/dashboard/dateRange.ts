@@ -16,7 +16,7 @@ export async function getDataDateRange(
     `SELECT to_char(min(bmd.metric_date), 'YYYY-MM-DD') AS min,
             to_char(max(bmd.metric_date), 'YYYY-MM-DD') AS max
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1
         AND ($2 = 'all' OR bmd.platform = $2)
         AND ($3::uuid IS NULL OR bmd.brand_id = $3)`,

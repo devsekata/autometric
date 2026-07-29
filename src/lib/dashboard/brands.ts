@@ -48,7 +48,7 @@ export async function getDashboardBrands(orgId: string): Promise<DashBrand[]> {
        FROM public.brands b
        LEFT JOIN accts af ON af.brand_id = b.id
        LEFT JOIN brand_fol bf ON bf.brand_id = b.id
-      WHERE b.organization_id = $1
+      WHERE b.organization_id = $1 AND b.deleted_at IS NULL
       GROUP BY b.id, b.name, bf.followers
       ORDER BY followers DESC, b.name`,
     [orgId],

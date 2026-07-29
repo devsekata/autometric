@@ -117,7 +117,7 @@ function OverviewBody({ orgId, brandId, platform, period, start, end }: { orgId:
         </Card>
 
         <Card span="col-span-12 lg:col-span-4" className="flex flex-col">
-          <CardHead title="Platform Share" sub="by reach" />
+          <CardHead title="Platform Share" metricKey="brand_metric_daily.engagement_sum" sub="by reach" />
           <div className="px-4 pb-5 pt-3 flex-1 flex items-center">
             {data.platformReachShare.length
               ? <Donut size={152}

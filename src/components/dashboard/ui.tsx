@@ -1,6 +1,7 @@
 'use client'
 
 import { Sparkline } from './charts'
+import MetricInfo from '@/components/ui/MetricInfo'
 import type { Kpi, OverviewKpi } from './data'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
@@ -16,11 +17,18 @@ export function Card({ children, className = '', span }: {
   )
 }
 
-export function CardHead({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) {
+export function CardHead({ title, sub, action, metricKey }: {
+  title: string; sub?: string; action?: React.ReactNode
+  /** Glossary key — renders an (i) next to the title when it resolves. */
+  metricKey?: string
+}) {
   return (
     <div className="flex items-start justify-between px-4 pt-3.5 pb-2">
       <div>
-        <h3 style={PJ} className="text-[12.5px] font-bold text-[#111827] tracking-[-0.01em]">{title}</h3>
+        <h3 style={PJ} className="flex items-center gap-1 text-[12.5px] font-bold text-[#111827] tracking-[-0.01em]">
+          {title}
+          <MetricInfo metricKey={metricKey} size={13} />
+        </h3>
         {sub && <p className="text-[11px] text-[#9ca3af] mt-0.5">{sub}</p>}
       </div>
       {action}
@@ -79,6 +87,7 @@ export function FlexKpiCard({ kpi, color }: { kpi: OverviewKpi; color: string })
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="material-symbols-outlined text-[15px] text-[#9ca3af]">{kpi.icon}</span>
         <span style={PJ} className="text-[10px] font-bold uppercase tracking-wider text-[#9ca3af] truncate">{kpi.label}</span>
+        <MetricInfo metricKey={kpi.key} scope="kpi" size={12} />
       </div>
       <div className="flex items-end justify-between gap-2">
         <span style={PJ} className="text-[24px] font-bold text-[#111827] leading-none tracking-[-0.02em]">{kpi.value}</span>
@@ -127,6 +136,7 @@ export function KpiCard({ kpi, color }: { kpi: Kpi; color: string }) {
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="material-symbols-outlined text-[15px] text-[#9ca3af]">{kpi.icon}</span>
           <span style={PJ} className="text-[10px] font-bold uppercase tracking-wider text-[#9ca3af] truncate">{kpi.label}</span>
+          <MetricInfo metricKey={kpi.key} scope="kpi" size={12} />
         </div>
         {kpi.ownAccountOnly && (
           <span className="text-[8.5px] font-bold uppercase tracking-wide text-[#b8915a] bg-[#fbf4e8] px-1 py-0.5 rounded">own</span>

@@ -45,7 +45,7 @@ export async function getCampaignPosts(orgId: string, platform: PlatformParam, b
             COALESCE(v.likes,0)::int likes, COALESCE(v.comments,0)::int comments,
             v.engagement_rate::float er
        FROM l2_gold.v_campaign_posts v
-       JOIN public.brands b ON b.id = v.brand_id
+       JOIN public.brands b ON b.id = v.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND ($2 = 'all' OR v.platform = $2)
         AND ($3::uuid IS NULL OR v.brand_id = $3)
       ORDER BY v.post_date DESC NULLS LAST

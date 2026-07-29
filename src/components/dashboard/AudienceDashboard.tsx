@@ -106,7 +106,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
       {/* Demographics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card className="flex flex-col">
-          <CardHead title="Audience Age Distribution" sub="unified_audience · share by age bucket" />
+          <CardHead title="Audience Age Distribution" metricKey="audience_demographics_daily.age" sub="unified_audience · share by age bucket" />
           <div className="px-4 pb-4 pt-3">
             {data.age.some(a => a.value > 0)
               ? <HBars items={data.age.map(a => ({
@@ -120,7 +120,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
         </Card>
 
         <Card className="flex flex-col">
-          <CardHead title="Gender Split by Platform" sub="Female vs. male share per channel" />
+          <CardHead title="Gender Split by Platform" metricKey="audience_demographics_daily.gender" sub="Female vs. male share per channel" />
           <div className="flex items-center justify-center gap-6 pt-1 pb-3">
             <Badge text="Female" color={FEMALE} />
             <Badge text="Male" color={MALE} />
@@ -206,7 +206,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
 
       {relevanceTotal > 0 && (
         <Card className="mb-1">
-          <CardHead title="Sample Comments by Tier" sub="Representative comments from each relevance band" />
+          <CardHead title="Sample Comments by Tier" metricKey="comment_relevance.tier" sub="Representative comments from each relevance band" />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-4 pt-1 pb-2">
             {data.relevanceTiers.map(t => (
               <div key={t.tier}>
@@ -282,7 +282,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
       <SectionHeader icon="public">Geography &amp; Growth</SectionHeader>
       <div className="grid grid-cols-12 gap-3 mb-3">
         <Card span="col-span-12 lg:col-span-5">
-          <CardHead title="Top Audience Cities" sub="Share of followers by city" />
+          <CardHead title="Top Audience Cities" metricKey="audience_geo_daily.geo" sub="Share of followers by city" />
           <div className="px-4 pb-4 pt-3">
             {data.cities.length
               ? <HBars items={data.cities.map((c, i) => ({
@@ -293,7 +293,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
         </Card>
 
         <Card span="col-span-12 lg:col-span-7" className="flex flex-col">
-          <CardHead title="Follower Growth Trend" sub="All brands · weekly" />
+          <CardHead title="Follower Growth Trend" metricKey="brand_metric_daily.follower_count_eod" sub="All brands · weekly" />
           <div className="px-4 pb-3 pt-3 flex-1">
             {data.followerTrend.length
               ? <MultiLineChart series={data.followerTrend} labels={data.followerLabels} height={220} />
@@ -312,7 +312,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
       {/* UGC */}
       <SectionHeader icon="loyalty">User-Generated Content — Tagged Posts</SectionHeader>
       <Card className="overflow-hidden">
-        <CardHead title="Tagged Posts" sub="instagram_tagged_post · username, like_count, comment_count" />
+        <CardHead title="Tagged Posts" metricKey="ugc_tagged_posts.total_engagement" sub="instagram_tagged_post · username, like_count, comment_count" />
         <div className="overflow-x-auto">
           <div className="min-w-[760px]">
             <div className={`grid ${UGC_COLS} gap-2 px-4 py-2.5 border-y border-[#eef0f2] bg-[#fafbfb]`}>

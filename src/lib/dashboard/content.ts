@@ -38,10 +38,25 @@ const PALETTE = ['#1B8A80', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8
 const IG_FORMAT_LABEL: Record<string, string> = {
   reels: 'Reels', carousel: 'Carousel', feed: 'Image', story: 'Story',
 }
-// per-platform media format -> Top Posts "Format" column label.
+// per-platform media format -> Top Posts "Format" column label. Raw values differ
+// per source (IG media_product_type, FB post_type, TikTok), so match on lower case.
 const POST_FORMAT_LABEL: Record<string, string> = {
-  reels: 'Reel', video: 'Video', carousel: 'Carousel',
-  feed: 'Image', photo: 'Image', image: 'Image', link: 'Link', story: 'Story',
+  reel: 'Reel', reels: 'Reel', 'ig reel': 'Reel', clips: 'Reel',
+  video: 'Video', videos: 'Video', video_inline: 'Video', native_video: 'Video', igtv: 'Video',
+  carousel: 'Carousel', carousel_album: 'Carousel', sidecar: 'Carousel', album: 'Carousel',
+  'ig carousel': 'Carousel',
+  feed: 'Image', photo: 'Image', image: 'Image', 'ig image': 'Image',
+  link: 'Link', story: 'Story', stories: 'Story',
+}
+// `format` wins when it maps to a known label; otherwise fall back to post_type
+// (some rows carry editorial tags like 'Motion'/'Static' in format).
+function postFormatLabel(format: string | null, postType: string | null): string {
+  for (const raw of [format, postType]) {
+    const label = POST_FORMAT_LABEL[(raw ?? '').trim().toLowerCase()]
+    if (label) return label
+  }
+  const raw = (format ?? postType ?? '').trim()
+  return raw ? raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—'
 }
 
 // ── formatters ──────────────────────────────────────────────────────────────
@@ -75,7 +90,7 @@ async function resolveWindows(orgId: string, platform: PlatformParam, days: numb
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(bmd.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND ($3::uuid IS NULL OR bmd.brand_id = $3)`,
     [orgId, platform, brandId],
@@ -100,7 +115,7 @@ async function goldKpiTotals(orgId: string, platform: PlatformParam, w: Window, 
         COALESCE(SUM(bmd.saves_sum)          FILTER (WHERE bmd.platform='instagram'),0)::float igsaves,
         COALESCE(SUM(bmd.er_denominator_sum) FILTER (WHERE bmd.platform='instagram'),0)::float igerden
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)`,
@@ -117,7 +132,7 @@ async function goldKpiDaily(orgId: string, platform: PlatformParam, w: Window, b
         COALESCE(SUM(bmd.saves_sum)          FILTER (WHERE bmd.platform='instagram'),0)::float igsaves,
         COALESCE(SUM(bmd.er_denominator_sum) FILTER (WHERE bmd.platform='instagram'),0)::float igerden
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -138,7 +153,7 @@ async function silverKpiTotals(orgId: string, platform: PlatformParam, w: Window
       `SELECT AVG(${CR_NUM.replace('{col}', 'p')}) FILTER (WHERE p.platform='tiktok')::float tkcompl
          FROM l2_gold.post_metric p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
           AND p.post_date::date BETWEEN $3 AND $4
           AND ($5::uuid IS NULL OR bsa.brand_id = $5)`,
@@ -148,7 +163,7 @@ async function silverKpiTotals(orgId: string, platform: PlatformParam, w: Window
       `SELECT COALESCE(SUM(p.link_click) FILTER (WHERE p.platform='facebook'),0)::float fbclicks
          FROM l1_silver.unified_post p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
           AND p.post_date::date BETWEEN $3 AND $4
           AND ($5::uuid IS NULL OR bsa.brand_id = $5)`,
@@ -164,7 +179,7 @@ async function silverKpiDaily(orgId: string, platform: PlatformParam, w: Window,
       `SELECT AVG(${CR_NUM.replace('{col}', 'p')}) FILTER (WHERE p.platform='tiktok')::float tkcompl
          FROM l2_gold.post_metric p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
           AND p.post_date::date BETWEEN $3 AND $4
           AND ($5::uuid IS NULL OR bsa.brand_id = $5)
@@ -175,7 +190,7 @@ async function silverKpiDaily(orgId: string, platform: PlatformParam, w: Window,
       `SELECT COALESCE(SUM(p.link_click) FILTER (WHERE p.platform='facebook'),0)::float fbclicks
          FROM l1_silver.unified_post p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
           AND p.post_date::date BETWEEN $3 AND $4
           AND ($5::uuid IS NULL OR bsa.brand_id = $5)
@@ -209,7 +224,7 @@ async function postTypePerf(orgId: string, w: Window, brandId: string | null) {
     `SELECT p.format, AVG(p.reach)::float reach
        FROM l2_gold.post_metric p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND p.platform = 'instagram'
         AND p.post_date::date BETWEEN $2 AND $3
         AND p.format IS NOT NULL
@@ -237,7 +252,7 @@ async function contentVolume(orgId: string, platform: PlatformParam, w: Window, 
     `SELECT to_char(date_trunc('week', bmd.metric_date), 'YYYY-MM-DD') wk,
             SUM(bmd.post_count)::int posts
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -277,7 +292,7 @@ async function topPosts(orgId: string, platform: PlatformParam, w: Window, brand
             COALESCE(p.is_boosted,false) boosted
        FROM l2_gold.post_metric p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'p')})
         AND p.post_date::date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bsa.brand_id = $5)
@@ -286,12 +301,11 @@ async function topPosts(orgId: string, platform: PlatformParam, w: Window, brand
     [orgId, platform, w.start, w.end, brandId],
   )
   return rows.map((r, i) => {
-    const fmtKey = (r.format ?? r.post_type ?? '').toLowerCase()
     return {
       rank: i + 1,
       platform: r.platform,
       caption: (r.caption || '(tanpa caption)').replace(/\s+/g, ' ').trim(),
-      format: POST_FORMAT_LABEL[fmtKey] ?? (r.format ?? r.post_type ?? '—'),
+      format: postFormatLabel(r.format, r.post_type),
       reach: r.reach, views: r.views, likes: r.likes, comments: r.comments,
       shares: r.shares,
       er: +(r.er ?? 0).toFixed(1),
@@ -307,7 +321,7 @@ async function completionDist(orgId: string, w: Window, brandId: string | null) 
         SELECT ${CR_NUM.replace('{col}', 'p')} v
           FROM l2_gold.post_metric p
           JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-          JOIN public.brands b ON b.id = bsa.brand_id
+          JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
          WHERE b.organization_id = $1 AND p.platform = 'tiktok'
            AND p.post_date::date BETWEEN $2 AND $3
            AND p.completion_rate IS NOT NULL
@@ -352,7 +366,7 @@ async function reelWatch(orgId: string, w: Window, brandId: string | null) {
         AVG(LEAST(100, p.avg_watch_time / p.duration_s * 100))::float comp
        FROM l2_gold.post_metric p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND p.platform = 'instagram'
         AND p.post_date::date BETWEEN $2 AND $3
         AND p.duration_s > 0 AND p.avg_watch_time > 0

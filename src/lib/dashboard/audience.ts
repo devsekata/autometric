@@ -82,7 +82,7 @@ async function resolveWindows(orgId: string, platform: PlatformParam, days: numb
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(bmd.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND ($3::uuid IS NULL OR bmd.brand_id = $3)`,
     [orgId, platform, brandId],
@@ -108,7 +108,7 @@ async function profileDaily(orgId: string, platform: PlatformParam, w: Window, b
             COALESCE(SUM(bmd.profile_visit_sum) FILTER (WHERE bmd.platform='tiktok'),0)::float      "tkVisit",
             COALESCE(SUM(bmd.profile_visit_sum) FILTER (WHERE bmd.platform='facebook'),0)::float    "fbVisit"
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -140,13 +140,13 @@ async function ageDistribution(orgId: string, platform: PlatformParam, brandId: 
     `SELECT ${sums}
        FROM l2_gold.audience_demographics_daily u
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = u.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'u')})
         AND u.audience_type = 'follower_demographics'
         AND u.audience_date = (
           SELECT max(u2.audience_date) FROM l2_gold.audience_demographics_daily u2
           JOIN public.brand_social_accounts bsa2 ON bsa2.social_account_id = u2.brand_id
-          JOIN public.brands b2 ON b2.id = bsa2.brand_id
+          JOIN public.brands b2 ON b2.id = bsa2.brand_id AND b2.deleted_at IS NULL
           WHERE b2.organization_id = $1 AND (${PLAT.replace('{col}', 'u2')}) AND u2.audience_type='follower_demographics'
             AND ($3::uuid IS NULL OR bsa2.brand_id = $3))
         AND ($3::uuid IS NULL OR bsa.brand_id = $3)`,
@@ -172,13 +172,13 @@ async function genderSplit(orgId: string, platform: PlatformParam, brandId: stri
             COALESCE(SUM(u.gender_male),0)::float   m
        FROM l2_gold.audience_demographics_daily u
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = u.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'u')})
         AND u.audience_type = 'follower_demographics'
         AND u.audience_date = (
           SELECT max(u2.audience_date) FROM l2_gold.audience_demographics_daily u2
           JOIN public.brand_social_accounts bsa2 ON bsa2.social_account_id = u2.brand_id
-          JOIN public.brands b2 ON b2.id = bsa2.brand_id
+          JOIN public.brands b2 ON b2.id = bsa2.brand_id AND b2.deleted_at IS NULL
           WHERE b2.organization_id = $1 AND (${PLAT.replace('{col}', 'u2')}) AND u2.audience_type='follower_demographics'
             AND ($3::uuid IS NULL OR bsa2.brand_id = $3))
         AND ($3::uuid IS NULL OR bsa.brand_id = $3)
@@ -199,13 +199,13 @@ async function topCities(orgId: string, platform: PlatformParam, brandId: string
     `SELECT u.geo_key city, SUM(u.audience_count)::float v
        FROM l2_gold.audience_geo_daily u
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = u.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'u')})
         AND u.geo_level = 'city'
         AND u.audience_date = (
           SELECT max(u2.audience_date) FROM l2_gold.audience_geo_daily u2
           JOIN public.brand_social_accounts bsa2 ON bsa2.social_account_id = u2.brand_id
-          JOIN public.brands b2 ON b2.id = bsa2.brand_id
+          JOIN public.brands b2 ON b2.id = bsa2.brand_id AND b2.deleted_at IS NULL
           WHERE b2.organization_id = $1 AND (${PLAT.replace('{col}', 'u2')}) AND u2.geo_level='city'
             AND ($3::uuid IS NULL OR bsa2.brand_id = $3))
         AND ($3::uuid IS NULL OR bsa.brand_id = $3)
@@ -222,7 +222,7 @@ async function followerTrend(orgId: string, platform: PlatformParam, w: Window, 
     `WITH daily AS (
         SELECT b.name brand, bmd.metric_date d, SUM(bmd.follower_count_eod)::float f
           FROM l2_gold.brand_metric_daily bmd
-          JOIN public.brands b ON b.id = bmd.brand_id
+          JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
          WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
            AND bmd.metric_date BETWEEN $3 AND $4
            AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -261,7 +261,7 @@ async function commentRelevance(orgId: string, platform: PlatformParam, brandId:
     pool.query<{ tier: string; cnt: number }>(
       `SELECT crd.tier, SUM(crd.comment_count)::int cnt
          FROM l2_gold.comment_relevance_distribution crd
-         JOIN public.brands b ON b.id = crd.brand_id
+         JOIN public.brands b ON b.id = crd.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'crd')})
           AND ($3::uuid IS NULL OR crd.brand_id = $3)
         GROUP BY crd.tier`,
@@ -273,7 +273,7 @@ async function commentRelevance(orgId: string, platform: PlatformParam, brandId:
          JOIN l1_silver.unified_comment c
            ON c.comment_id = f.comment_id AND c.platform = f.platform
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = c.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'c')})
           AND f.relevance_score IS NOT NULL
           AND ($3::uuid IS NULL OR bsa.brand_id = $3)`,
@@ -313,7 +313,7 @@ async function contributors(orgId: string, platform: PlatformParam, days: number
             cc.comments_count::int comments, cc.likes_received::int likes,
             cc.avg_relevance::float relevance, cc.composite_score::float score, cc.tier
        FROM l2_gold.community_contributors cc
-       JOIN public.brands b ON b.id = cc.brand_id
+       JOIN public.brands b ON b.id = cc.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'cc')})
         AND cc.window_days = $3
         AND ($4::uuid IS NULL OR cc.brand_id = $4)
@@ -351,7 +351,7 @@ async function ugcPosts(orgId: string, w: Window, brandId: string | null) {
             COALESCE(tp.like_count,0)::int likes, COALESCE(tp.comment_count,0)::int comments,
             tp.post_date
        FROM l2_gold.ugc_tagged_posts tp
-       JOIN public.brands b ON b.id = tp.brand_id
+       JOIN public.brands b ON b.id = tp.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1
         AND tp.post_date::date BETWEEN $2 AND $3
         AND ($4::uuid IS NULL OR tp.brand_id = $4)

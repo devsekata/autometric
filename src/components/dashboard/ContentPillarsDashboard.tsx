@@ -160,7 +160,7 @@ function PillarsBody({ orgId, brandId }: { orgId: string; brandId: string }) {
         <Card className="flex flex-col">
           {comparisonRun && pillars.length >= 2 ? (
             <>
-              <CardHead title="Pillar Performance Comparison" sub="Engagement rate aggregated per pillar (gold)" />
+              <CardHead title="Pillar Performance Comparison" metricKey="pillar_performance_daily.engagement_sum" sub="Engagement rate aggregated per pillar (gold)" />
               <div className="px-4 pb-5 pt-3 flex-1 flex flex-col justify-center">
                 {comparison.some(c => c.posts > 0) ? (
                   <HBars items={comparison.map(c => ({

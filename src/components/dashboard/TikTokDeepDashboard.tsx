@@ -80,7 +80,7 @@ function TikTokBody({ orgId, brandId, platform, period, start, end }: { orgId: s
       {/* Follower churn */}
       <SectionHeader icon="sync_alt">Follower Churn Analysis</SectionHeader>
       <Card className="mb-3">
-        <CardHead title="Follower Churn Analysis" sub="Unique to TikTok's API — no other platform in this schema tracks churn at this granularity"
+        <CardHead title="Follower Churn Analysis" metricKey="tiktok_churn_daily.net_growth" sub="Unique to TikTok's API — no other platform in this schema tracks churn at this granularity"
           action={<FieldTag>new_followers · lost_followers · net_growth</FieldTag>} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 px-4 pt-1">
           {[
@@ -112,7 +112,7 @@ function TikTokBody({ orgId, brandId, platform, period, start, end }: { orgId: s
       <SectionHeader icon="insights">Retention Drivers</SectionHeader>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="flex flex-col">
-          <CardHead title="Duration vs. Completion Rate" action={<FieldTag>video_duration · completion_rate</FieldTag>} />
+          <CardHead title="Duration vs. Completion Rate" metricKey="post_metric.completion_rate" action={<FieldTag>video_duration · completion_rate</FieldTag>} />
           <div className="px-4 pb-4 pt-3 flex-1">
             {data.durationCompletion.length
               ? <ScatterPlot points={data.durationCompletion} xMax={xMax} yMax={100}
@@ -123,7 +123,7 @@ function TikTokBody({ orgId, brandId, platform, period, start, end }: { orgId: s
         </Card>
 
         <Card className="flex flex-col">
-          <CardHead title="Avg Watch Time by Content Pillar" action={<FieldTag>avg_watch_time · content_pillar</FieldTag>} />
+          <CardHead title="Avg Watch Time by Content Pillar" metricKey="pillar_performance_daily.watch_time_sum" action={<FieldTag>avg_watch_time · content_pillar</FieldTag>} />
           <div className="px-4 pb-4 pt-3">
             {data.watchByPillar.length
               ? <HBars items={data.watchByPillar.map(w => ({
