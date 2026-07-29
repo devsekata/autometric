@@ -6,7 +6,7 @@ import { groupInt } from './format'
 // Ordered by the Content Performance categories (Acquisition → Awareness →
 // Engagement → Efficiency). "Impressions/Views" is one combined metric (Facebook
 // = impressions, Instagram/TikTok = views). ER is split into Reach/Views/Followers.
-// Metrics with no data on a channel are hidden by availableMetricsFor.
+// All of them are always offered as options; ones with no data render as 0.
 export const POST_METRICS: { id: string; label: string }[] = [
   { id: 'new_follow', label: 'New Follow' },
   { id: 'reach', label: 'Reach' },
@@ -124,31 +124,34 @@ export function buildPosts(count: number, filter: string, opts: PostOptions = {}
 
 export const metricLabel = (id: string) => POST_METRICS.find(m => m.id === id)?.label ?? id
 
-// ── channel-aware metric availability ─────────────────────────────────────────
-// Which metric ids are offered for a channel, data-driven from the live pool (a
-// metric is available when at least one post carries a value > 0). Empty when
-// there is no live pool. Shared by the Visual slide (options) and the exporter.
-export function availableMetricsFor(source: PostCandidate[] | undefined, _channel: string): string[] {
+// ── metric availability ───────────────────────────────────────────────────────
+// Every metric in POST_METRICS is always offered in the Visual slide pickers — a
+// metric with no data on the channel still shows and renders as 0 / 0.00%, so the
+// user can put it on the card deliberately. `populatedMetricsFor` reports which
+// metrics actually carry data; it only drives defaults, never restricts choices.
+export function populatedMetricsFor(source: PostCandidate[] | undefined): string[] {
   if (!source || !source.length) return []
-  const avail = POST_METRICS.filter(m => source.some(p => (p.values[m.id] ?? 0) > 0)).map(m => m.id)
-  return avail.length ? avail : POST_METRICS.map(m => m.id)
+  return POST_METRICS.filter(m => source.some(p => (p.values[m.id] ?? 0) > 0)).map(m => m.id)
 }
 
-// Resolve the ranking metric to one that's actually available on the channel.
-export function effectiveSortMetric(metric: string | undefined, available: string[]): string {
-  if (metric && available.includes(metric)) return metric
-  if (available.includes('engagement')) return 'engagement'
-  return available[0] ?? 'engagement'
+const isKnownMetric = (id: string) => POST_METRICS.some(m => m.id === id)
+
+// Ranking metric: an explicit pick is honoured as-is, even when it has no data on
+// this channel. Only an unset (or retired) pick falls back to a populated metric.
+export function effectiveSortMetric(metric: string | undefined, populated: string[]): string {
+  if (metric && isKnownMetric(metric)) return metric
+  if (populated.includes('engagement')) return 'engagement'
+  return populated[0] ?? 'engagement'
 }
 
-// Resolve which metrics show on the card — the user's picks intersected with what's
-// available; if none survive, the first few available metrics. Order ALWAYS follows
-// the canonical POST_METRICS sequence (Acquisition → Awareness → Engagement →
-// Efficiency), NOT the order the user clicked them.
-export function effectiveShownMetrics(selected: string[], available: string[]): string[] {
+// Which metrics show on the card — every pick is honoured, empty ones included.
+// With nothing picked, default to the first few metrics that do carry data. Order
+// ALWAYS follows the canonical POST_METRICS sequence (Acquisition → Awareness →
+// Engagement → Efficiency), NOT the order the user clicked them.
+export function effectiveShownMetrics(selected: string[], populated: string[]): string[] {
   const sel = new Set(selected)
-  const shown = POST_METRICS.filter(m => sel.has(m.id) && available.includes(m.id)).map(m => m.id)
-  return shown.length ? shown : available.slice(0, 3)
+  const shown = POST_METRICS.filter(m => sel.has(m.id)).map(m => m.id)
+  return shown.length ? shown : populated.slice(0, 3)
 }
 
 // Distinct format/pillar ids present in a pool — the valid filter values.

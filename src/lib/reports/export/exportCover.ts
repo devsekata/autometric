@@ -78,6 +78,44 @@ export async function addContainImage(slide: AnySlide, data: string, bx: number,
   return dw
 }
 
+/** Centre-crop a data URL to an aspect ratio. Null if it can't be decoded. */
+function cropToAspect(src: string, targetAr: number): Promise<string | null> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1
+        // Keep the largest centred region that already has the target ratio.
+        let sw = iw, sh = ih
+        if (iw / ih > targetAr) sw = ih * targetAr   // too wide → trim the sides
+        else sh = iw / targetAr                      // too tall → trim top & bottom
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(sw))
+        canvas.height = Math.max(1, Math.round(sh))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return resolve(null)
+        ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height)
+        // JPEG unless the source carries transparency — re-encoding photos as PNG
+        // bloats the .pptx badly.
+        resolve(src.startsWith('data:image/png') ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.88))
+      } catch { resolve(null) }   // tainted canvas → caller falls back to contain
+    }
+    img.onerror = () => resolve(null)
+    img.src = src
+  })
+}
+
+/**
+ * Places an image *covering* a box — fills it edge to edge, centre-cropped, no
+ * letterboxing and no stretch. Crops on a canvas instead of using pptxgenjs
+ * `sizing`, which is unreliable for base64 data URLs.
+ */
+export async function addCoverImage(slide: AnySlide, data: string, bx: number, by: number, bw: number, bh: number): Promise<void> {
+  const cropped = await cropToAspect(data, bw / bh)
+  if (cropped) slide.addImage({ data: cropped, x: bx, y: by, w: bw, h: bh })
+  else await addContainImage(slide, data, bx, by, bw, bh, 'center')
+}
+
 const txtOpts = (box: TextBox, color: string, font: string) => ({
   x: box.x * SLIDE.w,
   y: box.y * SLIDE.h,

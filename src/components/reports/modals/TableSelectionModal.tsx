@@ -6,6 +6,7 @@ import {
   columnsForChannel, defaultColumnsFor, isTypeEnabledForChannel, typeChannelHint,
 } from '@/lib/reports/data/tableTypes'
 import type { CustomMetricDef } from '@/lib/reports/data/customMetrics'
+import MetricInfo from '@/components/ui/MetricInfo'
 import { listCustomMetrics } from '@/lib/reports/data/customMetricsApi'
 import CustomMetricModal from './CustomMetricModal'
 
@@ -181,6 +182,7 @@ export default function TableSelectionModal({
                     </span>
                     <input type="checkbox" className="hidden" checked={on} onChange={() => toggle(col.id)} />
                     <span style={PJ} className={`text-[12px] font-medium ${on ? 'text-[#2C3079]' : 'text-[#64748b]'}`}>{col.label}</span>
+                    <span className="ml-auto"><MetricInfo metricKey={col.id} size={13} /></span>
                   </label>
                 )
               })}

@@ -6,6 +6,7 @@ import { useReportKpi, useReportMetrics } from '@/lib/reports/data/metricsContex
 import type { CustomMetricDef } from '@/lib/reports/data/customMetrics'
 import { listCustomMetrics } from '@/lib/reports/data/customMetricsApi'
 import CustomMetricModal from './CustomMetricModal'
+import MetricInfo from '@/components/ui/MetricInfo'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -61,7 +62,10 @@ export default function MetricPickerModal({
                   <span className="material-symbols-outlined text-[19px]">{m.icon}</span>
                 </span>
                 <div className="min-w-0">
-                  <p style={PJ} className="text-[13px] font-bold text-[#0f172a] truncate">{m.label}</p>
+                  <p style={PJ} className="flex items-center gap-1 text-[13px] font-bold text-[#0f172a]">
+                    <span className="truncate">{m.label}</span>
+                    <MetricInfo metricKey={m.key} scope="rkpi" size={13} />
+                  </p>
                   <p className="text-[11.5px] text-[#94a3b8]">{m.value}{m.hasDelta ? ` · ${m.delta >= 0 ? '+' : ''}${m.delta}%` : ''}</p>
                 </div>
               </button>

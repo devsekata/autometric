@@ -4,13 +4,13 @@
 // native charts (addChart) / native tables (addTable) — no rasterized images,
 // so everything stays editable in PowerPoint.
 import { CoverColors, noHash, tint } from '../cover/colors'
-import { CoverConfig, SLIDE_IN, addCoverSlide, addContainImage, svgToPng } from './exportCover'
+import { CoverConfig, SLIDE_IN, addCoverSlide, addContainImage, addCoverImage, svgToPng } from './exportCover'
 import { ChartConfig, resolveBarData, resolveLineData, chartSummary, SENTIMENT_PALETTES } from '../data/chartData'
 import { TableColumn, TableConfig, TABLE_TYPES, SectionMetrics, SentimentTable, CompetitorSection, PlatformMetrics, ReportTableMetrics, buildTable, columnsForChannel, sentimentTableFor, customColumnsFrom } from '../data/tableTypes'
 import { cloudWordsFrom, type ReportChartMetrics, type CloudWordData } from '../data/chartTypes'
 import { computeWordCloud, WC_W, WC_H, WC_FONT } from '../data/wordcloudLayout'
 import { KpiMetric, ReportKpiMetrics, deltaIsGood, resolveKpiMetric } from '../data/kpiMetrics'
-import { buildPosts, metricLabel as postMetricLabel, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, availableFilterIds, effectiveFilterId, type ReportPostMetrics } from '../data/posts'
+import { buildPosts, metricLabel as postMetricLabel, populatedMetricsFor, effectiveSortMetric, effectiveShownMetrics, availableFilterIds, effectiveFilterId, type ReportPostMetrics } from '../data/posts'
 import { PLATFORM_META, type DashPlatform } from '@/components/dashboard/data'
 import type { ContentSlide, SlideChrome, AiInsight } from '../data/slideModel'
 
@@ -420,22 +420,51 @@ function hslToHex(h: number, sat: number, lig: number): string {
   return to(r) + to(g) + to(b)
 }
 
+// Height of the #id + format·pillar block that sits between the photo and the
+// metric list, plus the padding under it.
+const POST_HEAD_H = H(4.8)
+const METRIC_LINE = 1.25          // lineSpacingMultiple of the metric list
+const POST_IMG_MAX = 0.55         // share of the card the photo gets by default
+const POST_IMG_MIN = 0.34         // …and the least it may shrink to for long lists
+
+/**
+ * Photo height + metric font size for a card, so any metric count from 1 to the
+ * full POST_METRICS list stays inside the card. The photo yields space first;
+ * once it hits POST_IMG_MIN the type shrinks. Mirrors the preview, where the
+ * photo is `flex-1` above a `shrink-0` stats block.
+ */
+function postCardFit(rows: number, baseFs: number, h: number, labelW: number, longestLabel: number) {
+  const lineIn = (pt: number) => (pt * METRIC_LINE) / 72
+  const need = Math.max(1, rows) * lineIn(baseFs)
+  const imgH = Math.min(h * POST_IMG_MAX, Math.max(h * POST_IMG_MIN, h - POST_HEAD_H - need))
+  const avail = h - POST_HEAD_H - imgH
+  // Fit the row count, and keep the longest label on one line — a wrapped label
+  // would push the label column out of step with the value column.
+  const byHeight = ((avail / Math.max(1, rows)) * 72) / METRIC_LINE
+  const byWidth = (labelW * 72) / (Math.max(1, longestLabel) * 0.5)   // ~0.5em average char
+  const fs = Math.max(6, Math.floor(Math.min(baseFs, byHeight, byWidth) * 10) / 10)   // floor: rounding up could re-introduce a wrap
+  return { imgH, fs }
+}
+
 async function postCard(slide: Slide, post: { id: number; tag?: string; image?: string; format?: string; pillar?: string; metrics: Record<string, string> }, postMetrics: string[], n: number, x: number, y: number, w: number, h: number) {
   card(slide, x, y, w, h)
-  const imgH = h * 0.55
+  const pad = W(0.6)
+  const baseFs = n === 4 ? FS(1.05) : n === 6 ? FS(0.9) : FS(0.78)
+  const labelW = (w - 2 * pad) * 0.62   // values are right-aligned in the box beside it, so the slight overlap is safe
+  const longest = postMetrics.reduce((mx, m) => Math.max(mx, postMetricLabel(m).length), 0)
+  const { imgH, fs } = postCardFit(postMetrics.length, baseFs, h, labelW, longest)
+
   slide.addShape('rect', { x, y, w, h: imgH, fill: { color: hslToHex((post.id * 47) % 360, 0.42, 0.85) }, line: { width: 0 } })
   const imgData = post.image ? await toDataUrl(post.image) : null
-  if (imgData) await addContainImage(slide, imgData, x, y, w, imgH, 'center')
+  if (imgData) await addCoverImage(slide, imgData, x, y, w, imgH)
   if (post.tag) slide.addText(post.tag, { x: x + W(0.4), y: y + H(0.6), w: W(5), h: H(2.2), fontSize: FS(0.8), bold: true, color: 'FFFFFF', fill: { color: post.tag === 'TOP' ? '16A34A' : 'E11D48' }, align: 'center', valign: 'middle', fontFace: PJ })
-  const pad = W(0.6)
-  const fs = n === 4 ? FS(1.05) : n === 6 ? FS(0.9) : FS(0.78)
-  const capFs = Math.max(6, Math.round(fs * 0.82 * 10) / 10)
-  slide.addText(`#${post.id}`, { x: x + pad, y: y + imgH + H(0.4), w: w - 2 * pad, h: H(2.0), fontSize: fs, bold: true, color: '334155', fontFace: PJ })
+  const capFs = Math.max(6, Math.round(baseFs * 0.82 * 10) / 10)
+  slide.addText(`#${post.id}`, { x: x + pad, y: y + imgH + H(0.4), w: w - 2 * pad, h: H(2.0), fontSize: baseFs, bold: true, color: '334155', fontFace: PJ })
   const caption = [post.format, post.pillar].filter(Boolean).join('  ·  ')
   if (caption) slide.addText(caption, { x: x + pad, y: y + imgH + H(2.5), w: w - 2 * pad, h: H(1.8), fontSize: capFs, color: '94A3B8', valign: 'top', fontFace: PJ })
-  const colY = y + imgH + H(4.4), colH = h - imgH - H(4.8)
-  slide.addText(postMetrics.map(m => postMetricLabel(m)).join('\n'), { x: x + pad, y: colY, w: (w - 2 * pad) * 0.6, h: colH, fontSize: fs, color: '94A3B8', align: 'left', valign: 'top', lineSpacingMultiple: 1.25, fontFace: PJ })
-  slide.addText(postMetrics.map(m => post.metrics[m] ?? '—').join('\n'), { x: x + pad + (w - 2 * pad) * 0.55, y: colY, w: (w - 2 * pad) * 0.45, h: colH, fontSize: fs, color: '334155', align: 'right', valign: 'top', lineSpacingMultiple: 1.25, fontFace: MONO })
+  const colY = y + imgH + H(4.4), colH = h - imgH - POST_HEAD_H
+  slide.addText(postMetrics.map(m => postMetricLabel(m)).join('\n'), { x: x + pad, y: colY, w: labelW, h: colH, fontSize: fs, color: '94A3B8', align: 'left', valign: 'top', lineSpacingMultiple: METRIC_LINE, fontFace: PJ })
+  slide.addText(postMetrics.map(m => post.metrics[m] ?? '—').join('\n'), { x: x + pad + (w - 2 * pad) * 0.55, y: colY, w: (w - 2 * pad) * 0.45, h: colH, fontSize: fs, color: '334155', align: 'right', valign: 'top', lineSpacingMultiple: METRIC_LINE, fontFace: MONO })
 }
 
 async function addVisualSlide(pptx: any, slide: ContentSlide, chrome: SlideChrome, colors: CoverColors, postMetrics?: ReportPostMetrics | null) {
@@ -447,10 +476,10 @@ async function addVisualSlide(pptx: any, slide: ContentSlide, chrome: SlideChrom
 
   const n = slide.postCount
   const source = postMetrics?.[slide.channel]
-  // Channel-aware availability + brand-aware filters — must match VisualSlide exactly so export == preview.
-  const available = availableMetricsFor(source, slide.channel)
-  const sortMetric = effectiveSortMetric(slide.postSortMetric, available)
-  const shownMetrics = effectiveShownMetrics(slide.postMetrics, available)
+  // Metric defaults + brand-aware filters — must match VisualSlide exactly so export == preview.
+  const populated = populatedMetricsFor(source)
+  const sortMetric = effectiveSortMetric(slide.postSortMetric, populated)
+  const shownMetrics = effectiveShownMetrics(slide.postMetrics, populated)
   const format = effectiveFilterId(slide.postFormat, availableFilterIds(source, 'formatId'))
   const pillar = effectiveFilterId(slide.postPillar, availableFilterIds(source, 'pillarId'))
   const posts = buildPosts(n, slide.postFilter, { format, pillar, sortMetric, source })

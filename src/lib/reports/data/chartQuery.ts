@@ -339,7 +339,7 @@ export async function getReportChartMetrics(
               bmd.profile_reach_sum::float pr, bmd.net_growth_sum::float ng,
               bmd.new_followers_sum::float nf, bmd.video_views_sum::float vv
          FROM l2_gold.brand_metric_daily bmd
-         JOIN public.brands b ON b.id = bmd.brand_id
+         JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND bmd.brand_id = $2
           AND bmd.metric_date >= $3 AND bmd.metric_date < $4
           AND bmd.platform IN ('instagram','facebook','tiktok')`,
@@ -354,7 +354,7 @@ export async function getReportChartMetrics(
               SUM(p.er_reach)::float er_sum, count(p.er_reach)::int er_cnt, count(*)::int posts
          FROM l1_silver.unified_post p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND bsa.brand_id = $2
           AND p.post_date >= $3 AND p.post_date < $4
           AND p.platform IN ('instagram','facebook','tiktok')
@@ -367,7 +367,7 @@ export async function getReportChartMetrics(
               SUM(pp.post_count)::float posts, SUM(pp.engagement_sum)::float eng,
               SUM(pp.er_denominator_sum)::float er_den, SUM(pp.reach_sum)::float reach
          FROM l2_gold.pillar_performance_daily pp
-         JOIN public.brands b ON b.id = pp.brand_id
+         JOIN public.brands b ON b.id = pp.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND pp.brand_id = $2
           AND pp.metric_date >= $3 AND pp.metric_date < $4
           AND pp.content_pillar IS NOT NULL
@@ -380,7 +380,7 @@ export async function getReportChartMetrics(
       `SELECT csd.platform, to_char(csd.metric_date, 'YYYY-MM-DD') d,
               csd.positive_count::float pos, csd.neutral_count::float neu, csd.negative_count::float neg
          FROM l2_gold.comment_sentiment_daily csd
-         JOIN public.brands b ON b.id = csd.brand_id
+         JOIN public.brands b ON b.id = csd.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND csd.brand_id = $2
           AND csd.metric_date >= $3 AND csd.metric_date < $4
           AND csd.platform IN ('instagram','facebook','tiktok')`,
@@ -395,7 +395,7 @@ export async function getReportChartMetrics(
       `SELECT csp.platform, pw.word, csp.dominant_sentiment sentiment, SUM(pw.frequency)::float freq
          FROM l2_gold.post_wordcloud pw
          JOIN l2_gold.comment_sentiment_post csp ON csp.post_id = pw.post_id AND csp.platform = pw.platform
-         JOIN public.brands b ON b.id = csp.brand_id
+         JOIN public.brands b ON b.id = csp.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND csp.brand_id = $2
           AND (csp.post_date IS NULL OR (csp.post_date >= $3 AND csp.post_date < $4))
           AND csp.platform IN ('instagram','facebook','tiktok')

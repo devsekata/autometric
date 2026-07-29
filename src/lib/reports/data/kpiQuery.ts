@@ -38,7 +38,7 @@ export async function getReportKpiMetrics(
               bmd.profile_visit_sum::float, bmd.new_followers_sum::float, bmd.net_growth_sum::float,
               bmd.er_denominator_sum::float, bmd.follower_count_eod::float
          FROM l2_gold.brand_metric_daily bmd
-         JOIN public.brands b ON b.id = bmd.brand_id
+         JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND bmd.brand_id = $2
           AND bmd.metric_date >= $3 AND bmd.metric_date < $4
           AND bmd.platform IN ('instagram','facebook','tiktok')`,
@@ -48,7 +48,7 @@ export async function getReportKpiMetrics(
       `SELECT sm.platform, to_char(sm.metric_date, 'YYYY-MM-DD') metric_date,
               sm.views_sum::float, sm.reach_sum::float
          FROM l2_gold.story_metric_daily sm
-         JOIN public.brands b ON b.id = sm.brand_id
+         JOIN public.brands b ON b.id = sm.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND sm.brand_id = $2
           AND sm.metric_date >= $3 AND sm.metric_date < $4
           AND sm.platform IN ('instagram','facebook','tiktok')`,
@@ -59,7 +59,7 @@ export async function getReportKpiMetrics(
               up.link_clicks::float, up.total_interactions::float
          FROM l1_silver.unified_profile up
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = up.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND bsa.brand_id = $2
           AND up.profile_date >= $3 AND up.profile_date < $4
           AND up.platform IN ('instagram','facebook','tiktok')`,
@@ -70,7 +70,7 @@ export async function getReportKpiMetrics(
               p.avg_watch_time::float, p.duration_s::float
          FROM l1_silver.unified_post p
          JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-         JOIN public.brands b ON b.id = bsa.brand_id
+         JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND bsa.brand_id = $2
           AND p.post_date >= $3 AND p.post_date < $4
           AND p.platform IN ('instagram','facebook','tiktok')`,
