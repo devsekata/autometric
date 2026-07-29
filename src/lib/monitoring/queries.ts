@@ -45,6 +45,7 @@ export async function getRecentSchedulerLogs(limit = 300): Promise<SchedulerLogR
        END AS "durationMs"
      FROM scheduler_logs sl
      LEFT JOIN organizations   o  ON o.id  = sl.org_id
+     -- audit trail: keep showing the brand name even after the brand is soft-deleted
      LEFT JOIN brands          b  ON b.id  = sl.brand_id
      LEFT JOIN social_accounts sa ON sa.id = sl.social_account_id
      ORDER BY sl.started_at DESC
@@ -71,7 +72,7 @@ export type CategorySyncRow = {
 // Shared JOIN fragment for all category queries
 const CAT_JOINS = `
   JOIN brand_social_accounts bsa ON bsa.social_account_id = sa.id
-  JOIN brands b ON b.id = bsa.brand_id
+  JOIN brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
   JOIN organizations o ON o.id = b.organization_id`
 
 // Returns a correlated subquery that fetches the latest scheduler_logs status
@@ -223,11 +224,12 @@ export async function getAllMonitoringData(): Promise<PlatformSyncRow[]> {
          0
        ) AS "dataCount"
      FROM brands b
-     JOIN organizations o            ON o.id  = b.organization_id
+     JOIN organizations o            ON o.id  = b.organization_id AND o.deleted_at IS NULL
      JOIN brand_social_accounts bsa  ON bsa.brand_id = b.id
      JOIN social_accounts sa         ON sa.id = bsa.social_account_id
      JOIN platforms p                ON p.id  = sa.platform_id
      WHERE sa.connected = true
+       AND b.deleted_at IS NULL
      ORDER BY o.name, b.created_at, p.key`
   )
   return rows
@@ -274,6 +276,7 @@ export async function getMonitoringData(orgId: string): Promise<PlatformSyncRow[
      JOIN social_accounts sa        ON sa.id = bsa.social_account_id
      JOIN platforms p               ON p.id  = sa.platform_id
      WHERE b.organization_id = $1
+       AND b.deleted_at IS NULL
        AND sa.connected = true
      ORDER BY b.created_at, p.key`,
     [orgId]

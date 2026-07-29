@@ -45,7 +45,7 @@ export async function listAllCompetitorAccounts(): Promise<CompetitorSyncAccount
     FROM brand_competitors bc
     JOIN social_accounts csa ON csa.id = bc.social_account_id
     JOIN platforms cp        ON cp.id  = csa.platform_id
-    JOIN brands b            ON b.id   = bc.brand_id
+    JOIN brands b            ON b.id   = bc.brand_id AND b.deleted_at IS NULL
     ORDER BY csa.id
   `)
   return rows

@@ -7,9 +7,11 @@ import BrandGroup from './BrandGroup'
 import ChannelGroup from './ChannelGroup'
 import StatusGroup, { AccountEntry } from './StatusGroup'
 import CreateBrandModal from '../modals/CreateBrandModal'
+import { MAX_BRANDS_PER_ORG } from '@/lib/quotas'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 const ACTIVE_PLATFORMS: Platform[] = ['instagram', 'tiktok', 'facebook']
+const BRAND_LIMIT_TITLE = `Batas ${MAX_BRANDS_PER_ORG} brand per organization sudah tercapai`
 
 type GroupBy      = 'brand' | 'channel' | 'status'
 type StatusFilter = 'all' | 'connected' | 'disconnected'
@@ -66,7 +68,8 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
   const currentGroup  = GROUP_OPTIONS.find(o => o.value === groupBy)!
   const currentStatus = STATUS_OPTIONS.find(o => o.value === statusFilter)!
 
-  const hasFilter = search || statusFilter !== 'all'
+  const hasFilter    = search || statusFilter !== 'all'
+  const brandsMaxed  = brands.length >= MAX_BRANDS_PER_ORG
 
   return (
     <div className="min-h-screen bg-white">
@@ -78,7 +81,7 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
             <h1 style={PJB} className="text-[22px] font-bold text-[#111827] tracking-tight">Brands</h1>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               {[
-                { val: brands.length,    label: 'brands'      },
+                { val: `${brands.length}/${MAX_BRANDS_PER_ORG}`, label: 'brands' },
                 { val: totalChannels,    label: 'channels'    },
                 { val: totalCompetitors, label: 'competitors' },
               ].map((s, i) => (
@@ -96,9 +99,15 @@ export default function BrandsPage({ orgId, orgName, initialBrands }: Props) {
           </div>
 
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={() => !brandsMaxed && setShowCreate(true)}
+            disabled={brandsMaxed}
+            title={brandsMaxed ? BRAND_LIMIT_TITLE : undefined}
             style={PJB}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-[#1B8A80] hover:bg-[#177A70] transition-colors shadow-sm"
+            className={`flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold transition-colors ${
+              brandsMaxed
+                ? 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+                : 'bg-[#1B8A80] hover:bg-[#177A70] text-white shadow-sm'
+            }`}
           >
             <span className="material-symbols-outlined text-[16px]">add</span>
             New Brand

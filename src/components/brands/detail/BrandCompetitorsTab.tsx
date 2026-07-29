@@ -6,6 +6,7 @@ import { Platform } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
 import CompetitorModal from '../modals/CompetitorModal'
 import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
+import { MAX_COMPETITORS_PER_PLATFORM } from '@/lib/quotas'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 const ADD_DISABLED_TITLE = 'Penambahan competitor dinonaktifkan sementara'
@@ -22,8 +23,8 @@ export default function BrandCompetitorsTab() {
           <h2 style={PJB} className="text-[14px] font-bold text-[#111827]">Competitors</h2>
           <p className="text-[12.5px] text-[#9ca3af] mt-0.5">
             {brand.competitors.length === 0
-              ? 'No competitors tracked yet.'
-              : `Tracking ${brand.competitors.length} competitor account${brand.competitors.length !== 1 ? 's' : ''}.`}
+              ? `No competitors tracked yet. Up to ${MAX_COMPETITORS_PER_PLATFORM} per platform.`
+              : `Tracking ${brand.competitors.length} competitor account${brand.competitors.length !== 1 ? 's' : ''} · max ${MAX_COMPETITORS_PER_PLATFORM} per platform.`}
           </p>
         </div>
         <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
@@ -91,6 +92,7 @@ export default function BrandCompetitorsTab() {
       {showAdd && (
         <CompetitorModal
           brandName={brand.name}
+          competitors={brand.competitors}
           onClose={() => setShowAdd(false)}
           onAdded={async (platform: Platform, username: string) => {
             await addCompetitor(platform, username)

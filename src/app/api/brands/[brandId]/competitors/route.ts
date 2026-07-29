@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { verifyBrandAccess, addCompetitor, listBrandCompetitors } from '@/lib/brands/queries'
-import { PLATFORM_LIST } from '@/lib/brands/types'
+import { verifyBrandAccess, addCompetitor, listBrandCompetitors, countBrandCompetitorsOnPlatform } from '@/lib/brands/queries'
+import { PLATFORM_LIST, PLATFORM_CONFIG, type Platform } from '@/lib/brands/types'
+import { MAX_COMPETITORS_PER_PLATFORM, competitorQuotaMessage } from '@/lib/quotas'
 import { initialFbCompetitorSync, initialTiktokCompetitorSync, initialIgCompetitorSync } from '@/lib/apify/sync'
 import { competitorHasSnapshot } from '@/lib/competitors/queries'
 import { logInitialScrape, summarizeScrapeResult, type ScrapeResult } from '@/lib/monitoring/logger'
@@ -55,6 +56,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
     if (!username) {
       return NextResponse.json({ error: 'Username is required.' }, { status: 400 })
+    }
+
+    // Quota is per platform, so a full Instagram slot doesn't block TikTok/Facebook.
+    if (await countBrandCompetitorsOnPlatform(brandId, platform) >= MAX_COMPETITORS_PER_PLATFORM) {
+      return NextResponse.json(
+        { error: competitorQuotaMessage(PLATFORM_CONFIG[platform as Platform].label) },
+        { status: 409 }
+      )
     }
 
     let profile: { avatarUrl?: string; profileUrl?: string; platformUserId?: string } | undefined
