@@ -3,7 +3,13 @@ import { randomUUID } from 'crypto'
 import { auth } from '@/auth'
 import { verifyBrandAccess, connectSocialAccount } from '@/lib/brands/queries'
 import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
-import { PLATFORM_LIST } from '@/lib/brands/types'
+import { PLATFORM_LIST, Platform } from '@/lib/brands/types'
+import {
+  assertPlatformFreeForCsv,
+  connectCsvAccount,
+  PlatformTakenError,
+} from '@/lib/csv/queries'
+import { CSV_PLATFORMS, isCsvPlatform } from '@/lib/csv/types'
 import { initialIgSync } from '@/lib/instagram/sync'
 import { initialTtSync } from '@/lib/tiktok/sync'
 import { initialFbSync } from '@/lib/facebook/sync'
@@ -80,12 +86,47 @@ export async function POST(req: NextRequest, { params }: Params) {
     const profileUrl      = typeof body?.profileUrl     === 'string' ? body.profileUrl     : null
     const platformUserId  = typeof body?.platformUserId === 'string' ? body.platformUserId : null
     const skipInitialSync = body?.skipInitialSync === true
+    const dataSource      = body?.dataSource === 'csv' ? 'csv' : 'api'
 
     if (!platform || !PLATFORM_LIST.includes(platform as never)) {
       return NextResponse.json({ error: 'Valid platform is required.' }, { status: 400 })
     }
     if (!username) {
       return NextResponse.json({ error: 'Username is required.' }, { status: 400 })
+    }
+
+    // Akun bersumber CSV: tidak ada token, tidak ada sinkronisasi, dan HARUS
+    // connected = false supaya scheduler melewatinya. Datanya masuk belakangan
+    // lewat tab Data Sources, bukan di sini.
+    if (dataSource === 'csv') {
+      if (!isCsvPlatform(platform)) {
+        return NextResponse.json({
+          error: `Upload manual belum mendukung ${platform}. ` +
+                 `Yang didukung: ${CSV_PLATFORMS.join(', ')}.`,
+        }, { status: 400 })
+      }
+      try {
+        await assertPlatformFreeForCsv(brandId, platform as Platform)
+      } catch (e) {
+        if (e instanceof PlatformTakenError) {
+          return NextResponse.json({ error: e.message }, { status: 409 })
+        }
+        throw e
+      }
+      const created = await connectCsvAccount(brandId, platform as Platform, username)
+      return NextResponse.json({
+        data: {
+          id: created.id,
+          platform,
+          username: created.username,
+          avatar_url: null,
+          profile_url: null,
+          connected: false,
+          connected_at: null,
+          data_source: 'csv',
+        },
+        is_new: created.is_new,
+      }, { status: 201 })
     }
 
     let finalAvatarUrl = avatarUrl
