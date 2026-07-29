@@ -16,7 +16,7 @@ export async function getPendingInvitationsForUser(userId: string): Promise<Invi
          WHERE organization_id = o.id AND status = 'ACTIVE'
        ) AS member_count
      FROM organization_members om
-     JOIN organizations o ON o.id = om.organization_id
+     JOIN organizations o ON o.id = om.organization_id AND o.deleted_at IS NULL
      LEFT JOIN users u ON u.id = om.invited_by
      WHERE om.user_id = $1 AND om.status = 'PENDING'
      ORDER BY om.invited_at DESC`,
@@ -37,6 +37,7 @@ export async function acceptInvitation(
        AND om.user_id = $2
        AND om.status = 'PENDING'
        AND o.id = om.organization_id
+       AND o.deleted_at IS NULL
      RETURNING o.slug AS org_slug`,
     [memberId, userId]
   )

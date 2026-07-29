@@ -1,11 +1,18 @@
 import { notFound } from 'next/navigation'
-import { getOrgBasicBySlug } from '@/lib/organizations/queries'
+import { auth } from '@/auth'
+import { getOrgBySlugForUser } from '@/lib/organizations/queries'
+import OrgSettingsPage from '@/components/organizations/OrgSettingsPage'
 
 interface Props { params: Promise<{ orgSlug: string }> }
 
 export default async function SettingsPage({ params }: Props) {
   const { orgSlug } = await params
-  const org = await getOrgBasicBySlug(orgSlug)
+  const session     = await auth()
+  const userId      = session?.user?.id ?? ''
+
+  // Needs the member role and the brand count, so read the full org row rather
+  // than getOrgBasicBySlug.
+  const org = await getOrgBySlugForUser(orgSlug, userId)
   if (!org) notFound()
 
   return (
@@ -19,8 +26,8 @@ export default async function SettingsPage({ params }: Props) {
         </h1>
         <p className="text-[12.5px] text-[#9ca3af] mt-1.5 font-medium">{org.name}</p>
       </div>
-      <div className="px-8 pt-8">
-        <p className="text-[13px] text-[#6b7280]">Coming soon.</p>
+      <div className="px-8">
+        <OrgSettingsPage org={org} />
       </div>
     </div>
   )

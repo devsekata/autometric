@@ -8,13 +8,28 @@ import InvitationsModal from '@/components/invitations/InvitationsModal';
 import { Organization } from '@/lib/organizations/types';
 import { Invitation } from '@/lib/invitations/types';
 
-const BAR_HEIGHTS = [28, 44, 36, 54, 40, 62, 50, 68, 56, 82, 66, 78];
+// The floating cards illustrate three real features. Labels, tiers and colors
+// below mirror the actual dashboards so the hero doesn't promise a product that
+// doesn't exist:
+//   · Report Automation Generator  → the PPTX report builder (/reports)
+//   · Comment Relevance Analysis   → AudienceDashboard
+//   · Top Commenters — Leaderboard → CommunityDashboard
 
-const PERF_BRANDS = [
-  { name: 'Kepiai HQ', score: 92, pct: 92, color: '#1B8A80', trend: '↑' },
-  { name: 'Brand Studio', score: 87, pct: 87, color: '#7c5cbf', trend: '→' },
-  { name: 'Research Team', score: 79, pct: 79, color: '#059669', trend: '↑' },
-  { name: 'Growth Labs', score: 74, pct: 74, color: '#d97706', trend: '↓' },
+// The report builder's real slide types, as tiny thumbnails.
+const REPORT_SLIDES = ['cover', 'chart', 'table', 'kpi'] as const;
+
+// Tier names, ranges and colors as used in AudienceDashboard.
+const RELEVANCE_TIERS = [
+  { label: 'High', range: '>75', pct: 52, color: '#5fa783' },
+  { label: 'Medium', range: '40–75', pct: 31, color: '#e0a458' },
+  { label: 'Low', range: '<40', pct: 17, color: '#d97a7a' },
+];
+
+// Columns and tier pills as used in CommunityDashboard's leaderboard.
+const TOP_COMMENTERS = [
+  { rank: 1, user: '@sarah.p', plat: 'IG', platColor: '#c13584', comments: 128, tier: 'Super Fan', tierFg: '#7a4fb5', tierBg: '#f3eefb' },
+  { rank: 2, user: '@budi.w', plat: 'TT', platColor: '#111827', comments: 96, tier: 'Active', tierFg: '#3d8a5f', tierBg: '#e7f3ed' },
+  { rank: 3, user: '@rina.a', plat: 'FB', platColor: '#1877f2', comments: 74, tier: 'Active', tierFg: '#3d8a5f', tierBg: '#e7f3ed' },
 ];
 
 interface Props {
@@ -83,6 +98,8 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           margin-bottom: 32px;
         }
 
+        /* Headline keeps the statement → echo rhythm, but both tones are now
+           derived from the brand navy #2C3079 instead of neutral grays. */
         .wp-h1 {
           font-family: 'Plus Jakarta Sans', sans-serif;
           font-size: 82px;
@@ -90,7 +107,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           line-height: 1.0;
           letter-spacing: -0.04em;
           margin: 0;
-          color: #111111;
+          color: #2C3079;
         }
 
         .wp-h1-dim {
@@ -100,14 +117,14 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           line-height: 1.0;
           letter-spacing: -0.04em;
           margin: 0 0 24px;
-          color: #c2c2c0;
+          color: #6E71A0;
         }
 
         .wp-subtitle {
           font-size: 16px;
-          color: #6b7280;
+          color: #4A4E75;
           line-height: 1.65;
-          max-width: 420px;
+          max-width: 470px;
           margin: 0 0 36px;
         }
 
@@ -123,7 +140,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           height: 54px;
           padding: 0 36px;
           border-radius: 100px;
-          background: #1B8A80;
+          background: #2C3079;
           color: white;
           font-family: 'Plus Jakarta Sans', sans-serif;
           font-size: 15.5px;
@@ -131,7 +148,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           border: none;
           cursor: pointer;
           transition: opacity 0.15s, transform 0.15s;
-          box-shadow: 0 4px 20px rgba(61,126,150,0.38);
+          box-shadow: 0 4px 20px rgba(44,48,121,0.32);
           white-space: nowrap;
           display: inline-flex;
           align-items: center;
@@ -171,7 +188,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           width: 22px;
           height: 22px;
           border-radius: 50%;
-          background: #1B8A80;
+          background: #2C3079;
           color: white;
           font-size: 10px;
           font-weight: 700;
@@ -188,7 +205,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
         <WelcomeNavbar />
 
         <div className="wp-hero">
-          {/* ── Card 1: Brand Score — top left, folder tab shape ── */}
+          {/* ── Card 1: Report Automation Generator — top left, folder tab shape ── */}
           <div
             style={{
               position: 'absolute',
@@ -224,67 +241,91 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: 8,
+                    alignItems: 'center',
+                    marginBottom: 14,
                   }}
                 >
                   <p
                     style={{
-                      fontSize: 17,
+                      fontSize: 16,
                       fontWeight: 700,
                       color: '#1a1a1a',
                       margin: 0,
                       fontFamily: "'Plus Jakarta Sans',sans-serif",
                     }}
                   >
-                    Brand Score
+                    Report Generator
                   </p>
-                  <span style={{ fontSize: 11, color: '#aaaaaa', marginTop: 2 }}>This Quarter</span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.06em',
+                      color: '#2C3079',
+                      background: '#ecedf7',
+                      padding: '3px 8px',
+                      borderRadius: 100,
+                      fontFamily: "'Plus Jakarta Sans',sans-serif",
+                    }}
+                  >
+                    AUTO
+                  </span>
                 </div>
 
-                <p
-                  style={{
-                    fontSize: 42,
-                    fontWeight: 800,
-                    color: '#111827',
-                    lineHeight: 1,
-                    fontFamily: "'Plus Jakarta Sans',sans-serif",
-                    margin: '8px 0 8px',
-                  }}
-                >
-                  92.4
-                </p>
-
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: '#16a34a',
-                    background: '#dcfce7',
-                    padding: '3px 10px',
-                    borderRadius: 100,
-                    marginBottom: 16,
-                  }}
-                >
-                  ↑ 12%
-                </span>
-
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 36 }}>
-                  {BAR_HEIGHTS.map((h, i) => (
+                {/* Slide thumbnails — the builder's real slide types */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                  {REPORT_SLIDES.map((kind) => (
                     <div
-                      key={i}
+                      key={kind}
                       style={{
                         flex: 1,
-                        borderRadius: '3px 3px 0 0',
-                        height: `${h}%`,
-                        background: i >= 9 ? '#1B8A80' : 'rgba(0,0,0,0.08)',
+                        height: 40,
+                        background: '#f6f7fb',
+                        border: '1px solid #e6e7f2',
+                        borderRadius: 6,
+                        padding: 5,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: kind === 'chart' ? 'flex-end' : 'flex-start',
+                        gap: 3,
                       }}
-                    />
+                    >
+                      {kind === 'cover' && (
+                        <>
+                          <div style={{ height: 5, width: '85%', background: '#2C3079', borderRadius: 2 }} />
+                          <div style={{ height: 3, width: '60%', background: '#c9cbe0', borderRadius: 2 }} />
+                        </>
+                      )}
+                      {kind === 'chart' && (
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 24 }}>
+                          {[40, 70, 55, 95].map((h, i) => (
+                            <div key={i} style={{ flex: 1, height: `${h}%`, background: i === 3 ? '#2C3079' : '#c9cbe0', borderRadius: '2px 2px 0 0' }} />
+                          ))}
+                        </div>
+                      )}
+                      {kind === 'table' && (
+                        <>
+                          <div style={{ height: 3, width: '100%', background: '#2C3079', borderRadius: 2 }} />
+                          <div style={{ height: 3, width: '100%', background: '#d7d9e8', borderRadius: 2 }} />
+                          <div style={{ height: 3, width: '100%', background: '#d7d9e8', borderRadius: 2 }} />
+                          <div style={{ height: 3, width: '70%', background: '#d7d9e8', borderRadius: 2 }} />
+                        </>
+                      )}
+                      {kind === 'kpi' && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {[0, 1, 2, 3].map((i) => (
+                            <div key={i} style={{ width: 'calc(50% - 1.5px)', height: 13, background: i === 0 ? '#2C3079' : '#d7d9e8', borderRadius: 3 }} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
+
+                <div style={{ height: 4, background: 'rgba(0,0,0,0.07)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                  <div style={{ width: '100%', height: '100%', background: '#2C3079', borderRadius: 4 }} />
+                </div>
+                <p style={{ fontSize: 11.5, color: '#8a8ca6', margin: 0 }}>6 slides · PPTX ready</p>
               </div>
             </div>
           </div>
@@ -420,7 +461,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
             </div>
           </div>
 
-          {/* ── Card 3: Performance — bottom left, folder tab, tall ── */}
+          {/* ── Card 3: Comment Relevance Analysis — bottom left, folder tab ── */}
           <div
             style={{
               position: 'absolute',
@@ -444,7 +485,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
             {/* Gray outer */}
             <div
               style={{
-                width: 252,
+                width: 274,
                 background: '#ebebea',
                 borderRadius: '0 0 20px 20px',
                 padding: 8,
@@ -457,79 +498,182 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'baseline',
-                    marginBottom: 16,
+                    marginBottom: 14,
                   }}
                 >
                   <p
                     style={{
-                      fontSize: 16,
+                      fontSize: 15,
+                      fontWeight: 700,
+                      color: '#1a1a1a',
+                      margin: 0,
+                      whiteSpace: 'nowrap',
+                      fontFamily: "'Plus Jakarta Sans',sans-serif",
+                    }}
+                  >
+                    Comment Relevance
+                  </p>
+                  <span style={{ fontSize: 11, color: '#aaaaaa' }}>Semantic</span>
+                </div>
+
+                {/* Distribution — one bar, split by tier */}
+                <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 16 }}>
+                  {RELEVANCE_TIERS.map((t) => (
+                    <div key={t.label} style={{ width: `${t.pct}%`, background: t.color }} />
+                  ))}
+                </div>
+
+                {RELEVANCE_TIERS.map((t) => (
+                  <div
+                    key={t.label}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 11,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 2,
+                          background: t.color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ fontSize: 12.5, color: '#374151' }}>{t.label}</span>
+                      <span style={{ fontSize: 11, color: '#aaaaaa' }}>{t.range}</span>
+                    </div>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#111827' }}>
+                      {t.pct}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Card 4: Top Commenters — Community Leaderboard — bottom right ── */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 40,
+              right: 56,
+              transform: 'rotate(-4deg)',
+              zIndex: 4,
+              filter: 'drop-shadow(0 12px 36px rgba(0,0,0,0.11))',
+            }}
+          >
+            {/* Folder tab */}
+            <div
+              style={{
+                width: 100,
+                height: 26,
+                background: '#ebebea',
+                borderRadius: '12px 12px 0 0',
+              }}
+            />
+
+            {/* Gray outer */}
+            <div
+              style={{
+                width: 274,
+                background: '#ebebea',
+                borderRadius: '0 0 20px 20px',
+                padding: 8,
+              }}
+            >
+              {/* White inner */}
+              <div style={{ background: 'white', borderRadius: 14, padding: '16px 18px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    marginBottom: 14,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: 15.5,
                       fontWeight: 700,
                       color: '#1a1a1a',
                       margin: 0,
                       fontFamily: "'Plus Jakarta Sans',sans-serif",
                     }}
                   >
-                    Performance
+                    Top Commenters
                   </p>
-                  <span style={{ fontSize: 11, color: '#aaaaaa' }}>This Month</span>
+                  <span style={{ fontSize: 11, color: '#aaaaaa' }}>Leaderboard</span>
                 </div>
 
-                {PERF_BRANDS.map((b) => (
-                  <div key={b.name} style={{ marginBottom: 14 }}>
-                    <div
+                {TOP_COMMENTERS.map((c) => (
+                  <div
+                    key={c.rank}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <span
                       style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 6,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        color: '#6c4cd6',
+                        width: 16,
+                        flexShrink: 0,
+                        fontFamily: "'Plus Jakarta Sans',sans-serif",
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <div
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            background: b.color,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ fontSize: 12.5, color: '#374151' }}>{b.name}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>
-                          {b.score}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            color:
-                              b.trend === '↑' ? '#16a34a' : b.trend === '↓' ? '#dc2626' : '#9ca3af',
-                          }}
-                        >
-                          {b.trend}
-                        </span>
-                      </div>
-                    </div>
-                    <div
+                      {c.rank}
+                    </span>
+                    <span
                       style={{
-                        height: 4,
-                        background: 'rgba(0,0,0,0.07)',
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        color: 'white',
+                        background: c.platColor,
                         borderRadius: 4,
-                        overflow: 'hidden',
+                        padding: '2px 5px',
+                        flexShrink: 0,
+                        fontFamily: "'Plus Jakarta Sans',sans-serif",
                       }}
                     >
-                      <div
-                        style={{
-                          width: `${b.pct}%`,
-                          height: '100%',
-                          background: b.color,
-                          borderRadius: 4,
-                          opacity: 0.65,
-                        }}
-                      />
-                    </div>
+                      {c.plat}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12.5,
+                        color: '#374151',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {c.user}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        color: c.tierFg,
+                        background: c.tierBg,
+                        borderRadius: 100,
+                        padding: '2px 7px',
+                        flexShrink: 0,
+                        fontFamily: "'Plus Jakarta Sans',sans-serif",
+                      }}
+                    >
+                      {c.tier}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -539,19 +683,22 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           {/* ── Center hero ── */}
           <div className="wp-center">
             <div className="wp-product-icon">
+              {/* kepiai-mark.png is the complete mark cut from the official color
+                  logo onto a square canvas with even padding. The older
+                  kepiai-logo-icon.png had the capybara's rear clipped. */}
               <img
-                src="/kepiai-logo-icon.png"
+                src="/kepiai-mark.png"
                 alt="Kepiai"
-                style={{ width: 48, height: 48, objectFit: 'contain' }}
+                style={{ width: 64, height: 64, objectFit: 'contain' }}
               />
             </div>
 
-            <h1 className="wp-h1">Track every brand.</h1>
-            <h1 className="wp-h1-dim">Beat every rival.</h1>
+            <h1 className="wp-h1">The data is in.</h1>
+            <h1 className="wp-h1-dim">The next move is yours.</h1>
 
             <p className="wp-subtitle">
-              Monitor brand performance, analyze competitors, and collaborate with your team — all
-              in one platform.
+              We&rsquo;ve organized your metrics, surfaced the insights, and prepared the reports.
+              Now it&rsquo;s time to decide with confidence.
             </p>
 
             <div className="wp-cta-row">
@@ -560,7 +707,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                   className="wp-btn-main"
                   onClick={() => router.push(`/organizations/${firstOrgSlug}/dashboard`)}
                 >
-                  Go to Dashboard
+                  Explore Insights
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
                     arrow_forward
                   </span>
