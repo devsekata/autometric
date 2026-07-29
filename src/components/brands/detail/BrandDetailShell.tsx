@@ -9,10 +9,11 @@ import BrandDetailRightPanel from './BrandDetailRightPanel'
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
 const TABS = [
-  { label: 'Overview',    path: 'overview',    icon: 'bar_chart' },
-  { label: 'Accounts',    path: 'accounts',    icon: 'add_link'  },
-  { label: 'Competitors', path: 'competitors', icon: 'flag'      },
-  { label: 'Settings',    path: 'settings',    icon: 'settings'  },
+  { label: 'Overview',     path: 'overview',     icon: 'bar_chart'   },
+  { label: 'Accounts',     path: 'accounts',     icon: 'add_link'    },
+  { label: 'Data Sources', path: 'data-sources', icon: 'upload_file' },
+  { label: 'Competitors',  path: 'competitors',  icon: 'flag'        },
+  { label: 'Settings',     path: 'settings',     icon: 'settings'    },
 ]
 
 interface Props {

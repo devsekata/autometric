@@ -112,7 +112,7 @@ function CommunityBody({ orgId, brandId, platform, period, start, end }: { orgId
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card className="flex flex-col">
-          <CardHead title="Comment Volume by Platform" sub="Comments tracked per week" />
+          <CardHead title="Comment Volume by Platform" metricKey="comment_activity.comment_count" sub="Comments tracked per week" />
           <div className="flex items-center justify-center gap-5 pb-1">
             {data.commentVolume.map(s => (
               <span key={s.name} className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[#6b7280]">
@@ -128,7 +128,7 @@ function CommunityBody({ orgId, brandId, platform, period, start, end }: { orgId
         </Card>
 
         <Card className="flex flex-col">
-          <CardHead title="Comment Activity by Hour of Day" sub="When your audience comments (WIB)" />
+          <CardHead title="Comment Activity by Hour of Day" metricKey="comment_activity.hour_of_day" sub="When your audience comments (WIB)" />
           <div className="px-4 pb-3 pt-3">
             {data.commentByHour.some(v => v > 0)
               ? <HourBars hours={data.commentByHour} primeFrom={data.primeFrom} primeTo={data.primeTo} />
@@ -142,7 +142,7 @@ function CommunityBody({ orgId, brandId, platform, period, start, end }: { orgId
 
       <SectionHeader icon="leaderboard">Top Commenters — Community Leaderboard</SectionHeader>
       <Card className="overflow-hidden">
-        <CardHead title="Top Commenters — Community Leaderboard" sub="comment_username · likes_count · replies_count" />
+        <CardHead title="Top Commenters — Community Leaderboard" metricKey="community_contributors.composite_score" sub="comment_username · likes_count · replies_count" />
         <div className="overflow-x-auto">
           <div className="min-w-[720px]">
             <div className={`grid ${LB_COLS} gap-2 px-4 py-2.5 border-y border-[#eef0f2] bg-[#fafbfb]`}>

@@ -175,7 +175,7 @@ function CampaignBody({ orgId, brandId, platform }: { orgId: string; brandId: st
       {analysis && selectedPosts.length > 0 && (
         <div className="grid grid-cols-12 gap-3 mb-3">
           <Card span="col-span-12 lg:col-span-7">
-            <CardHead title="Per-Post Contribution" sub="Share of campaign engagement (likes + comments)" />
+            <CardHead title="Per-Post Contribution" metricKey="post_metric.engagement_owned" sub="Share of campaign engagement (likes + comments)" />
             <div className="px-4 pb-4 pt-3">
               <HBars items={[...selectedPosts].sort((a, b) => (b.likes + b.comments) - (a.likes + a.comments)).map(p => {
                 const eng = p.likes + p.comments
@@ -185,7 +185,7 @@ function CampaignBody({ orgId, brandId, platform }: { orgId: string; brandId: st
           </Card>
 
           <Card span="col-span-12 lg:col-span-5" className="flex flex-col">
-            <CardHead title="Comment Timeline Distribution" sub="Comments by days since post" />
+            <CardHead title="Comment Timeline Distribution" metricKey="post_comment_timeline.days_since_post" sub="Comments by days since post" />
             <div className="px-4 pb-4 pt-3 flex-1 flex items-end">
               {analysis.timeline.length > 0
                 ? <BarChart height={200} bars={analysis.timeline.map(t => ({ label: t.label, value: t.value, display: fmt1(t.value), color: PALETTE[1] }))} />
@@ -194,7 +194,7 @@ function CampaignBody({ orgId, brandId, platform }: { orgId: string; brandId: st
           </Card>
 
           <Card span="col-span-12">
-            <CardHead title="Cleaned Word Cloud" sub="Stop-words & emojis removed · weighted by frequency" />
+            <CardHead title="Cleaned Word Cloud" metricKey="post_wordcloud.word" sub="Stop-words & emojis removed · weighted by frequency" />
             {analysis.wordcloud.length > 0 ? (
               <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 px-6 py-7">
                 {analysis.wordcloud.map((w, i) => (

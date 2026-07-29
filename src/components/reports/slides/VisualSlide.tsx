@@ -3,21 +3,45 @@
 import { useMemo, useState } from 'react'
 import { CoverColors } from '@/lib/reports/cover/colors'
 import { ContentSlide } from '@/lib/reports/data/slideModel'
-import { POST_COUNTS, POST_FILTERS, POST_METRICS, buildPosts, metricLabel, isErMetric, availableMetricsFor, effectiveSortMetric, effectiveShownMetrics, effectiveFilterId } from '@/lib/reports/data/posts'
+import { POST_COUNTS, POST_FILTERS, POST_METRICS, buildPosts, metricLabel, isErMetric, populatedMetricsFor, effectiveSortMetric, effectiveShownMetrics, effectiveFilterId } from '@/lib/reports/data/posts'
 import { useReportPosts } from '@/lib/reports/data/metricsContext'
 import { PJ, AiInsightBlock } from './parts'
 
 function hue(id: number) { return (id * 47) % 360 }
 
+// Card geometry in slide-relative units, mirroring postCardFit in
+// exportReport.ts so the preview and the PPTX agree. HEAD_H is the padded
+// "#id + format · pillar" block above the metric list — measured from the markup
+// below, so it is taller here than the exporter's flat 4.8cqh.
+const CARD_H = 50, IMG_MAX = 0.55, IMG_MIN = 0.34, METRIC_LINE = 1.25
+const HEAD_H: Record<number, number> = { 4: 7.1, 6: 6.1, 8: 5.7 }
+const CQW_TO_CQH = 13.333 / 7.5   // 16:9 slide — 1cqw is this many cqh
+
+/** Metric font (cqw) that keeps `rows` metrics inside the card: the photo gives
+ *  up space first, then the type shrinks once the photo hits IMG_MIN. */
+function metricFsCqw(rows: number, baseCqw: number, count: number) {
+  const rowH = (fs: number) => fs * CQW_TO_CQH * METRIC_LINE
+  const head = HEAD_H[count] ?? 6.1
+  const n = Math.max(1, rows)
+  const imgH = Math.min(CARD_H * IMG_MAX, Math.max(CARD_H * IMG_MIN, CARD_H - head - n * rowH(baseCqw)))
+  return Math.min(baseCqw, (CARD_H - head - imgH) / n / (CQW_TO_CQH * METRIC_LINE))
+}
+
 function PostCard({ id, tag, image, format, pillar, metrics, postMetrics, count }: { id: number; tag?: 'TOP' | 'LOW'; image: string; format: string; pillar: string; metrics: Record<string, string>; postMetrics: string[]; count: number }) {
-  const labelFs = count === 4 ? '1.05cqw' : count === 6 ? '0.9cqw' : '0.78cqw'
+  const baseFs = count === 4 ? 1.05 : count === 6 ? 0.9 : 0.78
+  const labelFs = `${baseFs}cqw`
+  const metricFs = `${metricFsCqw(postMetrics.length, baseFs, count).toFixed(3)}cqw`
   const capFs = count === 4 ? '0.92cqw' : count === 6 ? '0.8cqw' : '0.7cqw'
   const h = hue(id)
   return (
     <div className="h-full flex flex-col rounded-[1cqw] overflow-hidden bg-white border border-[#e8ebee]" style={{ boxShadow: '0 1cqh 2cqh -1.4cqh rgba(16,24,40,0.18)' }}>
-      {/* Image (gradient shows as fallback if the URL fails) */}
-      <div className="relative flex-1 min-h-0 flex items-center justify-center" style={{ background: `linear-gradient(135deg, hsl(${h} 45% 88%), hsl(${(h + 40) % 360} 45% 80%))` }}>
-        <img src={image} alt="" className="absolute inset-0 w-full h-full object-contain" onError={e => { e.currentTarget.style.display = 'none' }} />
+      {/* Image — full bleed, centre-cropped (gradient shows as fallback if the URL
+          fails). Takes whatever the metric list leaves; metricFsCqw sizes that
+          list to leave it ~IMG_MIN, the same share postCardFit reserves on export.
+          No min-height here on purpose — the photo absorbs any error in HEAD_H
+          rather than pushing the list out of the card. */}
+      <div className="relative flex-1 min-h-0 flex items-center justify-center overflow-hidden" style={{ background: `linear-gradient(135deg, hsl(${h} 45% 88%), hsl(${(h + 40) % 360} 45% 80%))` }}>
+        <img src={image} alt="" className="absolute inset-0 w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none' }} />
         <span className="material-symbols-outlined" style={{ fontSize: '3cqw', color: 'rgba(255,255,255,0.85)' }}>image</span>
         {tag && (
           <span style={{ position: 'absolute', top: '0.6cqh', left: '0.5cqw', fontSize: '0.8cqw', fontWeight: 800, color: '#fff', padding: '0.2cqh 0.7cqw', borderRadius: '999px', background: tag === 'TOP' ? '#16a34a' : '#e11d48', ...PJ }}>{tag}</span>
@@ -32,14 +56,14 @@ function PostCard({ id, tag, image, format, pillar, metrics, postMetrics, count 
           </div>
           <span className="material-symbols-outlined shrink-0" style={{ fontSize: '1.2cqw', color: '#94a3b8' }}>open_in_new</span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: count === 4 ? '0.5cqh' : '0.35cqh', columnGap: '0.6cqw' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: '0.6cqw', lineHeight: METRIC_LINE }}>
           {postMetrics.map(mid => {
             const isER = isErMetric(mid)
             const v = metrics[mid] ?? '—'
             return (
               <span key={mid} className="contents">
-                <span className="truncate" style={{ fontSize: labelFs, fontWeight: 500, color: '#94a3b8', ...PJ }}>{metricLabel(mid)}</span>
-                <span style={{ fontSize: labelFs, fontWeight: isER ? 800 : 600, textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: isER ? (parseFloat(v) > 2.5 ? '#16a34a' : '#f59e0b') : '#334155' }}>{v}</span>
+                <span className="truncate" style={{ fontSize: metricFs, fontWeight: 500, color: '#94a3b8', ...PJ }}>{metricLabel(mid)}</span>
+                <span style={{ fontSize: metricFs, fontWeight: isER ? 800 : 600, textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: isER ? (parseFloat(v) > 2.5 ? '#16a34a' : '#f59e0b') : '#334155' }}>{v}</span>
               </span>
             )
           })}
@@ -72,13 +96,12 @@ export default function VisualSlide({
   const hasData = !!(livePool && livePool.length)
   const source = hasData ? livePool! : undefined
 
-  // Channel-aware metric availability (data-driven; empty until the pool loads).
-  // The ranking metric and shown metrics resolve to valid ones — identical logic
-  // runs in the exporter so preview == export.
-  const availableMetrics = useMemo(() => availableMetricsFor(source, slide.channel), [source, slide.channel])
-  const metricOptions = useMemo(() => POST_METRICS.filter(m => availableMetrics.includes(m.id)), [availableMetrics])
-  const sortMetric = effectiveSortMetric(slide.postSortMetric, availableMetrics)
-  const shownMetrics = effectiveShownMetrics(slide.postMetrics, availableMetrics)
+  // Every metric is selectable; the populated set only decides the defaults when
+  // the slide has no explicit pick yet. Identical logic runs in the exporter so
+  // preview == export.
+  const populatedMetrics = useMemo(() => populatedMetricsFor(source), [source])
+  const sortMetric = effectiveSortMetric(slide.postSortMetric, populatedMetrics)
+  const shownMetrics = effectiveShownMetrics(slide.postMetrics, populatedMetrics)
 
   // Format / pillar filter options — derived from the live pool ("All" only until it loads).
   const formatOptions = useMemo(() => {
@@ -177,7 +200,7 @@ export default function VisualSlide({
             <p style={PJ} className="text-[11px] font-bold uppercase tracking-wide text-[#9ca3af] mb-2">Rank by (metric)</p>
             <select value={sortMetric} onChange={e => onChange?.({ ...slide, postSortMetric: e.target.value })} style={PJ}
               className="w-full mb-4 h-10 text-[13px] font-semibold text-[#334155] bg-white border border-[#e5e7eb] rounded-lg px-3 cursor-pointer hover:border-[#cbd5e1] outline-none">
-              {metricOptions.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {POST_METRICS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
 
             <p style={PJ} className="text-[11px] font-bold uppercase tracking-wide text-[#9ca3af] mb-2">Format</p>
@@ -206,9 +229,9 @@ export default function VisualSlide({
               ))}
             </div>
 
-            <p style={PJ} className="text-[11px] font-bold uppercase tracking-wide text-[#9ca3af] mb-2">Metrics <span className="text-[#cbd5e1] normal-case font-medium">· available on {slide.channel}</span></p>
+            <p style={PJ} className="text-[11px] font-bold uppercase tracking-wide text-[#9ca3af] mb-2">Metrics <span className="text-[#cbd5e1] normal-case font-medium">· shown on each card</span></p>
             <div className="grid grid-cols-3 gap-2">
-              {metricOptions.map(m => {
+              {POST_METRICS.map(m => {
                 const on = slide.postMetrics.includes(m.id)
                 return (
                   <button key={m.id} onClick={() => toggleMetric(m.id)} style={PJ}

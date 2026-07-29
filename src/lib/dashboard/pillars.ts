@@ -27,7 +27,7 @@ export async function getPillarsData(orgId: string, brandId: string | null): Pro
     pool.query<{ id: string; content_pillar: string; color: string | null; hashtags: string[] }>(
       `SELECT d.id::text id, d.content_pillar, d.color, d.hashtags
          FROM l2_gold.dim_content_pillar d
-         JOIN public.brands b ON b.id = d.brand_id
+         JOIN public.brands b ON b.id = d.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND d.is_active
           AND ($2::uuid IS NULL OR d.brand_id = $2)
         ORDER BY d.display_order NULLS LAST, d.content_pillar`,
@@ -39,7 +39,7 @@ export async function getPillarsData(orgId: string, brandId: string | null): Pro
               SUM(pp.engagement_sum)::float eng,
               SUM(pp.er_denominator_sum)::float den
          FROM l2_gold.pillar_performance_daily pp
-         JOIN public.brands b ON b.id = pp.brand_id
+         JOIN public.brands b ON b.id = pp.brand_id AND b.deleted_at IS NULL
         WHERE b.organization_id = $1 AND pp.content_pillar IS NOT NULL
           AND ($2::uuid IS NULL OR pp.brand_id = $2)
         GROUP BY pp.content_pillar`,
@@ -89,7 +89,8 @@ export async function deletePillar(orgId: string, brandId: string, id: string): 
   const { rowCount } = await pool.query(
     `UPDATE l2_gold.dim_content_pillar d SET is_active = false, updated_at = now()
        FROM public.brands b
-      WHERE d.id = $1::bigint AND d.brand_id = b.id AND b.id = $2::uuid AND b.organization_id = $3`,
+      WHERE d.id = $1::bigint AND d.brand_id = b.id AND b.id = $2::uuid AND b.organization_id = $3
+        AND b.deleted_at IS NULL`,
     [id, brandId, orgId],
   )
   return (rowCount ?? 0) > 0

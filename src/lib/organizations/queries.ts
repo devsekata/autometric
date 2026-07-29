@@ -20,7 +20,7 @@ const ORG_SELECT = `
     (
       SELECT COUNT(*)::int
       FROM brands
-      WHERE organization_id = o.id
+      WHERE organization_id = o.id AND deleted_at IS NULL
     ) AS brand_count,
     COALESCE(
       (
@@ -40,13 +40,14 @@ const ORG_SELECT = `
   JOIN organization_members me
     ON me.organization_id = o.id
     AND me.user_id = $1
-    AND me.status = 'ACTIVE'`
+    AND me.status = 'ACTIVE'
+  WHERE o.deleted_at IS NULL`
 
 export async function getOrgBasicBySlug(
   slug: string
 ): Promise<{ id: string; name: string; slug: string } | null> {
   const { rows } = await pool.query<{ id: string; name: string; slug: string }>(
-    `SELECT id, name, slug FROM organizations WHERE slug = $1 LIMIT 1`,
+    `SELECT id, name, slug FROM organizations WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`,
     [slug]
   )
   return rows[0] ?? null
@@ -57,8 +58,12 @@ export async function getMemberRole(
   userId: string
 ): Promise<'ADMIN' | 'MEMBER' | null> {
   const { rows } = await pool.query<{ role: 'ADMIN' | 'MEMBER' }>(
-    `SELECT role FROM organization_members
-     WHERE organization_id = $1 AND user_id = $2 AND status = 'ACTIVE'
+    // Joining organizations keeps every org-scoped API in step with the soft
+    // delete: once the org is marked deleted, role lookups return null and the
+    // routes answer 404 instead of operating on a deleted org.
+    `SELECT om.role FROM organization_members om
+     JOIN organizations o ON o.id = om.organization_id AND o.deleted_at IS NULL
+     WHERE om.organization_id = $1 AND om.user_id = $2 AND om.status = 'ACTIVE'
      LIMIT 1`,
     [orgId, userId]
   )
@@ -140,28 +145,32 @@ export async function createOrg(
 
 export async function updateOrg(
   orgId: string,
-  name: string
+  name: string,
+  userId: string
 ): Promise<Organization | null> {
-  const { rows } = await pool.query<{ id: string; name: string; slug: string; created_at: string }>(
+  const { rowCount } = await pool.query(
     `UPDATE organizations
      SET name = $1, updated_at = NOW()
-     WHERE id = $2
-     RETURNING id, name, slug, created_at`,
+     WHERE id = $2 AND deleted_at IS NULL`,
     [name, orgId]
   )
-  if (!rows[0]) return null
-  return {
-    ...rows[0],
-    role: 'ADMIN',
-    member_count: 0,
-    brand_count: 0,
-    members_preview: [],
-  }
+  if (!rowCount) return null
+  // Re-read through ORG_SELECT so the caller gets real member/brand counts and
+  // role rather than placeholders.
+  return getOrgForUser(orgId, userId)
 }
 
-export async function deleteOrg(orgId: string): Promise<boolean> {
+// Soft delete: the medallion layers hold ON DELETE RESTRICT foreign keys to
+// public.brands, so a real DELETE aborts for any org whose brands have gold
+// data. Marking `deleted_at` hides the org everywhere (every read path filters
+// on it) while the analytics history stays intact. Restoring is a manual
+// `UPDATE organizations SET deleted_at = NULL`.
+//
+// Callers must ensure the org has no live brands first — see the DELETE route.
+export async function softDeleteOrg(orgId: string): Promise<boolean> {
   const { rowCount } = await pool.query(
-    `DELETE FROM organizations WHERE id = $1`,
+    `UPDATE organizations SET deleted_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL`,
     [orgId]
   )
   return (rowCount ?? 0) > 0

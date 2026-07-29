@@ -110,7 +110,7 @@ export async function runScheduler(
       b.organization_id   AS "orgId"
     FROM social_accounts sa
     JOIN brand_social_accounts bsa ON bsa.social_account_id = sa.id
-    JOIN brands b                  ON b.id  = bsa.brand_id
+    JOIN brands b                  ON b.id  = bsa.brand_id AND b.deleted_at IS NULL
     JOIN platforms p               ON p.id  = sa.platform_id
     WHERE sa.connected = true
       AND sa.oauth_token IS NOT NULL

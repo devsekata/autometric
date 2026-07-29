@@ -57,7 +57,7 @@ async function resolveWindows(orgId: string, days: number, brandId: string | nul
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(t.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.tiktok_churn_daily t
-       JOIN public.brands b ON b.id = t.brand_id
+       JOIN public.brands b ON b.id = t.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND ($2::uuid IS NULL OR t.brand_id = $2)`,
     [orgId, brandId],
   )
@@ -81,7 +81,7 @@ async function churnTotals(orgId: string, w: Window, brandId: string | null): Pr
             COALESCE(SUM(t.lost_followers),0)::float   lost,
             COALESCE(SUM(t.net_growth),0)::float       net
        FROM l2_gold.tiktok_churn_daily t
-       JOIN public.brands b ON b.id = t.brand_id
+       JOIN public.brands b ON b.id = t.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND t.metric_date BETWEEN $2 AND $3
         AND ($4::uuid IS NULL OR t.brand_id = $4)`,
     [orgId, w.start, w.end, brandId],
@@ -95,7 +95,7 @@ async function avgCompletion(orgId: string, w: Window, brandId: string | null): 
     `SELECT AVG(${CR_NUM.replace('{col}', 'p')})::float c
        FROM l2_gold.post_metric p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND p.platform = 'tiktok'
         AND p.post_date::date BETWEEN $2 AND $3 AND p.completion_rate IS NOT NULL
         AND ($4::uuid IS NULL OR bsa.brand_id = $4)`,
@@ -111,7 +111,7 @@ async function dailySparks(orgId: string, w: Window, brandId: string | null) {
             COALESCE(SUM(t.lost_followers),0)::float   lost,
             COALESCE(SUM(t.net_growth),0)::float       net
        FROM l2_gold.tiktok_churn_daily t
-       JOIN public.brands b ON b.id = t.brand_id
+       JOIN public.brands b ON b.id = t.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND t.metric_date BETWEEN $2 AND $3
         AND ($4::uuid IS NULL OR t.brand_id = $4)
       GROUP BY t.metric_date ORDER BY t.metric_date`,
@@ -121,7 +121,7 @@ async function dailySparks(orgId: string, w: Window, brandId: string | null) {
     `SELECT AVG(${CR_NUM.replace('{col}', 'p')})::float c
        FROM l2_gold.post_metric p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND p.platform = 'tiktok'
         AND p.post_date::date BETWEEN $2 AND $3 AND p.completion_rate IS NOT NULL
         AND ($4::uuid IS NULL OR bsa.brand_id = $4)
@@ -155,7 +155,7 @@ async function churnWeekly(orgId: string, w: Window, brandId: string | null) {
             COALESCE(SUM(t.new_followers),0)::int  gained,
             COALESCE(SUM(t.lost_followers),0)::int lost
        FROM l2_gold.tiktok_churn_daily t
-       JOIN public.brands b ON b.id = t.brand_id
+       JOIN public.brands b ON b.id = t.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND t.metric_date BETWEEN $2 AND $3
         AND ($4::uuid IS NULL OR t.brand_id = $4)
       GROUP BY date_trunc('week', t.metric_date)
@@ -186,7 +186,7 @@ async function durationCompletion(orgId: string, w: Window, brandId: string | nu
     `SELECT p.duration_s::float x, ${CR_NUM.replace('{col}', 'p')}::float y
        FROM l2_gold.post_metric p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND p.platform = 'tiktok'
         AND p.post_date::date BETWEEN $2 AND $3
         AND p.duration_s > 0 AND p.completion_rate IS NOT NULL
@@ -203,7 +203,7 @@ async function watchByPillar(orgId: string, w: Window, brandId: string | null) {
     `SELECT pp.content_pillar pillar,
             (SUM(pp.watch_time_sum) / NULLIF(SUM(pp.post_count),0))::float awt
        FROM l2_gold.pillar_performance_daily pp
-       JOIN public.brands b ON b.id = pp.brand_id
+       JOIN public.brands b ON b.id = pp.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND pp.platform = 'tiktok'
         AND pp.metric_date BETWEEN $2 AND $3
         AND pp.content_pillar IS NOT NULL

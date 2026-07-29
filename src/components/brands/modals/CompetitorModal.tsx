@@ -1,26 +1,38 @@
 'use client'
 
-import { useState } from 'react'
-import { Platform, PLATFORM_CONFIG, PLATFORM_LIST } from '@/lib/brands/types'
+import { useMemo, useState } from 'react'
+import { CompetitorAccount, Platform, PLATFORM_CONFIG, PLATFORM_LIST } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
+import { MAX_COMPETITORS_PER_PLATFORM, competitorQuotaMessage } from '@/lib/quotas'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
 interface Props {
   brandName: string
+  competitors: CompetitorAccount[]
   onClose: () => void
   onAdded: (platform: Platform, username: string) => Promise<void>
 }
 
-export default function CompetitorModal({ brandName, onClose, onAdded }: Props) {
+export default function CompetitorModal({ brandName, competitors, onClose, onAdded }: Props) {
   const [platform, setPlatform] = useState<Platform | null>(null)
   const [username, setUsername] = useState('')
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
 
+  // Quota is counted per platform — a full Instagram slot leaves TikTok/Facebook open.
+  const usedPerPlatform = useMemo(() => {
+    const used = {} as Partial<Record<Platform, number>>
+    for (const c of competitors) used[c.platform] = (used[c.platform] ?? 0) + 1
+    return used
+  }, [competitors])
+
+  const selectedFull = platform ? (usedPerPlatform[platform] ?? 0) >= MAX_COMPETITORS_PER_PLATFORM : false
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!platform) { setError('Select a platform.'); return }
+    if (selectedFull) { setError(competitorQuotaMessage(PLATFORM_CONFIG[platform].label)); return }
     const trimmed = username.trim().replace(/^@/, '')
     if (!trimmed) { setError('Enter a username.'); return }
 
@@ -51,20 +63,33 @@ export default function CompetitorModal({ brandName, onClose, onAdded }: Props) 
 
           {/* Platform */}
           <div className="flex flex-col gap-2">
-            <label style={PJB} className="text-[11px] font-bold uppercase tracking-widest text-[#6b7280]">Platform</label>
+            <div className="flex items-baseline justify-between">
+              <label style={PJB} className="text-[11px] font-bold uppercase tracking-widest text-[#6b7280]">Platform</label>
+              <span className="text-[11px] text-[#9ca3af]">Max {MAX_COMPETITORS_PER_PLATFORM} per platform</span>
+            </div>
             <div className="grid grid-cols-5 gap-2">
               {PLATFORM_LIST.map(p => {
-                const cfg = PLATFORM_CONFIG[p]
+                const cfg    = PLATFORM_CONFIG[p]
                 const active = platform === p
+                const used   = usedPerPlatform[p] ?? 0
+                const full   = used >= MAX_COMPETITORS_PER_PLATFORM
                 return (
-                  <button key={p} type="button" onClick={() => { setPlatform(p); setError('') }}
+                  <button key={p} type="button" disabled={full}
+                    title={full ? competitorQuotaMessage(cfg.label) : undefined}
+                    onClick={() => { setPlatform(p); setError('') }}
                     className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border-2 transition-all ${
-                      active ? 'border-[#1B8A80] bg-[#f0f7fa]' : 'border-[#f3f4f6] hover:border-[#e5e7eb]'
+                      full     ? 'border-[#f3f4f6] bg-[#fafafa] opacity-45 cursor-not-allowed' :
+                      active   ? 'border-[#1B8A80] bg-[#f0f7fa]' : 'border-[#f3f4f6] hover:border-[#e5e7eb]'
                     }`}>
                     <PlatformIcon platform={p} size={32} />
-                    <span style={PJB} className={`text-[10px] font-semibold ${active ? 'text-[#2C3079]' : 'text-[#9ca3af]'}`}>
+                    <span style={PJB} className={`text-[10px] font-semibold ${active && !full ? 'text-[#2C3079]' : 'text-[#9ca3af]'}`}>
                       {cfg.label.replace(' (Twitter)', '')}
                     </span>
+                    {used > 0 && (
+                      <span style={PJB} className={`text-[9px] font-bold ${full ? 'text-[#ef4444]' : 'text-[#9ca3af]'}`}>
+                        {used}/{MAX_COMPETITORS_PER_PLATFORM}
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -99,7 +124,7 @@ export default function CompetitorModal({ brandName, onClose, onAdded }: Props) 
             className="h-8 px-3.5 text-[13px] font-medium text-[#6b7280] hover:text-[#111827] hover:bg-[#f9fafb] rounded-lg transition-colors">
             Cancel
           </button>
-          <button onClick={handleSubmit} disabled={!platform || !username.trim() || loading} style={PJB}
+          <button onClick={handleSubmit} disabled={!platform || selectedFull || !username.trim() || loading} style={PJB}
             className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors">
             {loading ? 'Adding…' : 'Add Competitor'}
           </button>

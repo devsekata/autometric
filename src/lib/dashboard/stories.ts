@@ -60,7 +60,7 @@ async function resolveWindows(orgId: string, platform: PlatformParam, days: numb
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(s.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.story_metric_daily s
-       JOIN public.brands b ON b.id = s.brand_id
+       JOIN public.brands b ON b.id = s.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 's')})
         AND ($3::uuid IS NULL OR s.brand_id = $3)`,
     [orgId, platform, brandId],
@@ -86,7 +86,7 @@ async function totals(orgId: string, platform: PlatformParam, w: Window, brandId
         COALESCE(SUM(s.exits_sum),0)::float     exits,
         COALESCE(SUM(s.swipe_up_sum),0)::float  swipe
        FROM l2_gold.story_metric_daily s
-       JOIN public.brands b ON b.id = s.brand_id
+       JOIN public.brands b ON b.id = s.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 's')})
         AND s.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR s.brand_id = $5)`,
@@ -104,7 +104,7 @@ async function dailySparks(orgId: string, platform: PlatformParam, w: Window, br
         COALESCE(SUM(s.exits_sum),0)::float     exits,
         COALESCE(SUM(s.swipe_up_sum),0)::float  swipe
        FROM l2_gold.story_metric_daily s
-       JOIN public.brands b ON b.id = s.brand_id
+       JOIN public.brands b ON b.id = s.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 's')})
         AND s.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR s.brand_id = $5)
@@ -139,7 +139,7 @@ async function funnel(orgId: string, platform: PlatformParam, w: Window, brandId
             COALESCE(SUM(s.taps_fwd_sum),0)::float  taps_fwd,
             COALESCE(SUM(s.replies_sum),0)::float   replies
        FROM l2_gold.story_metric_daily s
-       JOIN public.brands b ON b.id = s.brand_id
+       JOIN public.brands b ON b.id = s.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 's')})
         AND s.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR s.brand_id = $5)`,
@@ -168,7 +168,7 @@ async function typePerf(orgId: string, platform: PlatformParam, w: Window, brand
             COALESCE(SUM(s.replies_sum),0)::float replies,
             COALESCE(SUM(s.story_count),0)::float cnt
        FROM l2_gold.story_type_daily s
-       JOIN public.brands b ON b.id = s.brand_id
+       JOIN public.brands b ON b.id = s.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 's')})
         AND s.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR s.brand_id = $5)
@@ -200,7 +200,7 @@ async function overTime(orgId: string, platform: PlatformParam, w: Window, brand
             COALESCE(SUM(s.exits_sum),0)::float    exits,
             COALESCE(SUM(s.swipe_up_sum),0)::float swipe
        FROM l2_gold.story_metric_daily s
-       JOIN public.brands b ON b.id = s.brand_id
+       JOIN public.brands b ON b.id = s.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 's')})
         AND s.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR s.brand_id = $5)

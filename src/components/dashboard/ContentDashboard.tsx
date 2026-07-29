@@ -86,7 +86,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
       {/* Post type performance + content volume */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card className="flex flex-col">
-          <CardHead title="Post Type Performance" sub="Instagram · avg reach by format" />
+          <CardHead title="Post Type Performance" metricKey="post_metric.post_type" sub="Instagram · avg reach by format" />
           <div className="px-4 pb-4 pt-3">
             {data.postTypePerf.length
               ? <HBars items={data.postTypePerf.map(p => ({
@@ -100,7 +100,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
         </Card>
 
         <Card className="flex flex-col">
-          <CardHead title="Content Volume by Week" sub="Posts published per week"
+          <CardHead title="Content Volume by Week" metricKey="brand_metric_daily.post_count" sub="Posts published per week"
             action={<Badge text="Posts" color={PALETTE[1]} />} />
           <div className="px-4 pb-4 pt-3 flex-1 flex items-end">
             {data.contentVolume.length
@@ -150,9 +150,9 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
                   <span style={PJ} className="text-[12px] font-bold text-[#9ca3af] tabular-nums">{r.rank}</span>
                   <img src={meta.logo} alt={meta.label} title={meta.label} className="w-[18px] h-[18px] object-contain" />
                   <span className="text-[#374151] font-medium truncate" title={r.caption}>{r.caption}</span>
-                  <span className="inline-flex items-center gap-1 text-[12px] text-[#6b7280]">
-                    <span className="material-symbols-outlined text-[15px] text-[#9ca3af]">{FORMAT_ICON[r.format] ?? 'play_circle'}</span>
-                    {r.format}
+                  <span className="flex min-w-0 items-center gap-1 text-[12px] text-[#6b7280]" title={r.format}>
+                    <span className="material-symbols-outlined shrink-0 text-[15px] text-[#9ca3af]">{FORMAT_ICON[r.format] ?? 'play_circle'}</span>
+                    <span className="truncate">{r.format}</span>
                   </span>
                   <span className="text-[#374151] tabular-nums">{fmtNum(r.reach)}</span>
                   <span className="text-[#374151] tabular-nums">{fmtNum(r.views)}</span>
@@ -177,7 +177,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
       <SectionHeader icon="smart_display">Video Analytics</SectionHeader>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="flex flex-col">
-          <CardHead title="TikTok Completion Rate Distribution" sub="completion_rate · % of videos per bucket" />
+          <CardHead title="TikTok Completion Rate Distribution" metricKey="post_metric.completion_rate" sub="completion_rate · % of videos per bucket" />
           <div className="px-4 pb-4 pt-3 flex-1 flex items-end">
             {data.completionDist.some(d => d.value > 0)
               ? <BarChart height={200} bars={data.completionDist.map((d, i) => ({
@@ -191,7 +191,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
         </Card>
 
         <Card className="flex flex-col">
-          <CardHead title="Reel Watch Time by Duration" sub="reel_avg_watch_time · avg completion %" />
+          <CardHead title="Reel Watch Time by Duration" metricKey="post_metric.avg_watch_time" sub="reel_avg_watch_time · avg completion %" />
           <div className="px-4 pb-4 pt-3 flex-1 flex items-end">
             {data.reelWatch.some(d => d.value > 0)
               ? <BarChart height={200} bars={data.reelWatch.map(d => ({

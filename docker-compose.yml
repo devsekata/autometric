@@ -1,4 +1,4 @@
-# Autometric dashboard (Next.js standalone).
+# Autometric dashboard (Next.js standalone) + mapping engine (CSV/FPK ingest).
 # Redeploy:  git pull && docker compose up -d --build
 #
 # Note: the Postgres DB runs on a separate host (see DATABASE_URL in .env.local),
@@ -16,4 +16,37 @@ services:
       - "3002:3000"
     env_file:
       - .env.local
+    environment:
+      # Reached over the compose bridge network by service name.
+      MAPPING_ENGINE_URL: http://fpk-engine:8000
+    depends_on:
+      - fpk-engine
+    restart: unless-stopped
+
+  # Transforms Fanpage Karma CSV/XLSX exports into l0_raw + l0_extra rows.
+  #
+  # Named `fpk-engine`, NOT `mapping-engine`: the production host already runs a
+  # long-lived container literally named `mapping-engine` (the Streamlit app on
+  # :8501, deployed separately from this repo). Two things with the same name on
+  # one host is how a `docker stop` hits the wrong one during an incident. The
+  # source directory keeps the name `services/mapping-engine` because that is
+  # exactly what it holds — the vendored mapping engine code.
+  #
+  # Deliberately has NO `ports:` — it accepts arbitrary uploaded files and
+  # writes to the production DB, so it must stay unreachable from outside the
+  # compose network. Only `app` talks to it.
+  fpk-engine:
+    build:
+      context: ./services/mapping-engine
+    image: autometric-fpk-engine
+    container_name: autometric-fpk-engine
+    env_file:
+      # Same file as the app: the service derives its Postgres credentials from
+      # DATABASE_URL (see services/mapping-engine/app/shim.py), so there is no
+      # second copy of the DB password anywhere.
+      - .env.local
+    environment:
+      PGSSLMODE: require
+    expose:
+      - "8000"
     restart: unless-stopped

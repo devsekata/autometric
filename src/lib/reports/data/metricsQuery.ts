@@ -444,7 +444,7 @@ export async function getReportTableMetrics(
             p.er_reach, p.er_views, p.er_impressions, p.er_followers
        FROM l1_silver.unified_post p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND bsa.brand_id = $2
         AND p.post_date >= $3 AND p.post_date < $4
         AND p.platform IN ('instagram','facebook','tiktok')`,
@@ -457,7 +457,7 @@ export async function getReportTableMetrics(
             bmd.profile_visit_sum, bmd.profile_reach_sum, bmd.follower_count_eod,
             bmd.video_views_sum, bmd.post_count
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND bmd.brand_id = $2
         AND bmd.metric_date >= $3 AND bmd.metric_date < $4
         AND bmd.platform IN ('instagram','facebook','tiktok')`,
@@ -470,7 +470,7 @@ export async function getReportTableMetrics(
   const sent = await pool.query<SentPostRow>(
     `SELECT csp.platform, csp.dominant_sentiment sentiment, count(*)::int posts
        FROM l2_gold.comment_sentiment_post csp
-       JOIN public.brands b ON b.id = csp.brand_id
+       JOIN public.brands b ON b.id = csp.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND csp.brand_id = $2
         AND (csp.post_date IS NULL OR (csp.post_date >= $3 AND csp.post_date < $4))
         AND csp.dominant_sentiment IS NOT NULL

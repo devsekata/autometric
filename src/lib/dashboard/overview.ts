@@ -63,7 +63,7 @@ async function resolveWindows(orgId: string, platform: PlatformParam, days: numb
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(bmd.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND ($3::uuid IS NULL OR bmd.brand_id = $3)`,
     [orgId, platform, brandId],
@@ -91,7 +91,7 @@ async function totals(orgId: string, platform: PlatformParam, w: Window, brandId
         COALESCE(SUM(bmd.video_views_sum) FILTER (WHERE bmd.platform='tiktok'),0)::float tkviews,
         COALESCE(SUM(bmd.net_growth_sum),0)::float   net
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)`,
@@ -109,7 +109,7 @@ async function dailySparks(orgId: string, platform: PlatformParam, w: Window, br
         COALESCE(SUM(bmd.video_views_sum) FILTER (WHERE bmd.platform='tiktok'),0)::float tkviews,
         COALESCE(SUM(bmd.net_growth_sum),0)::float net
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -156,7 +156,7 @@ async function engagementOverTime(orgId: string, platform: PlatformParam, w: Win
     `SELECT b.name brand, to_char(bmd.metric_date, 'YYYY-MM-DD') d,
             SUM(bmd.engagement_sum)::float eng, SUM(bmd.reach_sum)::float reach
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -169,7 +169,7 @@ async function engagementOverTime(orgId: string, platform: PlatformParam, w: Win
   const { rows: folRows } = await pool.query<{ brand: string; d: string; f: number }>(
     `SELECT b.name brand, to_char(bmd.metric_date, 'YYYY-MM-DD') d, SUM(bmd.follower_count_eod)::float f
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -213,7 +213,7 @@ async function platformReachShare(orgId: string, platform: PlatformParam, w: Win
   const { rows } = await pool.query<{ platform: DashPlatform; reach: number }>(
     `SELECT bmd.platform, SUM(bmd.reach_sum)::float reach
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR bmd.brand_id = $5)
@@ -238,7 +238,7 @@ async function brandMatrix(orgId: string, platform: PlatformParam, cur: Window, 
             COALESCE(SUM(bmd.engagement_sum) FILTER (WHERE bmd.metric_date <= $5),0)::float eng1,
             COALESCE(SUM(bmd.engagement_sum) FILTER (WHERE bmd.metric_date >  $5),0)::float eng2
        FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id
+       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
         AND bmd.metric_date BETWEEN $3 AND $4
         AND ($6::uuid IS NULL OR bmd.brand_id = $6)
@@ -250,13 +250,13 @@ async function brandMatrix(orgId: string, platform: PlatformParam, cur: Window, 
     `WITH last_acct AS (
         SELECT DISTINCT ON (bmd.account_id, bmd.platform) bmd.brand_id, bmd.platform, bmd.follower_count_eod
           FROM l2_gold.brand_metric_daily bmd
-          JOIN public.brands b ON b.id = bmd.brand_id
+          JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
          WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
            AND ($3::uuid IS NULL OR bmd.brand_id = $3)
          ORDER BY bmd.account_id, bmd.platform, bmd.metric_date DESC
      )
      SELECT b.name brand, la.platform, SUM(la.follower_count_eod)::float f
-       FROM last_acct la JOIN public.brands b ON b.id = la.brand_id
+       FROM last_acct la JOIN public.brands b ON b.id = la.brand_id AND b.deleted_at IS NULL
       GROUP BY b.name, la.platform`,
     [orgId, platform, brandId],
   )
@@ -295,7 +295,7 @@ async function contentAttributes(orgId: string, platform: PlatformParam, w: Wind
     `SELECT cad.content_tag tag, SUM(cad.post_count)::int cnt,
             SUM(cad.engagement_sum)::float eng, SUM(cad.er_denominator_sum)::float erden
        FROM l2_gold.content_attribute_daily cad
-       JOIN public.brands b ON b.id = cad.brand_id
+       JOIN public.brands b ON b.id = cad.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'cad')})
         AND cad.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR cad.brand_id = $5)
@@ -332,7 +332,7 @@ async function postingHeatmap(orgId: string, platform: PlatformParam, brandId: s
             SUM(pth.engagement_sum)::float eng, SUM(pth.post_count)::int cnt
        FROM l2_gold.posting_time_heatmap pth
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = pth.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'pth')})
         AND ($3::uuid IS NULL OR bsa.brand_id = $3)
       GROUP BY pth.weekday, pth.hour`,

@@ -18,3 +18,6 @@ tsconfig.tsbuildinfo
 # Misc
 .DS_Store
 *.pem
+
+# Office lock/temp files
+~$*

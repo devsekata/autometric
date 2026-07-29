@@ -4,8 +4,10 @@ import { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { Brand, Platform, SocialAccount, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
+import { CSV_PLATFORMS } from '@/lib/csv/types'
 import { useOAuthConnect, CONNECT_OPTIONS } from '@/hooks/useOAuthConnect'
 import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
+import { MAX_COMPETITORS_PER_PLATFORM, competitorQuotaMessage } from '@/lib/quotas'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -21,6 +23,8 @@ interface PendingItem {
   avatarUrl?: string | null
   oauthConnected?: boolean
   methodId?: string
+  /** 'csv' = akun tanpa token; datanya diupload manual di tab Data Sources. */
+  dataSource?: 'api' | 'csv'
 }
 
 type Step = 1 | 2 | 3
@@ -58,26 +62,38 @@ function StepIndicator({ step }: { step: Step }) {
   )
 }
 
-function PlatformPicker({ selected, onSelect }: { selected: Platform; onSelect: (p: Platform) => void }) {
+function PlatformPicker({ selected, onSelect, used }: {
+  selected: Platform
+  onSelect: (p: Platform) => void
+  used: Partial<Record<Platform, number>>
+}) {
   return (
     <div className="flex gap-2">
-      {PLATFORM_LIST.map(p => (
-        <button
-          key={p}
-          type="button"
-          onClick={() => onSelect(p)}
-          className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
-            selected === p
-              ? 'border-[#1B8A80] bg-[#1B8A80]/5'
-              : 'border-[#e5e7eb] hover:border-[#d1d5db] hover:bg-[#f9fafb]'
-          }`}
-        >
-          <PlatformIcon platform={p} size={24} />
-          <span className={`text-[9px] font-bold ${selected === p ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
-            {PLATFORM_CONFIG[p].short}
-          </span>
-        </button>
-      ))}
+      {PLATFORM_LIST.map(p => {
+        const count = used[p] ?? 0
+        const full  = count >= MAX_COMPETITORS_PER_PLATFORM
+        return (
+          <button
+            key={p}
+            type="button"
+            disabled={full}
+            title={full ? competitorQuotaMessage(PLATFORM_CONFIG[p].label) : undefined}
+            onClick={() => onSelect(p)}
+            className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
+              full
+                ? 'border-[#f3f4f6] bg-[#fafafa] opacity-45 cursor-not-allowed'
+                : selected === p
+                  ? 'border-[#1B8A80] bg-[#1B8A80]/5'
+                  : 'border-[#e5e7eb] hover:border-[#d1d5db] hover:bg-[#f9fafb]'
+            }`}
+          >
+            <PlatformIcon platform={p} size={24} />
+            <span className={`text-[9px] font-bold ${selected === p && !full ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
+              {count > 0 ? `${count}/${MAX_COMPETITORS_PER_PLATFORM}` : PLATFORM_CONFIG[p].short}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -123,7 +139,12 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   const [accounts,    setAccounts]    = useState<PendingItem[]>([])
   const [tiktokInput, setTiktokInput] = useState('')
   const [tiktokOpen,  setTiktokOpen]  = useState(false)
+  const [csvOpen,     setCsvOpen]     = useState(false)
+  const [csvPlatform, setCsvPlatform] = useState<Platform>('instagram')
+  const [csvInput,    setCsvInput]    = useState('')
+  const [csvErr,      setCsvErr]      = useState('')
   const { loading: oauthLoading, error: oauthError, clearError: clearOAuthError, connect, pending, save, reset } = useOAuthConnect(brandId)
+  const csvAccounts = accounts.filter(a => a.dataSource === 'csv')
   const igConnected = accounts.some(a => a.platform === 'instagram' && a.oauthConnected)
   const ttConnected = accounts.some(a => a.platform === 'tiktok'    && a.oauthConnected)
   const fbConnected = accounts.some(a => a.platform === 'facebook'  && a.oauthConnected)
@@ -187,6 +208,18 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
     clearOAuthError()
   }
 
+  function addCsvAccount() {
+    const u = csvInput.trim().replace(/^@/, '')
+    if (!u) { setCsvErr('Isi username-nya dulu.'); return }
+    if (accounts.some(a => a.platform === csvPlatform)) {
+      setCsvErr(`${PLATFORM_CONFIG[csvPlatform].label} sudah punya akun di brand ini.`)
+      return
+    }
+    setAccounts(prev => [...prev, { platform: csvPlatform, username: u, dataSource: 'csv' }])
+    setCsvInput('')
+    setCsvErr('')
+  }
+
   function removeAccount(platform: Platform) {
     setAccounts(prev => prev.filter(a => a.platform !== platform))
   }
@@ -201,7 +234,11 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
           const res = await fetch(`/api/brands/${brandId}/accounts`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ platform: a.platform, username: a.username }),
+            body: JSON.stringify({
+              platform: a.platform,
+              username: a.username,
+              dataSource: a.dataSource ?? 'api',
+            }),
           })
           if (!res.ok) {
             const json = await res.json()
@@ -219,9 +256,18 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   }
 
   // ── Step 3 helpers ──────────────────────────────────────────────
+  // Quota is per platform, so each platform fills up independently.
+  const compUsed = competitors.reduce<Partial<Record<Platform, number>>>((acc, c) => {
+    acc[c.platform] = (acc[c.platform] ?? 0) + 1
+    return acc
+  }, {})
+
   function addCompetitor() {
     const u = compUsername.trim()
     if (!u) { setCompErr('Enter a username.'); return }
+    if ((compUsed[compPlatform] ?? 0) >= MAX_COMPETITORS_PER_PLATFORM) {
+      setCompErr(competitorQuotaMessage(PLATFORM_CONFIG[compPlatform].label)); return
+    }
     setCompetitors(prev => [...prev, { platform: compPlatform, username: u }])
     setCompUsername('')
     setCompErr('')
@@ -442,6 +488,103 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
               })}
             </div>
 
+            {/* ── Sumber ketiga: data manual ──
+                Untuk brand yang tidak punya akses akun resmi Meta/TikTok. Di sini
+                CUKUP username-nya; filenya diupload belakangan di tab Data
+                Sources. Alasannya: pembuatan brand harus tetap ringan, sementara
+                upload data itu pekerjaan berulang tiap periode yang butuh ruang
+                sendiri (grid per file, pratinjau, riwayat). */}
+            <div className="rounded-xl border border-[#e5e7eb] bg-white">
+              <div className="flex items-center gap-3 px-4 h-[54px]">
+                <span className="material-symbols-outlined text-[26px] text-[#6b7280]">upload_file</span>
+                <div className="flex-1 min-w-0">
+                  <p style={PJB} className="text-[13px] font-semibold text-[#111827] leading-tight">
+                    Data manual (upload CSV)
+                  </p>
+                  <p className="text-[11px] text-[#9ca3af] mt-0.5 truncate">
+                    Tidak punya akses akun resmi? Daftarkan username-nya di sini.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setCsvOpen(o => !o)} style={PJB}
+                  className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] flex-shrink-0">
+                  Tambah
+                  <span className="material-symbols-outlined text-[15px]">
+                    {csvOpen ? 'expand_less' : 'chevron_right'}
+                  </span>
+                </button>
+              </div>
+
+              {csvOpen && (
+                <div className="border-t border-[#f3f4f6] px-4 py-3 flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    {CSV_PLATFORMS.map(p => {
+                      const taken = accounts.some(a => a.platform === p)
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          disabled={taken}
+                          title={taken ? `${p} sudah punya akun di brand ini` : undefined}
+                          onClick={() => { setCsvPlatform(p); setCsvErr('') }}
+                          className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg border transition-all ${
+                            taken
+                              ? 'border-[#f3f4f6] bg-[#fafafa] opacity-45 cursor-not-allowed'
+                              : csvPlatform === p
+                                ? 'border-[#1B8A80] bg-[#1B8A80]/5'
+                                : 'border-[#e5e7eb] hover:border-[#d1d5db]'
+                          }`}>
+                          <PlatformIcon platform={p} size={20} />
+                          <span className={`text-[9px] font-bold ${
+                            csvPlatform === p && !taken ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
+                            {PLATFORM_CONFIG[p].short}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={csvInput}
+                      onChange={e => { setCsvInput(e.target.value); setCsvErr('') }}
+                      onKeyDown={e => e.key === 'Enter' && addCsvAccount()}
+                      placeholder={`@username di ${PLATFORM_CONFIG[csvPlatform].label}`}
+                      className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 transition-all"
+                    />
+                    <button type="button" onClick={addCsvAccount} style={PJB}
+                      className="h-8 px-3 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[12.5px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0">
+                      Tambah
+                    </button>
+                  </div>
+                  {csvErr && <p className="text-[11px] text-red-500">{csvErr}</p>}
+                  <p className="text-[11px] text-[#9ca3af]">
+                    Filenya diupload nanti di tab <span className="font-semibold text-[#6b7280]">Data Sources</span> pada halaman brand.
+                  </p>
+                </div>
+              )}
+
+              {csvAccounts.length > 0 && (
+                <div className="border-t border-[#f3f4f6] px-4 py-2.5 flex flex-col gap-1.5">
+                  {csvAccounts.map(a => (
+                    <div key={a.platform} className="flex items-center gap-2">
+                      <PlatformIcon platform={a.platform} size={16} />
+                      <span style={PJB} className="text-[12.5px] text-[#111827] flex-1 truncate">
+                        @{a.username}
+                      </span>
+                      <span className="text-[10px] font-bold text-[#1B8A80] bg-[#1B8A80]/10 px-1.5 py-0.5 rounded-full">
+                        Manual
+                      </span>
+                      <button type="button" onClick={() => removeAccount(a.platform)}
+                        className="text-[#9ca3af] hover:text-red-400 transition-colors">
+                        <span className="material-symbols-outlined text-[15px]">close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {oauthError && <p className="text-[12px] text-red-500">{oauthError}</p>}
             {error      && <p className="text-[12px] text-red-500">{error}</p>}
           </div>
@@ -452,12 +595,14 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
           <div className="px-6 py-5 flex flex-col gap-4">
             <div>
               <p style={PJB} className="text-[13px] font-semibold text-[#111827]">Add competitors</p>
-              <p className="text-[12px] text-[#9ca3af] mt-0.5">Track competitor accounts to benchmark against.</p>
+              <p className="text-[12px] text-[#9ca3af] mt-0.5">
+                Track competitor accounts to benchmark against — up to {MAX_COMPETITORS_PER_PLATFORM} per platform.
+              </p>
             </div>
 
             {COMPETITOR_ADD_ENABLED ? (
               <>
-                <PlatformPicker selected={compPlatform} onSelect={p => { setCompPlatform(p); setCompErr('') }} />
+                <PlatformPicker used={compUsed} selected={compPlatform} onSelect={p => { setCompPlatform(p); setCompErr('') }} />
 
                 <div className="flex gap-2">
                   <div className="flex-1 flex flex-col gap-1">

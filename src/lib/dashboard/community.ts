@@ -59,7 +59,7 @@ async function resolveWindows(orgId: string, platform: PlatformParam, days: numb
   const { rows } = await pool.query<{ d: string | null }>(
     `SELECT to_char(max(c.metric_date), 'YYYY-MM-DD') d
        FROM l2_gold.comment_activity_daily c
-       JOIN public.brands b ON b.id = c.brand_id
+       JOIN public.brands b ON b.id = c.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'c')})
         AND ($3::uuid IS NULL OR c.brand_id = $3)`,
     [orgId, platform, brandId],
@@ -89,7 +89,7 @@ async function kpiTotals(orgId: string, platform: PlatformParam, w: Window, bran
   const { rows } = await pool.query(
     `SELECT ${KPI_SELECT}
        FROM l2_gold.comment_activity_daily c
-       JOIN public.brands b ON b.id = c.brand_id
+       JOIN public.brands b ON b.id = c.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'c')})
         AND c.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR c.brand_id = $5)`,
@@ -102,7 +102,7 @@ async function kpiDaily(orgId: string, platform: PlatformParam, w: Window, brand
   const { rows } = await pool.query<KpiTotals>(
     `SELECT ${KPI_SELECT}
        FROM l2_gold.comment_activity_daily c
-       JOIN public.brands b ON b.id = c.brand_id
+       JOIN public.brands b ON b.id = c.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'c')})
         AND c.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR c.brand_id = $5)
@@ -135,7 +135,7 @@ async function commentVolume(orgId: string, platform: PlatformParam, w: Window, 
     `SELECT c.platform, to_char(date_trunc('week', c.metric_date), 'YYYY-MM-DD') wk,
             COALESCE(SUM(c.comment_count),0)::float c
        FROM l2_gold.comment_activity_daily c
-       JOIN public.brands b ON b.id = c.brand_id
+       JOIN public.brands b ON b.id = c.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'c')})
         AND c.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR c.brand_id = $5)
@@ -160,7 +160,7 @@ async function commentByHour(orgId: string, platform: PlatformParam, w: Window, 
   const { rows } = await pool.query<{ h: number; c: number }>(
     `SELECT c.hour_of_day h, COALESCE(SUM(c.comment_count),0)::int c
        FROM l2_gold.comment_activity_hourly c
-       JOIN public.brands b ON b.id = c.brand_id
+       JOIN public.brands b ON b.id = c.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'c')})
         AND c.metric_date BETWEEN $3 AND $4
         AND ($5::uuid IS NULL OR c.brand_id = $5)
@@ -196,7 +196,7 @@ async function leaderboard(orgId: string, platform: PlatformParam, days: number,
             cc.replies_sum::int replies, cc.avg_relevance::float relevance,
             cc.composite_score::float score, cc.tier
        FROM l2_gold.community_contributors cc
-       JOIN public.brands b ON b.id = cc.brand_id
+       JOIN public.brands b ON b.id = cc.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'cc')})
         AND cc.window_days = $3
         AND ($4::uuid IS NULL OR cc.brand_id = $4)

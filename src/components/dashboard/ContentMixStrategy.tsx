@@ -72,7 +72,7 @@ export function PerformanceMatrix() {
 export function CommentRelevance({ span }: { span?: string }) {
   return (
     <Card span={span} className="flex flex-col">
-      <CardHead title="Comment Relevance" sub="Semantic scoring of comments vs captions" />
+      <CardHead title="Comment Relevance" metricKey="comment_relevance.tier" sub="Semantic scoring of comments vs captions" />
       <div className="px-4 pb-4 pt-3 flex-1 flex flex-col">
         <div className="flex w-full h-2.5 rounded-full overflow-hidden mb-4">
           {COMMENT_RELEVANCE.map(t => (
@@ -111,7 +111,7 @@ export function CommentRelevance({ span }: { span?: string }) {
 export function TopContributors({ span }: { span?: string }) {
   return (
     <Card span={span} className="overflow-hidden">
-      <CardHead title="Top Community Contributors" sub="High engagement frequency & semantic relevance" />
+      <CardHead title="Top Community Contributors" metricKey="community_contributors.composite_score" sub="High engagement frequency & semantic relevance" />
       <div className="overflow-x-auto">
         <div className="min-w-[560px]">
           <div className="grid grid-cols-[1.8fr_0.8fr_1fr_2.2fr] gap-2 px-4 py-2.5 border-y border-[#eef0f2] bg-[#fafbfb]">

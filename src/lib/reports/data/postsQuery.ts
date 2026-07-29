@@ -37,7 +37,7 @@ export async function getReportPostMetrics(
             COALESCE(p.er_followers,0)::float er_followers
        FROM l1_silver.unified_post p
        JOIN public.brand_social_accounts bsa ON bsa.social_account_id = p.brand_id
-       JOIN public.brands b ON b.id = bsa.brand_id
+       JOIN public.brands b ON b.id = bsa.brand_id AND b.deleted_at IS NULL
       WHERE b.organization_id = $1 AND bsa.brand_id = $2
         AND p.post_date >= $3 AND p.post_date < $4
         AND p.platform IN ('instagram','facebook','tiktok')

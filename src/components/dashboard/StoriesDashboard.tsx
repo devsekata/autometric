@@ -83,7 +83,7 @@ function StoriesBody({ orgId, brandId, platform, period, start, end }: { orgId: 
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card className="flex flex-col">
-          <CardHead title="Story Retention Funnel" sub="How audiences navigate through your story sequences"
+          <CardHead title="Story Retention Funnel" metricKey="story_metric_daily.taps_fwd_sum" sub="How audiences navigate through your story sequences"
             action={<FieldTag>taps_forward · taps_back · exits</FieldTag>} />
           <div className="px-4 pb-4 pt-3">
             {data.funnel.some(f => f.value > 0)
@@ -98,7 +98,7 @@ function StoriesBody({ orgId, brandId, platform, period, start, end }: { orgId: 
         </Card>
 
         <Card className="flex flex-col">
-          <CardHead title="Story Type Performance" action={<FieldTag>story_type field</FieldTag>} />
+          <CardHead title="Story Type Performance" metricKey="story_type_daily.story_type" action={<FieldTag>story_type field</FieldTag>} />
           <div className="flex items-center justify-center gap-6 pb-1">
             <Badge text="Avg Reach" color="#e7a6bd" />
             <Badge text="Avg Replies" color="#6c4cd6" />
@@ -121,7 +121,7 @@ function StoriesBody({ orgId, brandId, platform, period, start, end }: { orgId: 
 
       <SectionHeader icon="show_chart">Trend</SectionHeader>
       <Card>
-        <CardHead title="Story Performance Over Time" sub="Views, exits & swipe-ups by week" />
+        <CardHead title="Story Performance Over Time" metricKey="story_metric_daily.story_count" sub="Views, exits & swipe-ups by week" />
         <div className="px-4 pb-3 pt-3">
           {data.overTime.some(s => s.data.length)
             ? <MultiLineChart series={data.overTime} labels={data.overTimeLabels} height={300} dots yAxis fmtY={fmtNum} />

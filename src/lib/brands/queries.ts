@@ -48,7 +48,7 @@ const BRAND_WITH_RELATIONS = `
 
 export async function listBrandsForOrg(orgId: string): Promise<Brand[]> {
   const { rows } = await pool.query(
-    `${BRAND_WITH_RELATIONS} WHERE b.organization_id = $1 GROUP BY b.id ORDER BY b.created_at DESC`,
+    `${BRAND_WITH_RELATIONS} WHERE b.organization_id = $1 AND b.deleted_at IS NULL GROUP BY b.id ORDER BY b.created_at DESC`,
     [orgId]
   )
   return rows
@@ -56,7 +56,7 @@ export async function listBrandsForOrg(orgId: string): Promise<Brand[]> {
 
 export async function getBrandById(brandId: string): Promise<Brand | null> {
   const { rows } = await pool.query(
-    `${BRAND_WITH_RELATIONS} WHERE b.id = $1 GROUP BY b.id`,
+    `${BRAND_WITH_RELATIONS} WHERE b.id = $1 AND b.deleted_at IS NULL GROUP BY b.id`,
     [brandId]
   )
   return rows[0] ?? null
@@ -70,7 +70,7 @@ export async function verifyBrandAccess(brandId: string, userId: string): Promis
        ON om.organization_id = b.organization_id
        AND om.user_id = $2
        AND om.status = 'ACTIVE'
-     WHERE b.id = $1`,
+     WHERE b.id = $1 AND b.deleted_at IS NULL`,
     [brandId, userId]
   )
   return rows[0]?.organization_id ?? null
@@ -137,6 +137,14 @@ export async function getConnectedFbAccount(brandId: string): Promise<{
   return rows[0] ?? null
 }
 
+export async function countBrandsForOrg(orgId: string): Promise<number> {
+  const { rows } = await pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM brands WHERE organization_id = $1 AND deleted_at IS NULL`,
+    [orgId]
+  )
+  return rows[0]?.count ?? 0
+}
+
 export async function createBrand(orgId: string, name: string): Promise<Brand> {
   const { rows } = await pool.query<{
     id: string; organization_id: string; name: string; profile_url: string | null; created_at: string
@@ -152,34 +160,47 @@ export async function updateBrandName(brandId: string, name: string): Promise<vo
   await pool.query(`UPDATE brands SET name = $1 WHERE id = $2`, [name, brandId])
 }
 
-export async function deleteBrand(brandId: string): Promise<void> {
+// Soft delete: l2_gold declares ON DELETE RESTRICT foreign keys to public.brands
+// (see scripts/add-medallion-fks.js), so a real DELETE aborts for any brand that
+// has gold data. Marking `deleted_at` hides the brand from every read path while
+// the analytics history stays intact. Restore with `SET deleted_at = NULL`.
+export async function deleteBrand(brandId: string): Promise<boolean> {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
 
-    // Get accounts exclusively owned by this brand (not referenced by any other brand)
-    const { rows: linked } = await client.query<{ social_account_id: string }>(
-      `SELECT social_account_id FROM brand_social_accounts WHERE brand_id = $1`,
+    const { rowCount } = await client.query(
+      `UPDATE brands SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [brandId]
+    )
+    if (!rowCount) {
+      await client.query('ROLLBACK')
+      return false
+    }
+
+    // Release the OAuth tokens of accounts this brand alone owned. A soft delete
+    // leaves brand_social_accounts in place, so "orphaned" means no *live* brand
+    // links to the account any more — the brand above is already marked deleted
+    // inside this transaction, so it is excluded automatically.
+    await client.query(
+      `UPDATE social_accounts sa
+          SET connected = false, oauth_token = NULL, token_expires_at = NULL
+        WHERE sa.id IN (
+                SELECT bsa.social_account_id
+                  FROM brand_social_accounts bsa
+                 WHERE bsa.brand_id = $1
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM brand_social_accounts other
+                  JOIN brands ob ON ob.id = other.brand_id AND ob.deleted_at IS NULL
+                 WHERE other.social_account_id = sa.id
+              )`,
       [brandId]
     )
 
-    await client.query(`DELETE FROM brands WHERE id = $1`, [brandId])
-
-    // For each account no longer owned by any brand, clear token + mark disconnected
-    for (const { social_account_id } of linked) {
-      const { rows } = await client.query(
-        `SELECT 1 FROM brand_social_accounts WHERE social_account_id = $1 LIMIT 1`,
-        [social_account_id]
-      )
-      if (rows.length === 0) {
-        await client.query(
-          `UPDATE social_accounts SET connected = false, oauth_token = NULL, token_expires_at = NULL WHERE id = $1`,
-          [social_account_id]
-        )
-      }
-    }
-
     await client.query('COMMIT')
+    return true
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
@@ -299,6 +320,20 @@ export async function disconnectSocialAccount(brandId: string, socialAccountId: 
   } finally {
     client.release()
   }
+}
+
+// Competitor quota is counted per platform, so a brand can track the maximum on
+// Instagram, TikTok and Facebook independently.
+export async function countBrandCompetitorsOnPlatform(brandId: string, platformKey: string): Promise<number> {
+  const { rows } = await pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count
+       FROM brand_competitors bc
+       JOIN social_accounts csa ON csa.id = bc.social_account_id
+       JOIN platforms cp        ON cp.id  = csa.platform_id
+      WHERE bc.brand_id = $1 AND cp.key = $2`,
+    [brandId, platformKey]
+  )
+  return rows[0]?.count ?? 0
 }
 
 export async function addCompetitor(
