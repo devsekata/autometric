@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Brand, Platform, getColorFromId } from '@/lib/brands/types'
 import CompetitorAvatars from './CompetitorAvatars'
+import AccountStatusBadge from './AccountStatusBadge'
 
 interface Props {
   brand: Brand
@@ -46,19 +47,7 @@ export default function BrandInChannelRow({ brand, platform, orgSlug }: Props) {
 
       <div className="pr-4"><CompetitorAvatars competitors={brand.competitors} /></div>
 
-      <div>
-        {account.connected ? (
-          <span style={PJB} className="inline-flex items-center gap-1.5 h-[20px] px-2 rounded-full text-[10.5px] font-semibold bg-[#ecfdf5] text-[#059669]">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] flex-shrink-0" />
-            Connected
-          </span>
-        ) : (
-          <span style={PJB} className="inline-flex items-center gap-1.5 h-[20px] px-2 rounded-full text-[10.5px] font-semibold bg-[#fef2f2] text-[#dc2626]">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444] flex-shrink-0" />
-            Disconnected
-          </span>
-        )}
-      </div>
+      <div><AccountStatusBadge account={account} /></div>
 
       <span style={PJB} className="text-[12px] text-[#9ca3af] tabular-nums">{fmt(account.connected_at)}</span>
       <span style={PJB} className="text-[12px] text-[#9ca3af] tabular-nums">{fmt(brand.created_at)}</span>

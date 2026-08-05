@@ -2,12 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Image from 'next/image'
-import { Brand, Platform, SocialAccount, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
+import { Brand, CompetitorAccount, Platform, SocialAccount, PLATFORM_LIST, PLATFORM_CONFIG } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
 import { CSV_PLATFORMS } from '@/lib/csv/types'
 import { useOAuthConnect, CONNECT_OPTIONS } from '@/hooks/useOAuthConnect'
 import { COMPETITOR_ADD_ENABLED } from '@/lib/featureFlags'
 import { MAX_COMPETITORS_PER_PLATFORM, competitorQuotaMessage } from '@/lib/quotas'
+import { isValidHandle, invalidHandleMessage } from '@/lib/competitors/verify'
+import { pollVerification } from '@/lib/competitors/pollVerification'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -98,28 +100,50 @@ function PlatformPicker({ selected, onSelect, used }: {
   )
 }
 
-function AddedList({ items, onRemove, emptyLabel }: {
+function AddedList({ items, onRemove, emptyLabel, notFound = [], busy = false }: {
   items: PendingItem[]
   onRemove: (idx: number) => void
   emptyLabel: string
+  /** Username yang terbukti tidak ada — ditandai merah supaya jelas mana yang salah. */
+  notFound?: string[]
+  /** Sedang diverifikasi: baris yang belum diputuskan diberi spinner. */
+  busy?: boolean
 }) {
   if (items.length === 0) {
     return <p className="text-[12px] text-[#9ca3af] text-center py-2">{emptyLabel}</p>
   }
   return (
     <div className="flex flex-col gap-1.5 max-h-[108px] overflow-y-auto">
-      {items.map((item, i) => (
-        <div key={i} className="flex items-center gap-2 px-3 h-9 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
-          {item.avatarUrl
-            ? <img src={item.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover flex-shrink-0" />
-            : <PlatformIcon platform={item.platform} size={16} />
-          }
-          <span style={PJB} className="text-[12.5px] text-[#111827] flex-1 truncate">@{item.username}</span>
-          <button type="button" onClick={() => onRemove(i)} className="text-[#9ca3af] hover:text-[#6b7280] transition-colors">
-            <span className="material-symbols-outlined text-[15px]">close</span>
-          </button>
-        </div>
-      ))}
+      {items.map((item, i) => {
+        const bad = notFound.includes(item.username)
+        return (
+          <div key={i} className={`flex items-center gap-2 px-3 h-9 rounded-lg border ${
+            bad ? 'bg-[#fef2f2] border-[#fecaca]' : 'bg-[#f9fafb] border-[#e5e7eb]'
+          }`}>
+            {item.avatarUrl
+              ? <img src={item.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover flex-shrink-0" />
+              : <PlatformIcon platform={item.platform} size={16} />
+            }
+            <span style={PJB} className={`text-[12.5px] flex-1 truncate ${bad ? 'text-[#b91c1c]' : 'text-[#111827]'}`}>
+              @{item.username}
+            </span>
+            {bad && (
+              <span style={PJB} className="text-[10.5px] font-semibold text-[#b91c1c] flex-shrink-0">
+                tidak ditemukan
+              </span>
+            )}
+            {busy && !bad && (
+              <span className="material-symbols-outlined text-[14px] text-[#9ca3af] animate-spin flex-shrink-0">
+                progress_activity
+              </span>
+            )}
+            <button type="button" onClick={() => onRemove(i)} disabled={busy}
+              className="text-[#9ca3af] hover:text-[#6b7280] transition-colors disabled:opacity-40">
+              <span className="material-symbols-outlined text-[15px]">close</span>
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -154,6 +178,11 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   const [compPlatform, setCompPlatform] = useState<Platform>('instagram')
   const [compUsername, setCompUsername] = useState('')
   const [compErr,      setCompErr]      = useState('')
+  // Fase verifikasi setelah Finish: baris sudah dibuat, Apify sedang memastikan.
+  const [verifying,    setVerifying]    = useState(false)
+  // Username yang terbukti tidak ada — ditandai di daftar supaya jelas mana yang
+  // harus diperbaiki.
+  const [notFound,     setNotFound]     = useState<string[]>([])
   const compRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { nameRef.current?.focus() }, [])
@@ -211,6 +240,9 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   function addCsvAccount() {
     const u = csvInput.trim().replace(/^@/, '')
     if (!u) { setCsvErr('Isi username-nya dulu.'); return }
+    // Cermin validasi server. Keberadaan akunnya diperiksa nanti saat Next
+    // (butuh Apify), tapi format salah tidak perlu menunggu selama itu.
+    if (!isValidHandle(csvPlatform, u)) { setCsvErr(invalidHandleMessage(csvPlatform, u)); return }
     if (accounts.some(a => a.platform === csvPlatform)) {
       setCsvErr(`${PLATFORM_CONFIG[csvPlatform].label} sudah punya akun di brand ini.`)
       return
@@ -263,8 +295,10 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
   }, {})
 
   function addCompetitor() {
-    const u = compUsername.trim()
+    const u = compUsername.trim().replace(/^@/, '')
     if (!u) { setCompErr('Enter a username.'); return }
+    // Cermin validasi server: handle berspasi bikin actor Apify menolak start-run.
+    if (!isValidHandle(compPlatform, u)) { setCompErr(invalidHandleMessage(compPlatform, u)); return }
     if ((compUsed[compPlatform] ?? 0) >= MAX_COMPETITORS_PER_PLATFORM) {
       setCompErr(competitorQuotaMessage(PLATFORM_CONFIG[compPlatform].label)); return
     }
@@ -274,22 +308,65 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
     compRef.current?.focus()
   }
 
+  /**
+   * Kirim semua competitor lalu TUNGGU keputusan Apify di dalam wizard.
+   *
+   * Verifikasinya paralel, bukan satu per satu: tiap akun butuh 15-60 detik, jadi
+   * enam akun berurutan bisa enam menit. Paralel membuatnya selesai dalam waktu
+   * satu akun terlama.
+   *
+   * Mengembalikan username yang terbukti tidak ada. Yang lolos dan yang kelamaan
+   * (dituntaskan sync harian) dianggap beres — hanya not-found yang menahan Finish,
+   * karena hanya itu yang butuh tindakan user.
+   */
+  async function addAndVerifyCompetitors(bId: string): Promise<string[]> {
+    setVerifying(true)
+    setNotFound([])
+    try {
+      const created = await Promise.all(competitors.map(async c => {
+        const res = await fetch(`/api/brands/${bId}/competitors`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform: c.platform, username: c.username }),
+        })
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          // Ditolak sebelum dibuat (format salah / pre-check / kuota) — pesannya
+          // sudah spesifik dari server, jadi diperlakukan sama seperti not-found.
+          throw new Error(json.error ?? `Gagal menambahkan @${c.username}.`)
+        }
+        return (await res.json()).data as CompetitorAccount
+      }))
+
+      const outcomes = await Promise.all(created.map(async comp => {
+        if (comp.verification_status !== 'pending') return { comp, outcome: 'verified' as const }
+        const outcome = await pollVerification(bId, comp.social_account_id)
+        return { comp, outcome }
+      }))
+
+      return outcomes.filter(o => o.outcome === 'not_found').map(o => o.comp.username)
+    } finally {
+      setVerifying(false)
+    }
+  }
+
   async function handleFinish(skip: boolean) {
     if (!brandId) return
     setLoading(true); setError('')
     try {
-      if (!skip) {
-        for (const c of competitors) {
-          const res = await fetch(`/api/brands/${brandId}/competitors`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ platform: c.platform, username: c.username }),
-          })
-          if (!res.ok) {
-            const json = await res.json()
-            setError(json.error ?? 'Failed to add competitor.')
-            return
-          }
+      if (!skip && competitors.length > 0) {
+        const failed = await addAndVerifyCompetitors(brandId)
+        if (failed.length) {
+          // Tetap di step 3 supaya username-nya bisa diperbaiki di tempat —
+          // sama seperti modal Add Competitor. Brand-nya sudah dibuat di step 1,
+          // jadi menutup wizard di sini hanya akan menyembunyikan masalahnya.
+          setNotFound(failed)
+          setError(
+            failed.length === 1
+              ? `Akun @${failed[0]} tidak ditemukan. Perbaiki atau hapus dari daftar, lalu Finish lagi.`
+              : `${failed.length} akun tidak ditemukan. Perbaiki atau hapus dari daftar, lalu Finish lagi.`,
+          )
+          return
         }
       }
       const res  = await fetch(`/api/brands/${brandId}`)
@@ -308,8 +385,10 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
           .catch(err => console.error('[fb initial-sync]', err))
       }
       onClose()
-    } catch {
-      setError('Something went wrong.')
+    } catch (err) {
+      // Pesan dari server (format handle salah, pre-check, kuota) jauh lebih
+      // berguna daripada "Something went wrong" — jangan ditelan.
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
       setLoading(false)
     }
@@ -629,9 +708,30 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
 
                 <AddedList
                   items={competitors}
-                  onRemove={i => setCompetitors(prev => prev.filter((_, idx) => idx !== i))}
+                  onRemove={i => {
+                    const gone = competitors[i]?.username
+                    setCompetitors(prev => prev.filter((_, idx) => idx !== i))
+                    setNotFound(prev => prev.filter(u => u !== gone))
+                    setError('')
+                  }}
                   emptyLabel="No competitors added yet."
+                  notFound={notFound}
+                  busy={verifying}
                 />
+
+                {verifying && (
+                  <div className="flex items-start gap-2.5 px-3 py-2.5 bg-[#f0f7f5] border border-[#cfe6e1] rounded-lg">
+                    <span className="material-symbols-outlined text-[16px] text-[#1B8A80] animate-spin flex-shrink-0">
+                      progress_activity
+                    </span>
+                    <p className="text-[12px] text-[#22615c] leading-relaxed">
+                      Memeriksa apakah akun-akun ini benar-benar ada… biasanya 10–60 detik.
+                      <span className="block text-[11px] text-[#5c8a84] mt-0.5">
+                        Brand-nya sudah tersimpan — ini langkah terakhir.
+                      </span>
+                    </p>
+                  </div>
+                )}
               </>
             ) : (
               <div className="rounded-lg border border-dashed border-[#e5e7eb] bg-[#fafafa] px-4 py-6 flex flex-col items-center text-center gap-1">
@@ -699,7 +799,9 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
               </button>
               <button type="button" onClick={() => handleFinish(false)} disabled={loading} style={PJB}
                 className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
-                {loading ? 'Saving…' : <><span>Finish</span><span className="material-symbols-outlined text-[14px]">check</span></>}
+                {verifying ? 'Memeriksa…'
+                  : loading ? 'Saving…'
+                  : <><span>Finish</span><span className="material-symbols-outlined text-[14px]">check</span></>}
               </button>
             </>
           )}

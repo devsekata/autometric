@@ -10,6 +10,7 @@ import {
   PlatformTakenError,
 } from '@/lib/csv/queries'
 import { CSV_PLATFORMS, isCsvPlatform } from '@/lib/csv/types'
+import { checkAccountExists } from '@/lib/accounts/verifyAccount'
 import { initialIgSync } from '@/lib/instagram/sync'
 import { initialTtSync } from '@/lib/tiktok/sync'
 import { initialFbSync } from '@/lib/facebook/sync'
@@ -113,6 +114,18 @@ export async function POST(req: NextRequest, { params }: Params) {
         }
         throw e
       }
+
+      // Pastikan akunnya betul ADA sebelum dibuat. Akun CSV tidak melewati OAuth,
+      // jadi tanpa ini salah ketik apa pun akan diterima diam-diam — dan seluruh
+      // data L0 yang diunggah nanti menempel pada akun yang tidak pernah ada.
+      const check = await checkAccountExists(platform, username)
+      if (check.state === 'rejected') {
+        return NextResponse.json({ error: check.message }, { status: 400 })
+      }
+      if (check.state === 'unverified') {
+        console.warn(`[accounts] @${username} (${platform}) tidak terverifikasi: ${check.reason}`)
+      }
+
       const created = await connectCsvAccount(brandId, platform as Platform, username)
       return NextResponse.json({
         data: {

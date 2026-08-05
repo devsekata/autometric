@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useBrandDetail } from './BrandDetailContext'
 import { Platform } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
@@ -12,11 +12,35 @@ const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 const ADD_DISABLED_TITLE = 'Penambahan competitor dinonaktifkan sementara'
 
 export default function BrandCompetitorsTab() {
-  const { brand, addCompetitor, removeCompetitor } = useBrandDetail()
+  const {
+    brand, addCompetitor, awaitCompetitorVerification, removeCompetitor,
+    competitorNotice, clearCompetitorNotice,
+  } = useBrandDetail()
   const [showAdd, setShowAdd] = useState(false)
+  // Ref, bukan state: dibaca dari dalam promise verifikasi yang sudah berjalan,
+  // yang masih memegang closure lama dan tidak akan melihat state terbaru.
+  const addOpen = useRef(false)
+  const toggleAdd = (open: boolean) => { addOpen.current = open; setShowAdd(open) }
 
   return (
     <div className="max-w-3xl">
+
+      {competitorNotice && (() => {
+        const warn = competitorNotice.tone === 'warn'
+        const c = warn
+          ? { bg: 'bg-[#fffbeb]', border: 'border-[#fde68a]', icon: 'text-[#b45309]', text: 'text-[#92400e]', hover: 'hover:bg-[#fef3c7]', glyph: 'person_off' }
+          : { bg: 'bg-[#f0f7f5]', border: 'border-[#cfe6e1]', icon: 'text-[#1B8A80]', text: 'text-[#22615c]', hover: 'hover:bg-[#e2efec]', glyph: 'schedule' }
+        return (
+          <div className={`flex items-start gap-2.5 mt-4 px-4 py-3 ${c.bg} border ${c.border} rounded-lg`}>
+            <span className={`material-symbols-outlined text-[18px] ${c.icon} flex-shrink-0`}>{c.glyph}</span>
+            <p className={`text-[12.5px] ${c.text} flex-1 leading-relaxed`}>{competitorNotice.text}</p>
+            <button onClick={clearCompetitorNotice} title="Tutup"
+              className={`w-6 h-6 flex items-center justify-center rounded ${c.icon} ${c.hover} flex-shrink-0`}>
+              <span className="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          </div>
+        )
+      })()}
 
       <div className="flex items-center justify-between py-4 border-b border-[#e5e7eb]">
         <div>
@@ -27,7 +51,7 @@ export default function BrandCompetitorsTab() {
               : `Tracking ${brand.competitors.length} competitor account${brand.competitors.length !== 1 ? 's' : ''} · max ${MAX_COMPETITORS_PER_PLATFORM} per platform.`}
           </p>
         </div>
-        <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
+        <button onClick={() => COMPETITOR_ADD_ENABLED && toggleAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
           title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
           className={`flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
             COMPETITOR_ADD_ENABLED ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
@@ -42,7 +66,7 @@ export default function BrandCompetitorsTab() {
           <span className="material-symbols-outlined text-[44px] text-[#e5e7eb]">flag</span>
           <p style={PJB} className="text-[14px] font-bold text-[#374151]">No competitors yet</p>
           <p className="text-[13px] text-[#9ca3af]">Track competitor accounts to benchmark your brand's performance</p>
-          <button onClick={() => COMPETITOR_ADD_ENABLED && setShowAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
+          <button onClick={() => COMPETITOR_ADD_ENABLED && toggleAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
             title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
             className={`mt-1 flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
               COMPETITOR_ADD_ENABLED ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
@@ -70,7 +94,14 @@ export default function BrandCompetitorsTab() {
             </div>
             <div className="flex-1 min-w-0">
               <p style={PJB} className="text-[13.5px] font-bold text-[#111827]">{comp.username}</p>
-              <p className="text-[12px] text-[#9ca3af] mt-0.5 capitalize">{comp.platform}</p>
+              {comp.verification_status === 'pending' ? (
+                <p className="flex items-center gap-1 text-[12px] text-[#9ca3af] mt-0.5">
+                  <span className="material-symbols-outlined text-[13px] animate-spin">progress_activity</span>
+                  Memverifikasi akun…
+                </p>
+              ) : (
+                <p className="text-[12px] text-[#9ca3af] mt-0.5 capitalize">{comp.platform}</p>
+              )}
             </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
               {comp.profile_url && (
@@ -93,10 +124,16 @@ export default function BrandCompetitorsTab() {
         <CompetitorModal
           brandName={brand.name}
           competitors={brand.competitors}
-          onClose={() => setShowAdd(false)}
+          onClose={() => toggleAdd(false)}
+          // Modal yang menutup dirinya sendiri: hanya dia yang tahu apakah
+          // hasilnya layak ditutup ('verified'/'timeout') atau harus tetap
+          // terbuka supaya username-nya diperbaiki ('not_found').
           onAdded={async (platform: Platform, username: string) => {
-            await addCompetitor(platform, username)
-            setShowAdd(false)
+            const comp = await addCompetitor(platform, username)
+            // Akun yang sudah pernah di-sync langsung 'verified' — tidak ada
+            // yang perlu ditunggu.
+            if (comp.verification_status !== 'pending') return 'verified'
+            return awaitCompetitorVerification(comp, () => addOpen.current)
           }}
         />
       )}

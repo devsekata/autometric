@@ -17,7 +17,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   if (!await requireAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { scheduleTimes, postsDayOfMonth, isActive } = await req.json()
+  const { scheduleTimes, postsIntervalDays, isActive } = await req.json()
 
   const validTimes =
     Array.isArray(scheduleTimes) &&
@@ -27,14 +27,14 @@ export async function PUT(req: NextRequest) {
       typeof (t as ScheduleTime).minute === 'number' && (t as ScheduleTime).minute >= 0 && (t as ScheduleTime).minute <= 59
     )
 
-  const validDay =
-    typeof postsDayOfMonth === 'number' &&
-    Number.isInteger(postsDayOfMonth) &&
-    postsDayOfMonth >= 1 && postsDayOfMonth <= 28
+  const validInterval =
+    typeof postsIntervalDays === 'number' &&
+    Number.isInteger(postsIntervalDays) &&
+    postsIntervalDays >= 1 && postsIntervalDays <= 90
 
-  if (!validTimes)  return NextResponse.json({ error: 'Invalid scheduleTimes' }, { status: 400 })
-  if (!validDay)    return NextResponse.json({ error: 'postsDayOfMonth must be 1-28' }, { status: 400 })
+  if (!validTimes)    return NextResponse.json({ error: 'Invalid scheduleTimes' }, { status: 400 })
+  if (!validInterval) return NextResponse.json({ error: 'postsIntervalDays must be 1-90' }, { status: 400 })
 
-  await saveCompetitorSchedulerConfig(scheduleTimes, postsDayOfMonth, Boolean(isActive))
+  await saveCompetitorSchedulerConfig(scheduleTimes, postsIntervalDays, Boolean(isActive))
   return NextResponse.json({ success: true })
 }

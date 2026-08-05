@@ -20,6 +20,7 @@ import {
   type CsvUploadLogInput,
 } from '@/lib/csv/queries'
 import { CSV_PLATFORMS, isCsvPlatform, IngestResult } from '@/lib/csv/types'
+import { checkAccountExists } from '@/lib/accounts/verifyAccount'
 import { Platform } from '@/lib/brands/types'
 
 type Params = { params: Promise<{ brandId: string }> }
@@ -114,38 +115,85 @@ export async function POST(req: NextRequest, { params }: Params) {
     const accountByPlatform = new Map(existing.map(a => [a.platform, a]))
     const accounts: Record<string, string> = {}
 
-    for (const platform of platforms) {
+    // Dua fase, dan pemisahannya disengaja:
+    //
+    //   1. Periksa semua platform SEKALIGUS. Cek keberadaan akun lewat Apify
+    //      makan 15-60 detik per platform; berurutan, batch IG+FB membayar dua
+    //      kali lipat untuk dua run yang sebetulnya tidak saling menunggu.
+    //      Fase ini tidak menulis apa pun.
+    //   2. Baru buat akunnya, setelah SEMUA platform lolos.
+    //
+    // Dipisah supaya batch tetap utuh-atau-tidak-sama-sekali: kalau username IG
+    // salah tulis sementara FB benar, tidak boleh ada akun FB yang tertinggal
+    // dari batch yang ditolak.
+    type PlatformCheck =
+      /** Akunnya sudah ada — pakai yang ini. */
+      | { ok: true; platform: Platform; existingId: string }
+      /** Username lolos pemeriksaan — akunnya dibuat di fase 2. */
+      | { ok: true; platform: Platform; newUsername: string }
+      /** Batch ditolak. */
+      | { ok: false; error: string; status: number }
+
+    const checks = await Promise.all([...platforms].map(async (platform): Promise<PlatformCheck> => {
       const already = accountByPlatform.get(platform)
       if (already) {
         // Sumber campur untuk satu platform tidak diizinkan.
         try {
           await assertPlatformFreeForCsv(brandId, platform)
         } catch (e) {
-          if (e instanceof PlatformTakenError) {
-            return NextResponse.json({ error: e.message }, { status: 409 })
-          }
+          if (e instanceof PlatformTakenError) return { ok: false, error: e.message, status: 409 }
           throw e
         }
-        accounts[platform] = already.social_account_id
-        continue
+        return { ok: true, platform, existingId: already.social_account_id }
       }
 
       const username = assignments.find(a => a.platform === platform && a.username?.trim())
         ?.username?.trim().replace(/^@/, '')
       if (!username) {
-        return NextResponse.json({
+        return {
+          ok: false,
           error: `Brand ini belum punya akun ${platform}. Isi username akun ` +
                  `${platform} lebih dulu supaya datanya punya pemilik yang jelas.`,
-        }, { status: 400 })
+          status: 400,
+        }
       }
-      if (dryRun) {
+      // Pastikan akunnya betul ADA sebelum dibuat, dan sebelum satu file pun
+      // diproses. Kalau username-nya salah tulis, SELURUH batch ditolak: lebih
+      // baik tidak ada data yang masuk daripada masuk atas nama akun hantu, yang
+      // baru terasa jauh di hilir saat angkanya tidak pernah muncul di dashboard.
+      //
+      // Pada pratinjau, leg Apify dilewati — tidak ada yang dibuat, jadi tidak
+      // pantas membakar 15-60 detik dan satu actor run hanya untuk melihat
+      // pemetaan kolom. Validasi format dan pre-check gratis tetap jalan.
+      const check = await checkAccountExists(platform, username, { apify: !dryRun })
+      if (check.state === 'rejected') {
+        return { ok: false, error: check.message, status: 400 }
+      }
+      if (check.state === 'unverified') {
+        console.warn(`[csv/ingest] @${username} (${platform}) tidak terverifikasi: ${check.reason}`)
+      }
+      return { ok: true, platform, newUsername: username }
+    }))
+
+    // Laporkan kegagalan menurut urutan platform, bukan menurut siapa yang
+    // selesai duluan — batch yang sama harus selalu memberi pesan yang sama.
+    const failed = checks.find((c): c is Extract<PlatformCheck, { ok: false }> => !c.ok)
+    if (failed) {
+      return NextResponse.json({ error: failed.error }, { status: failed.status })
+    }
+
+    for (const c of checks) {
+      if (!c.ok) continue
+      if ('existingId' in c) {
+        accounts[c.platform] = c.existingId
+      } else if (dryRun) {
         // Pratinjau tidak boleh membuat akun. Pakai id semu supaya transformasi
         // tetap bisa jalan; tidak ada yang ditulis ke database.
-        accounts[platform] = '00000000-0000-0000-0000-000000000000'
-        continue
+        accounts[c.platform] = '00000000-0000-0000-0000-000000000000'
+      } else {
+        const created = await connectCsvAccount(brandId, c.platform, c.newUsername)
+        accounts[c.platform] = created.id
       }
-      const created = await connectCsvAccount(brandId, platform, username)
-      accounts[platform] = created.id
     }
 
     const files: EngineFile[] = await Promise.all(uploads.map(async f => ({

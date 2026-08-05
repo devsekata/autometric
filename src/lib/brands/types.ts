@@ -33,6 +33,12 @@ export interface SocialAccount {
   profile_url: string | null
   connected: boolean
   connected_at: string | null
+  /**
+   * 'csv' = akun tanpa token, datanya diunggah manual. `connected` selalu false
+   * untuk akun seperti ini, jadi tanpa kolom ini UI tidak bisa membedakannya
+   * dari akun OAuth yang tokennya kedaluwarsa — dua hal yang sangat berbeda.
+   */
+  data_source?: 'api' | 'csv'
 }
 
 export interface CompetitorAccount {
@@ -42,6 +48,12 @@ export interface CompetitorAccount {
   avatar_url: string | null
   profile_url: string | null
   is_new_account?: boolean
+  /**
+   * 'pending' = Apify masih memverifikasi akunnya benar-benar ada. Kalau ternyata
+   * tidak ada, linknya dihapus — jadi tidak ada state 'invalid' yang perlu
+   * ditampilkan, cuma spinner sementara.
+   */
+  verification_status?: 'pending' | 'verified'
 }
 
 export interface Brand {
