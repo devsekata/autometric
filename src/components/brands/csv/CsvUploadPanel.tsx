@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PlatformIcon from '../PlatformIcon'
-import { Platform } from '@/lib/brands/types'
+import { Platform, PLATFORM_CONFIG } from '@/lib/brands/types'
 import { CSV_PLATFORMS, DetectedFile, IngestResult } from '@/lib/csv/types'
 import type { CategoryCatalog } from '@/lib/csv/engine'
+import { isValidHandle, invalidHandleMessage } from '@/lib/competitors/verify'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
+const PLATFORM_LABEL = (p: Platform) => PLATFORM_CONFIG[p]?.label ?? p
 const ACCEPT = '.csv,.xlsx,.xls'
 
 /** Akun yang sudah terpasang di brand. Hanya `platform` yang benar-benar
@@ -121,7 +123,15 @@ export default function CsvUploadPanel({
 
   const blocked = rows.filter(r => !r.platform || !r.category)
   const missingUsername = missingAccountPlatforms.filter(p => !usernameByPlatform.get(p))
-  const canSend = rows.length > 0 && blocked.length === 0 && missingUsername.length === 0
+  // Format handle salah ditangkap di sini, sebelum satu byte pun dikirim.
+  // Keberadaan akunnya sendiri diverifikasi server lewat Apify (15-60 detik),
+  // jadi tidak perlu menunggu selama itu untuk mengetahui ada spasi di username.
+  const badUsername = missingAccountPlatforms.filter(p => {
+    const u = usernameByPlatform.get(p)
+    return !!u && !isValidHandle(p, u.replace(/^@/, ''))
+  })
+  const canSend = rows.length > 0 && blocked.length === 0
+    && missingUsername.length === 0 && badUsername.length === 0
 
   async function send(dryRun: boolean) {
     setError('')
@@ -421,6 +431,29 @@ export default function CsvUploadPanel({
       )}
 
       {error && <p className="text-[12px] text-red-500">{error}</p>}
+
+      {/* Alasan tombol Proses mati. Tanpa ini tombolnya cuma redup tanpa
+          keterangan, dan username berspasi adalah penyebab paling sering. */}
+      {badUsername.length > 0 && (
+        <p className="text-[12px] text-red-500">
+          {invalidHandleMessage(badUsername[0], (usernameByPlatform.get(badUsername[0]) ?? '').replace(/^@/, ''))}
+        </p>
+      )}
+      {badUsername.length === 0 && missingUsername.length > 0 && (
+        <p className="text-[12px] text-[#b45309]">
+          Isi username akun {missingUsername.map(p => PLATFORM_LABEL(p)).join(', ')} lebih dulu —
+          brand ini belum punya akunnya, jadi datanya perlu pemilik yang jelas.
+        </p>
+      )}
+
+      {/* Verifikasi akun terjadi di server dan butuh Apify, jadi harapkan
+          tunggunya di depan supaya "Memproses…" yang lama tidak terasa macet. */}
+      {phase === 'sending' && missingAccountPlatforms.length > 0 && (
+        <p className="text-[12px] text-[#22615c]">
+          Memeriksa dulu apakah akun {missingAccountPlatforms.map(p => PLATFORM_LABEL(p)).join(', ')} benar-benar
+          ada… bagian ini bisa 15–60 detik per platform.
+        </p>
+      )}
 
       <div className="flex items-center justify-between gap-2">
         <button type="button" onClick={() => { setRows([]); setResults([]); setPhase('pick') }} style={PJB}

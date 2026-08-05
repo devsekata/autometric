@@ -17,7 +17,8 @@ const BRAND_WITH_RELATIONS = `
           'avatar_url',   sa.avatar_url,
           'profile_url',  sa.profile_url,
           'connected',    sa.connected,
-          'connected_at', bsa.created_at
+          'connected_at', bsa.created_at,
+          'data_source',  sa.data_source
         ) ORDER BY bsa.created_at
       ) FILTER (WHERE sa.id IS NOT NULL),
       '[]'
@@ -26,11 +27,12 @@ const BRAND_WITH_RELATIONS = `
       (
         SELECT json_agg(
           json_build_object(
-            'social_account_id', csa.id,
-            'platform',          cp.key,
-            'username',          csa.username,
-            'avatar_url',        csa.avatar_url,
-            'profile_url',       csa.profile_url
+            'social_account_id',   csa.id,
+            'platform',            cp.key,
+            'username',            csa.username,
+            'avatar_url',          csa.avatar_url,
+            'profile_url',         csa.profile_url,
+            'verification_status', bc.verification_status
           )
         )
         FROM brand_competitors bc
@@ -324,14 +326,25 @@ export async function disconnectSocialAccount(brandId: string, socialAccountId: 
 
 // Competitor quota is counted per platform, so a brand can track the maximum on
 // Instagram, TikTok and Facebook independently.
-export async function countBrandCompetitorsOnPlatform(brandId: string, platformKey: string): Promise<number> {
+/**
+ * Hitung competitor brand ini pada satu platform, untuk penegakan kuota.
+ *
+ * `excludeUsername` membuat penambahan-ulang username yang SUDAH terdaftar tidak
+ * dihitung sebagai slot baru. Tanpa itu, mencoba lagi (Finish di wizard setelah
+ * satu akun gagal, atau Add ulang di modal) akan ditolak 409 "limit reached"
+ * padahal tidak ada slot baru yang dipakai.
+ */
+export async function countBrandCompetitorsOnPlatform(
+  brandId: string, platformKey: string, excludeUsername?: string,
+): Promise<number> {
   const { rows } = await pool.query<{ count: number }>(
     `SELECT count(*)::int AS count
        FROM brand_competitors bc
        JOIN social_accounts csa ON csa.id = bc.social_account_id
        JOIN platforms cp        ON cp.id  = csa.platform_id
-      WHERE bc.brand_id = $1 AND cp.key = $2`,
-    [brandId, platformKey]
+      WHERE bc.brand_id = $1 AND cp.key = $2
+        AND ($3::text IS NULL OR csa.username <> $3)`,
+    [brandId, platformKey, excludeUsername ?? null]
   )
   return rows[0]?.count ?? 0
 }
@@ -345,6 +358,12 @@ export async function addCompetitor(
     profileUrl?: string | null
     platformUserId?: string | null
   },
+  /**
+   * 'pending' selama Apify belum mengonfirmasi akunnya ada. Pemanggil menyetel
+   * 'verified' hanya kalau akun itu sudah punya snapshot — buktinya sudah ada,
+   * jadi tidak perlu diverifikasi ulang.
+   */
+  verificationStatus: 'pending' | 'verified' = 'pending',
 ): Promise<CompetitorAccount> {
   const client = await pool.connect()
   try {
@@ -376,9 +395,18 @@ export async function addCompetitor(
     const sa = saRows[0]
 
     await client.query(
-      `INSERT INTO brand_competitors (brand_id, social_account_id)
-       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [brandId, sa.id]
+      // $3 di-cast eksplisit: dipakai di dua konteks (nilai kolom + perbandingan
+      // di CASE), dan tanpa cast Postgres menolak dengan "inconsistent types
+      // deduced for parameter $3".
+      `INSERT INTO brand_competitors (brand_id, social_account_id, verification_status, verified_at)
+       VALUES ($1, $2, $3::varchar, CASE WHEN $3::varchar = 'verified' THEN now() END)
+       ON CONFLICT (brand_id, social_account_id) DO UPDATE
+         -- Re-add setelah dihapus: jangan turunkan link yang sudah 'verified'.
+         SET verification_status = CASE
+               WHEN brand_competitors.verification_status = 'verified' THEN 'verified'
+               ELSE EXCLUDED.verification_status
+             END`,
+      [brandId, sa.id, verificationStatus]
     )
 
     await client.query('COMMIT')
@@ -389,6 +417,7 @@ export async function addCompetitor(
       avatar_url: sa.avatar_url,
       profile_url: sa.profile_url,
       is_new_account: sa.is_new,
+      verification_status: verificationStatus,
     }
   } catch (err) {
     await client.query('ROLLBACK')
@@ -421,7 +450,8 @@ export async function listBrandCompetitors(brandId: string): Promise<CompetitorA
        cp.key          AS platform,
        csa.username,
        csa.avatar_url,
-       csa.profile_url
+       csa.profile_url,
+       bc.verification_status
      FROM brand_competitors bc
      JOIN social_accounts csa ON csa.id = bc.social_account_id
      JOIN platforms cp        ON cp.id  = csa.platform_id

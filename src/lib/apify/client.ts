@@ -13,9 +13,43 @@ const IG_ACTOR         = 'apify~instagram-scraper'
 const POLL_INTERVAL_MS = 5_000
 const MAX_WAIT_MS       = 8 * 60_000
 
+// --- Item error ---
+//
+// Actor Apify TIDAK mengembalikan dataset kosong untuk akun yang tidak ada. Dia
+// mengembalikan satu item penanda error, dan untuk Instagram item itu bahkan
+// memuat `username` yang kita kirimkan — jadi mengecek `items[0]` truthy atau
+// melihat `username` sama-sama tidak cukup. Bentuk aslinya (diuji 30 Jul 2026):
+//
+//   IG @ngawur → { url, username: '<yang kita kirim>', error: 'not_found',
+//                  errorDescription: 'Post does not exist' }
+//   FB /ngawur → { url, error: 'not_available',
+//                  errorDescription: "This content isn't available because …" }
+export interface ApifyItemError {
+  error?: string
+  errorDescription?: string
+}
+
+/**
+ * Kode error yang berarti "tidak akan pernah ada datanya".
+ *
+ * `not_available` juga muncul untuk halaman yang dibatasi audiensnya, bukan hanya
+ * yang dihapus — Apify tidak membedakan keduanya. Efeknya bagi kita sama: profil
+ * itu tidak bisa di-scrape sama sekali. Kode di luar daftar ini DIANGGAP
+ * SEMENTARA dan tidak boleh memicu penghapusan competitor.
+ */
+const GONE_CODES = new Set(['not_found', 'not_available'])
+
+/** Ambil penanda error dari satu item dataset, kalau ada. */
+export function apifyItemError(item: unknown): { code: string; description: string; gone: boolean } | null {
+  if (!item || typeof item !== 'object') return null
+  const { error, errorDescription } = item as ApifyItemError
+  if (!error) return null
+  return { code: error, description: errorDescription ?? '', gone: GONE_CODES.has(error) }
+}
+
 // --- Raw response shapes (only the fields we map) ---
 
-export interface ApifyFbProfile {
+export interface ApifyFbProfile extends ApifyItemError {
   facebookId?: string
   pageId?: string
   title?: string
@@ -100,7 +134,7 @@ export interface ApifyTiktokPost {
 // --- Instagram (apify~instagram-scraper) ---
 // Profile (resultsType 'details') and posts (resultsType 'posts') come from the
 // same actor, so we model both shapes here.
-export interface ApifyIgProfile {
+export interface ApifyIgProfile extends ApifyItemError {
   id?: string
   username?: string
   fullName?: string
@@ -234,12 +268,25 @@ export async function fetchFbProfile(username: string): Promise<ApifyFbProfile |
 }
 
 export async function fetchFbPosts(username: string, days: number): Promise<ApifyFbPost[]> {
-  return runActor<ApifyFbPost>(FB_POSTS_ACTOR, {
+  const items = await runActor<ApifyFbPost>(FB_POSTS_ACTOR, {
     startUrls:          [{ url: facebookUrlFromUsername(username), method: 'GET' }],
     onlyPostsNewerThan: `${days} days`,
     resultsLimit:       500,
     captionText:        false,
   })
+  return dropErrorItems(items)
+}
+
+/**
+ * Buang item penanda error dari daftar post.
+ *
+ * Untuk akun yang tidak ada, actor mengembalikan SATU item error. Tanpa disaring,
+ * item itu terhitung sebagai "1 post ditemukan" — angka yang bohong di log dan di
+ * `records_synced`. Khusus fetcher profil item ini TIDAK disaring: di sana isinya
+ * justru dibutuhkan untuk membedakan akun hilang dari gangguan sementara.
+ */
+function dropErrorItems<T>(items: T[]): T[] {
+  return items.filter(i => !apifyItemError(i))
 }
 
 // --- TikTok fetcher ---
@@ -303,7 +350,7 @@ export async function fetchIgProfile(username: string): Promise<ApifyIgProfile |
 }
 
 export async function fetchIgPosts(username: string, days: number): Promise<ApifyIgPost[]> {
-  return runActor<ApifyIgPost>(IG_ACTOR, {
+  const items = await runActor<ApifyIgPost>(IG_ACTOR, {
     directUrls:                        [instagramUrlFromUsername(username)],
     resultsType:                       'posts',
     onlyPostsNewerThan:                `${days} days`,
@@ -315,6 +362,7 @@ export async function fetchIgPosts(username: string, days: number): Promise<Apif
     isUserReelFeedURL:                 false,
     isUserTaggedFeedURL:               false,
   })
+  return dropErrorItems(items)
 }
 
 export class ApifyAuthError extends Error {

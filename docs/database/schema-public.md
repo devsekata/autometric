@@ -356,10 +356,17 @@ Jembatan brand ↔ akun **kompetitor**. Composite PK, tanpa kolom `id`.
 | `brand_id` | uuid | NO | | → `brands.id` **CASCADE** |
 | `social_account_id` | uuid | NO | | → `social_accounts.id` **CASCADE** |
 | `created_at` | timestamptz | NO | `now()` | |
+| `verification_status` | varchar(10) | NO | `'verified'` | `pending` selagi Apify memverifikasi akunnya ada |
+| `verified_at` | timestamptz | YES | | Kapan terverifikasi |
+| `verification_error` | text | YES | | Alasan gagal terakhir (error transien; hanya saat `pending`) |
 
 **PK:** `(brand_id, social_account_id)` — satu akun tidak bisa didaftarkan dua kali sebagai kompetitor brand yang sama.
 
-**Index:** `idx_brand_competitors_brand`, `_social`.
+**Constraint:** `verification_status IN ('pending','verified')`.
+
+**Index:** `idx_brand_competitors_brand`, `_social`, `idx_brand_competitors_pending` (partial, hanya `pending`).
+
+**Alur verifikasi:** `POST /competitors` melakukan pre-check murah (hanya TikTok yang punya lookup publik andal — lihat `src/lib/competitors/verify.ts`), lalu membuat baris `pending`. Apify initial sync menaikkannya ke `verified`, atau **menghapus link ini di semua brand** kalau platform memastikan akunnya tidak ada. Tidak ada state `invalid`: yang terbukti tidak ada langsung dilepas. Error transien dibiarkan `pending` supaya scheduler harian mencoba lagi.
 
 > Tidak ada batas jumlah kompetitor per brand di level DB, dan tidak ada unique per platform — satu brand boleh punya banyak kompetitor Instagram sekaligus. Berbeda dengan `brand_social_accounts` yang dibatasi satu per platform.
 >
@@ -393,19 +400,20 @@ Singleton — konfigurasi sync harian **akun sendiri** (API resmi platform).
 
 ### `competitor_scheduler_config`
 
-Singleton — konfigurasi sync **kompetitor** via Apify. Terpisah dari `scheduler_config` karena ritmenya beda: profil harian, post bulanan (Apify berbayar per-run).
+Singleton — konfigurasi sync **kompetitor** via Apify. Terpisah dari `scheduler_config` karena ritmenya beda: profil harian, post berkala (Apify berbayar per-run).
 
 | Kolom | Tipe | Null | Default | Keterangan |
 |---|---|---|---|---|
 | `id` | uuid | NO | `gen_random_uuid()` | PK |
-| `schedule_times` | jsonb | NO | `[{"hour": 3, "minute": 0}]` | Jam sync **profil** harian |
-| `posts_day_of_month` | integer | NO | `1` | Tanggal berapa scrape **post** dijalankan |
+| `schedule_times` | jsonb | NO | `[{"hour": 0, "minute": 5}]` | Jam sync **profil** harian (WIB) |
+| `posts_interval_days` | integer | NO | `28` | Minimum hari antar sync **post** |
+| `last_posts_sync_at` | timestamptz | YES | | Kapan post terakhir di-sync (`NULL` = belum pernah) |
 | `is_active` | boolean | NO | `true` | Kill switch |
 | `updated_at` | timestamptz | NO | `now()` | |
 
-**Constraint:** `posts_day_of_month BETWEEN 1 AND 28` — dibatasi 28 supaya valid di semua bulan termasuk Februari.
+**Constraint:** `posts_interval_days BETWEEN 1 AND 90`.
 
-> Default `hour: 3` sengaja setelah `scheduler_config` (`hour: 2`) agar sync akun sendiri selesai lebih dulu.
+> Post di-sync begitu `now() - last_posts_sync_at >= posts_interval_days`, **bukan** di tanggal tetap. Versi sebelumnya (`posts_day_of_month`) menuntut tanggal WIB dan menit WIB cocok persis; sekali terlewat, post tidak ter-sync sebulan penuh tanpa catch-up — dan itu betulan terjadi (`scheduler_logs` tidak pernah punya entri `competitor_posts`). Basis selang waktu membuat run yang terlewat diambil run berikutnya.
 
 **Dipakai di:** `src/lib/competitors/scheduler-config.ts`.
 

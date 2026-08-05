@@ -25,6 +25,8 @@ export type SchedulerSummary = {
   success:  number
   failed:   number
   errors?:  string[]
+  /** Competitor-only: link yang dilepas karena akunnya terbukti tidak ada lagi. */
+  removed?: number
 }
 
 // Thresholds: refresh if token expires within this many ms

@@ -26,9 +26,22 @@ function nextRunLabel(times: ScheduleTime[], isActive: boolean): string {
   return `Profile berikutnya: ${fmtTime(next)} WIB · ${label} lagi`
 }
 
+const POSTS_INTERVAL_OPTIONS = [7, 14, 21, 28, 30, 60, 90]
+
+function fmtLastSync(iso: string | null): string {
+  if (!iso) return 'Belum pernah'
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return 'Belum pernah'
+  const days = Math.floor((Date.now() - then) / 86_400_000)
+  const date = new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+  if (days <= 0) return `Hari ini (${date})`
+  return `${days} hari lalu (${date})`
+}
+
 export default function CompetitorSchedulerSettingsPage() {
-  const [times,      setTimes]      = useState<ScheduleTime[]>([{ hour: 3, minute: 0 }])
-  const [postsDay,   setPostsDay]   = useState(1)
+  const [times,      setTimes]      = useState<ScheduleTime[]>([{ hour: 0, minute: 5 }])
+  const [postsEvery, setPostsEvery] = useState(28)
+  const [lastPosts,  setLastPosts]  = useState<string | null>(null)
   const [isActive,   setIsActive]   = useState(true)
   const [loading,    setLoading]    = useState(true)
   const [saving,     setSaving]     = useState(false)
@@ -45,8 +58,9 @@ export default function CompetitorSchedulerSettingsPage() {
     fetch('/api/admin/competitor-scheduler/config')
       .then(r => r.json())
       .then(d => {
-        setTimes(d.scheduleTimes ?? [{ hour: 3, minute: 0 }])
-        setPostsDay(d.postsDayOfMonth ?? 1)
+        setTimes(d.scheduleTimes ?? [{ hour: 0, minute: 5 }])
+        setPostsEvery(d.postsIntervalDays ?? 28)
+        setLastPosts(d.lastPostsSyncAt ?? null)
         setIsActive(d.isActive ?? true)
       })
       .catch(() => {})
@@ -75,7 +89,7 @@ export default function CompetitorSchedulerSettingsPage() {
     try {
       const res = await fetch('/api/admin/competitor-scheduler/config', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scheduleTimes: times, postsDayOfMonth: postsDay, isActive }),
+        body: JSON.stringify({ scheduleTimes: times, postsIntervalDays: postsEvery, isActive }),
       })
       if (!res.ok) { setSaveError('Gagal menyimpan'); return }
       setSaved(true); setTimeout(() => setSaved(false), 2500)
@@ -184,11 +198,11 @@ export default function CompetitorSchedulerSettingsPage() {
           </div>
         </div>
 
-        {/* Posts day-of-month */}
+        {/* Posts interval */}
         <div className="bg-white border border-[#e2e8f0] rounded-2xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-[#f1f5f9]">
-            <p className="text-[13px] font-bold text-[#0f172a]" style={PJB}>Jadwal Posts (Bulanan)</p>
-            <p className="text-[12px] text-[#94a3b8] mt-0.5" style={PJB}>Posts 30 hari terakhir di-sync untuk semua competitor di tanggal ini tiap bulan</p>
+            <p className="text-[13px] font-bold text-[#0f172a]" style={PJB}>Jadwal Posts (Berkala)</p>
+            <p className="text-[12px] text-[#94a3b8] mt-0.5" style={PJB}>Posts 30 hari terakhir di-sync kalau sudah lewat selang waktu ini sejak sync terakhir</p>
           </div>
           <div className="px-5 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -196,16 +210,18 @@ export default function CompetitorSchedulerSettingsPage() {
                 <span className="material-symbols-outlined text-[15px] text-[#1B8A80]">event_repeat</span>
               </div>
               <div>
-                <span className="text-[14px] font-semibold text-[#0f172a]" style={PJB}>Sync posts tiap tanggal</span>
-                <p className="text-[11.5px] text-[#94a3b8] mt-0.5" style={PJB}>Posts juga ikut di-sync di jam yang sama dengan profile</p>
+                <span className="text-[14px] font-semibold text-[#0f172a]" style={PJB}>Sync posts tiap</span>
+                <p className="text-[11.5px] text-[#94a3b8] mt-0.5" style={PJB}>
+                  Terakhir: {fmtLastSync(lastPosts)} · ikut jam profile
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 px-4 py-2.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0]">
-              <select value={postsDay} onChange={e => setPostsDay(+e.target.value)}
+              <select value={postsEvery} onChange={e => setPostsEvery(+e.target.value)}
                 className="bg-transparent text-[15px] font-bold text-[#0f172a] focus:outline-none cursor-pointer" style={PJB}>
-                {Array.from({ length: 28 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}
+                {POSTS_INTERVAL_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
-              <span className="text-[11.5px] text-[#94a3b8]" style={PJB}>tiap bulan</span>
+              <span className="text-[11.5px] text-[#94a3b8]" style={PJB}>hari</span>
             </div>
           </div>
         </div>
@@ -266,7 +282,7 @@ export default function CompetitorSchedulerSettingsPage() {
                 <span className="material-symbols-outlined text-[11px] text-[#166534]">grid_view</span>
               </div>
               <p className="text-[12.5px] text-[#64748b]" style={PJB}>
-                <span className="font-semibold text-[#334155]">Posts:</span> di-sync (30 hari terakhir) sekali sebulan di tanggal yang dipilih. Tanggal dibatasi 1–28 agar tidak pernah terlewat.
+                <span className="font-semibold text-[#334155]">Posts:</span> di-sync (30 hari terakhir) begitu selang waktunya terlampaui — bukan di tanggal tetap. Run yang terlewat diambil run berikutnya, jadi tidak pernah bolong sebulan.
               </p>
             </div>
             <div className="flex items-start gap-2.5">

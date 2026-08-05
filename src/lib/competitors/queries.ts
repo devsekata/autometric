@@ -33,6 +33,53 @@ export async function competitorHasSnapshot(socialAccountId: string, platform: s
   return rows.length > 0
 }
 
+/**
+ * Tandai akun ini terverifikasi ada.
+ *
+ * Meng-update SEMUA link brand yang menunjuk akun ini, bukan cuma satu: "akunnya
+ * ada" itu fakta tentang akunnya, bukan tentang relasinya ke satu brand. Kalau
+ * hanya satu yang di-update, brand kedua yang memantau competitor yang sama akan
+ * tersangkut 'pending' selamanya — initial sync-nya di-skip karena snapshot sudah
+ * ada (lihat competitorHasSnapshot).
+ */
+export async function markCompetitorVerified(socialAccountId: string): Promise<void> {
+  await pool.query(
+    `UPDATE brand_competitors
+        SET verification_status = 'verified',
+            verified_at        = now(),
+            verification_error = NULL
+      WHERE social_account_id = $1`,
+    [socialAccountId],
+  )
+}
+
+/** Catat alasan gagal tanpa mengubah status — dipakai untuk error transien. */
+export async function recordCompetitorVerifyError(socialAccountId: string, error: string): Promise<void> {
+  await pool.query(
+    `UPDATE brand_competitors
+        SET verification_error = left($2, 500)
+      WHERE social_account_id = $1 AND verification_status = 'pending'`,
+    [socialAccountId, error],
+  )
+}
+
+/**
+ * Akun terbukti tidak ada → lepaskan dari SEMUA brand.
+ *
+ * Sengaja tidak menyentuh social_accounts: baris itu global dan bisa saja dipakai
+ * sebagai akun milik sendiri. Melepas link sudah cukup untuk mengeluarkannya dari
+ * scheduler (listAllCompetitorAccounts join ke brand_competitors).
+ *
+ * Mengembalikan jumlah link yang dihapus.
+ */
+export async function deleteCompetitorLinks(socialAccountId: string): Promise<number> {
+  const { rowCount } = await pool.query(
+    `DELETE FROM brand_competitors WHERE social_account_id = $1`,
+    [socialAccountId],
+  )
+  return rowCount ?? 0
+}
+
 export async function listAllCompetitorAccounts(): Promise<CompetitorSyncAccount[]> {
   const { rows } = await pool.query<CompetitorSyncAccount>(`
     SELECT DISTINCT ON (csa.id)

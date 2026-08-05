@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { CompetitorAccount, Platform, PLATFORM_CONFIG, PLATFORM_LIST } from '@/lib/brands/types'
 import PlatformIcon from '../PlatformIcon'
 import { MAX_COMPETITORS_PER_PLATFORM, competitorQuotaMessage } from '@/lib/quotas'
+import { isValidHandle, invalidHandleMessage } from '@/lib/competitors/verify'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -11,7 +12,12 @@ interface Props {
   brandName: string
   competitors: CompetitorAccount[]
   onClose: () => void
-  onAdded: (platform: Platform, username: string) => Promise<void>
+  /**
+   * Membuat competitor lalu MENUNGGU verifikasinya, mengembalikan hasil akhirnya.
+   * Modal tidak menutup sendiri: 'not_found' membiarkannya terbuka supaya
+   * username-nya bisa langsung diperbaiki.
+   */
+  onAdded: (platform: Platform, username: string) => Promise<'verified' | 'not_found' | 'timeout'>
 }
 
 export default function CompetitorModal({ brandName, competitors, onClose, onAdded }: Props) {
@@ -19,6 +25,9 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
   const [username, setUsername] = useState('')
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
+  // Fase kedua: baris sudah dibuat, Apify sedang memastikan akunnya ada.
+  const [checking, setChecking] = useState(false)
+  const busy = loading || checking
 
   // Quota is counted per platform — a full Instagram slot leaves TikTok/Facebook open.
   const usedPerPlatform = useMemo(() => {
@@ -35,14 +44,30 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
     if (selectedFull) { setError(competitorQuotaMessage(PLATFORM_CONFIG[platform].label)); return }
     const trimmed = username.trim().replace(/^@/, '')
     if (!trimmed) { setError('Enter a username.'); return }
+    // Cermin validasi server: handle berspasi bikin actor Apify menolak start-run.
+    if (!isValidHandle(platform, trimmed)) {
+      setError(invalidHandleMessage(platform, trimmed)); return
+    }
 
     setLoading(true)
     try {
-      await onAdded(platform, trimmed)
+      // Fase 1 selesai begitu barisnya dibuat; fase 2 menunggu Apify. Keduanya
+      // dijalani tanpa menutup modal, jadi hasilnya bisa muncul di sini.
+      setChecking(true)
+      const outcome = await onAdded(platform, trimmed)
+      if (outcome === 'not_found') {
+        // Barisnya sudah dilepas server. Modal tetap terbuka, username dibiarkan
+        // supaya cukup diperbaiki lalu Add lagi.
+        setError(`Akun @${trimmed} tidak ditemukan di ${PLATFORM_CONFIG[platform].label}. ` +
+                 `Periksa lagi penulisannya.`)
+        return
+      }
+      onClose() // 'verified' atau 'timeout' — sisanya diurus di latar
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
       setLoading(false)
+      setChecking(false)
     }
   }
 
@@ -108,25 +133,43 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
                 value={username.replace(/^@/, '')}
                 onChange={e => { setUsername(e.target.value); setError('') }}
                 placeholder={platform ? `competitor.${platform}.handle` : 'select a platform first'}
-                disabled={!platform}
+                disabled={!platform || busy}
                 maxLength={60}
                 className="w-full h-9 pl-7 pr-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none transition-all focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>
 
-          {error && <p className="text-[12px] text-red-500 -mt-2">{error}</p>}
+          {/* Sedang diperiksa. Diberi durasi harapan yang jujur (terukur 7-59
+              detik) supaya menunggu terasa wajar, bukan seperti macet. */}
+          {checking && (
+            <div className="flex items-start gap-2.5 -mt-1 px-3 py-2.5 bg-[#f0f7f5] border border-[#cfe6e1] rounded-lg">
+              <span className="material-symbols-outlined text-[16px] text-[#1B8A80] animate-spin flex-shrink-0">
+                progress_activity
+              </span>
+              <p className="text-[12px] text-[#22615c] leading-relaxed">
+                Memeriksa apakah akun ini benar-benar ada… biasanya 10–60 detik.
+                <span className="block text-[11px] text-[#5c8a84] mt-0.5">
+                  Jangan tutup jendela ini kalau ingin tahu hasilnya.
+                </span>
+              </p>
+            </div>
+          )}
+
+          {error && !checking && <p className="text-[12px] text-red-500 -mt-2">{error}</p>}
         </form>
 
         <div className="border-t border-[#f3f4f6]" />
         <div className="px-6 py-4 flex items-center justify-end gap-2">
           <button type="button" onClick={onClose}
             className="h-8 px-3.5 text-[13px] font-medium text-[#6b7280] hover:text-[#111827] hover:bg-[#f9fafb] rounded-lg transition-colors">
-            Cancel
+            {/* Tetap aktif saat memeriksa: competitor-nya sudah tersimpan, dan
+                verifikasi jalan terus di latar walau modalnya ditutup. */}
+            {busy ? 'Tutup' : 'Cancel'}
           </button>
-          <button onClick={handleSubmit} disabled={!platform || selectedFull || !username.trim() || loading} style={PJB}
+          <button onClick={handleSubmit} disabled={!platform || selectedFull || !username.trim() || busy} style={PJB}
             className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors">
-            {loading ? 'Adding…' : 'Add Competitor'}
+            {checking ? 'Memeriksa…' : loading ? 'Adding…' : 'Add Competitor'}
           </button>
         </div>
       </div>

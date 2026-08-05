@@ -117,14 +117,8 @@ export function buildPeriodQS(period: Period, start: string | null, end: string 
   return `period=${encodeURIComponent(period)}`
 }
 
-// Human label for a custom range, e.g. "1 Jun – 30 Jun 2026". Shows the year on
-// both sides only when the range straddles two years.
-export function fmtRangeLabel(start: string, end: string): string {
-  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
-  const day = (iso: string) => { const [, m, d] = iso.split('-').map(Number); return `${d} ${M[m - 1]}` }
-  const ys = start.slice(0, 4), ye = end.slice(0, 4)
-  return ys === ye ? `${day(start)} – ${day(end)} ${ye}` : `${day(start)} ${ys} – ${day(end)} ${ye}`
-}
+// Range labels now live with the picker that owns them: see fmtSelection() in
+// src/components/dashboard/DateRangePicker.tsx.
 
 /* ─────────────────────────  CONTENT OVERVIEW  ───────────────────────── */
 

@@ -4,7 +4,7 @@ import { runScheduler } from './scheduler'
 import {
   getCompetitorSchedulerConfig,
   shouldRunNow as shouldRunCompetitorNow,
-  isPostsDay,
+  shouldSyncPosts,
 } from '@/lib/competitors/scheduler-config'
 import { runCompetitorScheduler } from '@/lib/competitors/scheduler'
 
@@ -32,7 +32,7 @@ export function startCron() {
     try {
       const cConfig = await getCompetitorSchedulerConfig()
       if (shouldRunCompetitorNow(cConfig)) {
-        const syncPosts = isPostsDay(cConfig)
+        const syncPosts = shouldSyncPosts(cConfig)
         console.log('[Cron] Competitor scheduler triggered at', new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }), 'WIB · syncPosts=', syncPosts)
         await runCompetitorScheduler('competitor-daily', { syncPosts })
       }
