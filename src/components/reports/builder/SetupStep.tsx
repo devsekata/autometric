@@ -47,13 +47,13 @@ export default function SetupStep(props: {
         </div>
         <div className="p-6 space-y-5">
           {props.templates.length > 0 && (
-            <div className="rounded-xl border border-[#e3ece9] bg-gradient-to-br from-[#F1F2FB] to-[#eef4f7] p-4">
+            <div className="rounded-xl border border-[#e3ece9] bg-gradient-to-br from-[#EAF2F6] to-[#eef4f7] p-4">
               <Label>Start from a saved template</Label>
               <select
                 value={pickedId}
                 onChange={e => handlePickTemplate(e.target.value)}
                 style={PJ}
-                className="w-full border border-[#cfe0da] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#1B8A80] focus:outline-none"
+                className="w-full border border-[#cfe0da] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#285D6E] focus:outline-none"
               >
                 <option value="">Blank — build from scratch</option>
                 {props.templates.map(t => (
@@ -61,7 +61,7 @@ export default function SetupStep(props: {
                 ))}
               </select>
               {applied ? (
-                <p className="text-[11.5px] text-[#177A70] mt-2 flex items-start gap-1">
+                <p className="text-[11.5px] text-[#1E4A58] mt-2 flex items-start gap-1">
                   <span className="material-symbols-outlined text-[14px] leading-none mt-px">check_circle</span>
                   Struktur “{applied.name}” dimuat ({applied.slideCount} slide). Warna &amp; logo mengikuti brand yang dipilih di bawah.
                 </p>
@@ -78,7 +78,7 @@ export default function SetupStep(props: {
               onChange={e => props.onBrand(e.target.value)}
               disabled={noBrands}
               style={PJ}
-              className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#1B8A80] focus:outline-none disabled:bg-[#f9fafb] disabled:text-[#9ca3af]"
+              className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#285D6E] focus:outline-none disabled:bg-[#f9fafb] disabled:text-[#9ca3af]"
             >
               {noBrands
                 ? <option value="">No brands connected</option>
@@ -100,7 +100,7 @@ export default function SetupStep(props: {
                 value={props.month}
                 onChange={e => props.setMonth(e.target.value)}
                 style={PJ}
-                className="border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] bg-white focus:border-[#1B8A80] focus:outline-none"
+                className="border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] bg-white focus:border-[#285D6E] focus:outline-none"
               >
                 {MONTHS.map(m => (
                   <option key={m} value={m} disabled={!monthHasData(m)}>
@@ -112,7 +112,7 @@ export default function SetupStep(props: {
                 value={props.year}
                 onChange={e => props.setYear(Number(e.target.value))}
                 style={PJ}
-                className="border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] bg-white focus:border-[#1B8A80] focus:outline-none"
+                className="border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] bg-white focus:border-[#285D6E] focus:outline-none"
               >
                 {yearOptions.map(y => (
                   <option key={y} value={y} disabled={!yearHasData(y)}>
@@ -140,10 +140,10 @@ export default function SetupStep(props: {
                   <button
                     key={f}
                     onClick={() => props.setFont(f)}
-                    className={`rounded-lg border px-3 py-3 text-center transition-all ${active ? 'border-[#2C3079] bg-[#F1F2FB] ring-1 ring-[#2C3079]' : 'border-[#e5e7eb] hover:border-[#cbd5e1] hover:bg-[#f9fafb]'}`}
+                    className={`rounded-lg border px-3 py-3 text-center transition-all ${active ? 'border-[#327488] bg-[#EAF2F6] ring-1 ring-[#327488]' : 'border-[#e5e7eb] hover:border-[#cbd5e1] hover:bg-[#f9fafb]'}`}
                   >
-                    <div style={{ fontFamily: fontStack(f), fontSize: 20, fontWeight: 700, color: active ? '#2C3079' : '#111827', lineHeight: 1.1 }}>Ag</div>
-                    <div style={{ fontFamily: fontStack(f), fontSize: 12.5, fontWeight: 600, color: active ? '#2C3079' : '#374151', marginTop: 4 }}>{f}</div>
+                    <div style={{ fontFamily: fontStack(f), fontSize: 20, fontWeight: 700, color: active ? '#327488' : '#111827', lineHeight: 1.1 }}>Ag</div>
+                    <div style={{ fontFamily: fontStack(f), fontSize: 12.5, fontWeight: 600, color: active ? '#327488' : '#374151', marginTop: 4 }}>{f}</div>
                     <div className="text-[10.5px] text-[#9ca3af] mt-0.5">{FONT_META[f].kind}</div>
                   </button>
                 )
@@ -157,7 +157,7 @@ export default function SetupStep(props: {
             onClick={props.onContinue}
             disabled={noBrands}
             style={PJ}
-            className="flex items-center gap-2 bg-[#2C3079] hover:bg-[#20224F] text-white text-[13px] font-bold px-5 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#2C3079]"
+            className="flex items-center gap-2 bg-[#327488] hover:bg-[#285D6E] text-white text-[13px] font-bold px-5 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#327488]"
           >
             Design cover
             <span className="material-symbols-outlined text-[18px]">arrow_forward</span>

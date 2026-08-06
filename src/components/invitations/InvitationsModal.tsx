@@ -116,7 +116,7 @@ export default function InvitationsModal({ invites, onAccept, onDecline, onClose
                       onClick={() => handleAccept(invite)}
                       disabled={isBusy}
                       style={PJB}
-                      className="h-8 px-3.5 text-[12.5px] font-semibold bg-[#1B8A80] hover:bg-[#177A70] text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                      className="h-8 px-3.5 text-[12.5px] font-semibold bg-[#285D6E] hover:bg-[#1E4A58] text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-1.5"
                     >
                       {isBusy
                         ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Joining…</>

@@ -94,7 +94,7 @@ export default function MetricInfo({ metricKey, scope, size = 13, className = ''
           if (pinned) { setPinned(false); setOpen(false) }
           else        { setPinned(true);  show() }
         }}
-        className={`inline-flex items-center justify-center flex-shrink-0 rounded-full text-[#c4c9d4] hover:text-[#6b7280] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8A80]/30 transition-colors ${className}`}
+        className={`inline-flex items-center justify-center flex-shrink-0 rounded-full text-[#c4c9d4] hover:text-[#6b7280] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#285D6E]/30 transition-colors ${className}`}
         style={{ width: size + 2, height: size + 2 }}
       >
         <span className="material-symbols-outlined leading-none" style={{ fontSize: size }}>info</span>

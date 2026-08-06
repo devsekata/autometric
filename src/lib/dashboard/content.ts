@@ -32,7 +32,7 @@ export interface ContentOverviewPayload {
   empty: boolean
 }
 
-const PALETTE = ['#1B8A80', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
+const PALETTE = ['#285D6E', '#e0a458', '#5fa783', '#d97a7a', '#8b7fc7', '#5b94b8']
 
 // IG format -> card label for Post Type Performance.
 const IG_FORMAT_LABEL: Record<string, string> = {

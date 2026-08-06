@@ -90,8 +90,8 @@ export default function ReportBuilder({
   // true once the user uploads their own logo → stop auto-filling from the brand.
   const [logoIsManual, setLogoIsManual] = useState(false)
   const [colors, setColors] = useState<CoverColors>({
-    primary: brands[0]?.color ?? '#2C3079',
-    secondary: '#1B8A80',
+    primary: brands[0]?.color ?? '#327488',
+    secondary: '#285D6E',
     accent: '#e0a458',
   })
   const [isExporting, setIsExporting] = useState(false)
@@ -377,7 +377,7 @@ export default function ReportBuilder({
             <button
               onClick={onExit}
               title="Back to reports"
-              className="w-9 h-9 flex items-center justify-center bg-white border border-[#e5e7eb] rounded-lg text-[#6b7280] hover:text-[#2C3079] hover:border-[#d1d5db] transition-colors"
+              className="w-9 h-9 flex items-center justify-center bg-white border border-[#e5e7eb] rounded-lg text-[#6b7280] hover:text-[#327488] hover:border-[#d1d5db] transition-colors"
             >
               <span className="material-symbols-outlined text-[20px]">arrow_back</span>
             </button>
@@ -423,7 +423,7 @@ export default function ReportBuilder({
                 />
                 <button
                   onClick={() => fileRef.current?.click()}
-                  className="w-full border-2 border-dashed border-[#d1d5db] rounded-lg py-5 text-center hover:border-[#1B8A80] hover:bg-[#f0f7f5] transition-colors"
+                  className="w-full border-2 border-dashed border-[#d1d5db] rounded-lg py-5 text-center hover:border-[#285D6E] hover:bg-[#f0f7f5] transition-colors"
                 >
                   <span className="material-symbols-outlined text-[26px] text-[#9ca3af]">upload</span>
                   <p style={PJ} className="text-[12.5px] font-semibold text-[#374151] mt-1">
@@ -441,7 +441,7 @@ export default function ReportBuilder({
                       onClick={() => setTemplateId(t.id)}
                       title={t.description}
                       className={`rounded-lg overflow-hidden ring-2 transition-all ${
-                        t.id === templateId ? 'ring-[#1B8A80]' : 'ring-transparent hover:ring-[#d1d5db]'
+                        t.id === templateId ? 'ring-[#285D6E]' : 'ring-transparent hover:ring-[#d1d5db]'
                       }`}
                     >
                       <div
@@ -486,7 +486,7 @@ export default function ReportBuilder({
                       onClick={() => setMode(m)}
                       style={PJ}
                       className={`flex-1 h-8 rounded-md text-[12px] font-semibold capitalize transition-colors ${
-                        mode === m ? 'bg-white text-[#2C3079] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
+                        mode === m ? 'bg-white text-[#327488] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
                       }`}
                     >
                       {m}
@@ -510,8 +510,8 @@ export default function ReportBuilder({
                   <div className="flex items-center justify-between mb-6 px-1">
                     <div className="flex items-center gap-2">
                       <span className="relative flex h-2 w-2">
-                        <span className="absolute inline-flex h-full w-full rounded-full bg-[#2C3079] opacity-60 animate-ping" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#2C3079]" />
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-[#327488] opacity-60 animate-ping" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#327488]" />
                       </span>
                       <span style={PJ} className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#94a3b8]">
                         Live preview
@@ -540,7 +540,7 @@ export default function ReportBuilder({
                     <button
                       onClick={() => setStep('slides')}
                       style={PJ}
-                      className="flex items-center gap-2 bg-[#2C3079] hover:bg-[#20224F] text-white text-[13px] font-bold px-5 py-2.5 rounded-xl shadow-[0_4px_14px_rgba(30,79,73,0.30)] transition-colors flex-shrink-0"
+                      className="flex items-center gap-2 bg-[#327488] hover:bg-[#285D6E] text-white text-[13px] font-bold px-5 py-2.5 rounded-xl shadow-[0_4px_14px_rgba(30,79,73,0.30)] transition-colors flex-shrink-0"
                     >
                       Continue to slides
                       <span className="material-symbols-outlined text-[18px]">arrow_forward</span>

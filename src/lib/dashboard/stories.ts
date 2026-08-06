@@ -27,7 +27,7 @@ export interface StoriesPayload {
 
 // funnel colors mirror the original design
 const FUNNEL_COLORS: Record<string, string> = {
-  Views: '#6c4cd6', 'Taps Back': '#1B8A80', 'Taps Fwd': '#3d7eea',
+  Views: '#6c4cd6', 'Taps Back': '#285D6E', 'Taps Fwd': '#3d7eea',
   Exits: '#d6556f', Replies: '#d23f6f', 'Swipe-Up': '#5fa783',
 }
 const TYPE_LABEL: Record<string, string> = { IMAGE: 'Static Image', VIDEO: 'Video' }

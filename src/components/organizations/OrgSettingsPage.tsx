@@ -103,7 +103,7 @@ export default function OrgSettingsPage({ org }: Props) {
             disabled={!isAdmin}
             maxLength={255}
             style={{ ...PJB, width: '100%', maxWidth: '24rem' }}
-            className="h-9 px-3 text-[13.5px] border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#1B8A80] focus:ring-1 focus:ring-[#1B8A80]/20 transition disabled:bg-[#f9fafb] disabled:text-[#9ca3af] disabled:cursor-not-allowed"
+            className="h-9 px-3 text-[13.5px] border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#285D6E] focus:ring-1 focus:ring-[#285D6E]/20 transition disabled:bg-[#f9fafb] disabled:text-[#9ca3af] disabled:cursor-not-allowed"
           />
           <p className="text-[11.5px] text-[#9ca3af] mt-1.5">
             The URL stays <span className="font-medium text-[#6b7280]">/{org.slug}</span> — renaming does not change it.
@@ -117,7 +117,7 @@ export default function OrgSettingsPage({ org }: Props) {
               saved
                 ? 'bg-[#ecfdf5] text-[#059669] border border-[#059669]/20'
                 : isDirty
-                ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white'
+                ? 'bg-[#285D6E] hover:bg-[#1E4A58] text-white'
                 : 'bg-[#f3f4f6] text-[#9ca3af] cursor-not-allowed'
             }`}>
             {saved

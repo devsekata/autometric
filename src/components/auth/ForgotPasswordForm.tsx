@@ -129,7 +129,7 @@ export default function ForgotPasswordForm({ onBack }: Props) {
           <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
             <span className="material-symbols-outlined fill text-on-primary" style={{ fontSize: 16 }}>insert_chart</span>
           </div>
-          <span className="font-h3 text-h3 text-on-surface tracking-tight">Kepiai</span>
+          <span className="font-h3 text-h3 text-on-surface tracking-tight">Autometric</span>
         </div>
 
         <div>
@@ -199,7 +199,7 @@ export default function ForgotPasswordForm({ onBack }: Props) {
           <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
             <span className="material-symbols-outlined fill text-on-primary" style={{ fontSize: 16 }}>insert_chart</span>
           </div>
-          <span className="font-h3 text-h3 text-on-surface tracking-tight">Kepiai</span>
+          <span className="font-h3 text-h3 text-on-surface tracking-tight">Autometric</span>
         </div>
 
         <div className="w-16 h-16 rounded-2xl bg-primary-container/20 flex items-center justify-center">
@@ -232,7 +232,7 @@ export default function ForgotPasswordForm({ onBack }: Props) {
         <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
           <span className="material-symbols-outlined fill text-on-primary" style={{ fontSize: 16 }}>insert_chart</span>
         </div>
-        <span className="font-h3 text-h3 text-on-surface tracking-tight">Kepiai</span>
+        <span className="font-h3 text-h3 text-on-surface tracking-tight">Autometric</span>
       </div>
 
       <button

@@ -31,7 +31,7 @@ export function Field({ label, value, onChange }: { label: string; value: string
         value={value}
         onChange={e => onChange(e.target.value)}
         style={PJ}
-        className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#1B8A80] focus:outline-none"
+        className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#285D6E] focus:outline-none"
       />
     </div>
   )

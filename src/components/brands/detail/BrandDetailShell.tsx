@@ -30,7 +30,7 @@ export default function BrandDetailShell({ orgSlug, children }: Props) {
       <div className="bg-white px-8 pt-7 pb-0 border-b border-[#e5e7eb] flex-shrink-0">
 
         <Link href={`/organizations/${orgSlug}/brands`} style={PJB}
-          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#6b7280] hover:text-[#1B8A80] transition-colors mb-4">
+          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#6b7280] hover:text-[#285D6E] transition-colors mb-4">
           <span className="material-symbols-outlined text-[14px]">arrow_back</span>
           All Brands
         </Link>
@@ -61,10 +61,10 @@ export default function BrandDetailShell({ orgSlug, children }: Props) {
               <Link key={tab.path} href={href} style={PJB}
                 className={`flex items-center gap-1.5 px-4 pb-3 pt-1 text-[13px] font-semibold border-b-2 transition-colors ${
                   active
-                    ? 'border-b-[#1B8A80] text-[#1B8A80]'
+                    ? 'border-b-[#285D6E] text-[#285D6E]'
                     : 'border-b-transparent text-[#6b7280] hover:text-[#374151] hover:border-b-[#e5e7eb]'
                 }`}>
-                <span className={`material-symbols-outlined text-[15px] ${active ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
+                <span className={`material-symbols-outlined text-[15px] ${active ? 'text-[#285D6E]' : 'text-[#9ca3af]'}`}>
                   {tab.icon}
                 </span>
                 {tab.label}

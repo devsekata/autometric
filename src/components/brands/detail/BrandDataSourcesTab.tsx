@@ -74,7 +74,7 @@ export default function BrandDataSourcesTab() {
           </p>
         </div>
         <button onClick={() => setShowUpload(true)} style={PJB}
-          className="flex items-center gap-1.5 h-9 px-4 bg-[#1B8A80] hover:bg-[#177A70] text-white text-[13px] font-semibold rounded-lg transition-colors">
+          className="flex items-center gap-1.5 h-9 px-4 bg-[#285D6E] hover:bg-[#1E4A58] text-white text-[13px] font-semibold rounded-lg transition-colors">
           <span className="material-symbols-outlined text-[15px]">upload_file</span>
           Upload Data
         </button>
@@ -121,7 +121,7 @@ export default function BrandDataSourcesTab() {
                       </div>
                       <span style={PJB} className={`inline-flex items-center gap-1 justify-self-start text-[10.5px] font-bold px-2 py-1 rounded-full ${
                         s.data_source === 'csv'
-                          ? 'text-[#1B8A80] bg-[#1B8A80]/10'
+                          ? 'text-[#285D6E] bg-[#285D6E]/10'
                           : 'text-blue-700 bg-blue-50'
                       }`}>
                         <span className="material-symbols-outlined text-[12px]">

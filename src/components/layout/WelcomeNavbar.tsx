@@ -38,8 +38,8 @@ export default function WelcomeNavbar() {
 
       {/* Logo */}
       <img
-        src="/kepiai-logo-long.png"
-        alt="Kepiai"
+        src="/autometric-logo-long.png"
+        alt="Autometric"
         className="h-16 w-auto object-contain"
       />
 
@@ -51,7 +51,7 @@ export default function WelcomeNavbar() {
           onClick={() => setOpen(v => !v)}
           className="flex items-center gap-2.5 h-9 px-3 rounded-lg hover:bg-[#f9fafb] border border-transparent hover:border-[#e5e7eb] transition-all"
         >
-          <div className="w-8 h-8 rounded-full bg-[#1B8A80] flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-full bg-[#285D6E] flex items-center justify-center flex-shrink-0">
             <span className="text-[12px] font-bold text-white leading-none">{initials}</span>
           </div>
           <span className="text-[13.5px] font-semibold text-[#111827]">{name}</span>
@@ -66,7 +66,7 @@ export default function WelcomeNavbar() {
 
             {/* User info — non-clickable header */}
             <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#f3f4f6]">
-              <div className="w-9 h-9 rounded-full bg-[#1B8A80] flex items-center justify-center flex-shrink-0">
+              <div className="w-9 h-9 rounded-full bg-[#285D6E] flex items-center justify-center flex-shrink-0">
                 <span className="text-[13px] font-bold text-white leading-none">{initials}</span>
               </div>
               <div className="min-w-0">

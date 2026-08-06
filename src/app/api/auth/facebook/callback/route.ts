@@ -193,7 +193,7 @@ body{margin:0;font-family:-apple-system,'Segoe UI',sans-serif;background:#f9fafb
 .header p{font-size:12px;color:#9ca3af;margin:0}
 .list{flex:1;overflow-y:auto;padding:10px}
 .item{display:flex;align-items:center;gap:12px;width:100%;padding:11px 14px;background:white;border:1.5px solid #f3f4f6;border-radius:12px;margin-bottom:7px;cursor:pointer;transition:border-color 0.15s,background 0.15s;text-align:left}
-.item:hover{border-color:#1B8A80;background:#f0f7fa}
+.item:hover{border-color:#285D6E;background:#f0f7fa}
 .item:active{background:#e0eef4}
 .av{width:42px;height:42px;border-radius:50%;background:#e5e7eb;flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
 .av img{width:42px;height:42px;object-fit:cover;display:block}
@@ -204,7 +204,7 @@ body{margin:0;font-family:-apple-system,'Segoe UI',sans-serif;background:#f9fafb
 .arr{color:#d1d5db;font-size:22px;line-height:1;flex-shrink:0}
 .overlay{display:none;position:fixed;inset:0;background:white;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .overlay.on{display:flex}
-.spinner{width:28px;height:28px;border:2.5px solid #e5e7eb;border-top-color:#1B8A80;border-radius:50%;animation:sp 0.7s linear infinite}
+.spinner{width:28px;height:28px;border:2.5px solid #e5e7eb;border-top-color:#285D6E;border-radius:50%;animation:sp 0.7s linear infinite}
 .overlay p{font-size:13px;color:#6b7280;margin:0}
 @keyframes sp{to{transform:rotate(360deg)}}
 </style>

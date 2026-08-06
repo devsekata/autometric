@@ -1,13 +1,16 @@
 import type { Mode } from './AuthPage';
 
-// Palette lifted from public/logo/[KEPIAI] LOGO GUIDELINE.pdf — do not eyeball
-// replacements. GRADIENT_CORE is the measured peak of the deck's background
-// slide (25% / 25%); TEAL→CYAN are the capybara mark's own gradient endpoints.
-const INK = '#02000E';
-const GRADIENT_CORE = '#1C0270';
-const NAVY = '#2C3079';
-const TEAL = '#4BBE9D';
-const CYAN = '#3CC1D8';
+// Autometric palette. The old values here were measured off the Kepiai guideline
+// deck — a violet core over black, with the capybara mark's teal→cyan for the
+// headline. Autometric's mark is a single teal (#327488) and ships no guideline
+// deck, so this panel is rebuilt as one tonal ramp off that hue: a deep-teal core
+// burning at the upper left, falling to a near-black that keeps a teal cast
+// rather than going neutral.
+const INK = '#00121A';
+const GRADIENT_CORE = '#1E4A58';
+const NAVY = '#327488';
+const TEAL = '#4E96AC';
+const CYAN = '#7DB4C6';
 
 export default function LeftPanel({ mode }: { mode: Mode }) {
   return (
@@ -19,14 +22,14 @@ export default function LeftPanel({ mode }: { mode: Mode }) {
         borderRadius: '0 24px 24px 0',
       }}
     >
-      {/* Background — the guideline deck's gradient: a violet core burning at the
-          upper left, falling away to black toward the lower right. */}
+      {/* Background — a deep-teal core burning at the upper left, falling away to
+          black toward the lower right. */}
       <div
         className="absolute inset-0"
         style={{
           backgroundColor: '#000000',
           backgroundImage: [
-            `radial-gradient(115% 90% at 25% 25%, ${GRADIENT_CORE} 0%, #16014F 26%, #0C0134 46%, #04001B 66%, rgba(0,0,0,0) 86%)`,
+            `radial-gradient(115% 90% at 25% 25%, ${GRADIENT_CORE} 0%, #163A49 26%, #0D2530 46%, #051318 66%, rgba(0,0,0,0) 86%)`,
             `radial-gradient(90% 70% at 0% 100%, ${NAVY}47 0%, rgba(0,0,0,0) 68%)`,
             `linear-gradient(160deg, ${INK} 0%, #000000 100%)`,
           ].join(', '),
@@ -38,8 +41,8 @@ export default function LeftPanel({ mode }: { mode: Mode }) {
         {/* Logo */}
         <div className="shrink-0 mt-4">
           <img
-            src="/kepiai-logo-white.png"
-            alt="Kepiai"
+            src="/autometric-logo-white.png"
+            alt="Autometric"
             style={{ height: 100, width: 'auto', objectFit: 'contain' }}
           />
         </div>
@@ -83,7 +86,7 @@ export default function LeftPanel({ mode }: { mode: Mode }) {
               maxWidth: 520,
             }}
           >
-            Every platform gives you metrics, while KepiAi gives you clarity. We bring your
+            Every platform gives you metrics, while Autometric gives you clarity. We bring your
             performance, content, audience, and campaigns into one intelligent workspace, reveal
             what actually drives results, and turn days of reporting into minutes, so you can spend
             less time explaining the numbers and more time acting on them.
@@ -99,7 +102,7 @@ export default function LeftPanel({ mode }: { mode: Mode }) {
             fontFamily: 'Inter, sans-serif',
           }}
         >
-          &copy; 2026 Kepiai. All rights reserved.
+          &copy; 2026 Autometric. All rights reserved.
         </p>
       </div>
     </div>

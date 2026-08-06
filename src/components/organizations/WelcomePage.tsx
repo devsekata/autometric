@@ -99,7 +99,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
         }
 
         /* Headline keeps the statement → echo rhythm, but both tones are now
-           derived from the brand navy #2C3079 instead of neutral grays. */
+           derived from the brand navy #327488 instead of neutral grays. */
         .wp-h1 {
           font-family: 'Plus Jakarta Sans', sans-serif;
           font-size: 82px;
@@ -107,7 +107,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           line-height: 1.0;
           letter-spacing: -0.04em;
           margin: 0;
-          color: #2C3079;
+          color: #327488;
         }
 
         .wp-h1-dim {
@@ -140,7 +140,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           height: 54px;
           padding: 0 36px;
           border-radius: 100px;
-          background: #2C3079;
+          background: #327488;
           color: white;
           font-family: 'Plus Jakarta Sans', sans-serif;
           font-size: 15.5px;
@@ -148,7 +148,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           border: none;
           cursor: pointer;
           transition: opacity 0.15s, transform 0.15s;
-          box-shadow: 0 4px 20px rgba(44,48,121,0.32);
+          box-shadow: 0 4px 20px rgba(50,$1116,$2136,0.32);
           white-space: nowrap;
           display: inline-flex;
           align-items: center;
@@ -188,7 +188,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           width: 22px;
           height: 22px;
           border-radius: 50%;
-          background: #2C3079;
+          background: #327488;
           color: white;
           font-size: 10px;
           font-weight: 700;
@@ -261,7 +261,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                       fontSize: 10,
                       fontWeight: 700,
                       letterSpacing: '0.06em',
-                      color: '#2C3079',
+                      color: '#327488',
                       background: '#ecedf7',
                       padding: '3px 8px',
                       borderRadius: 100,
@@ -292,20 +292,20 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                     >
                       {kind === 'cover' && (
                         <>
-                          <div style={{ height: 5, width: '85%', background: '#2C3079', borderRadius: 2 }} />
+                          <div style={{ height: 5, width: '85%', background: '#327488', borderRadius: 2 }} />
                           <div style={{ height: 3, width: '60%', background: '#c9cbe0', borderRadius: 2 }} />
                         </>
                       )}
                       {kind === 'chart' && (
                         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 24 }}>
                           {[40, 70, 55, 95].map((h, i) => (
-                            <div key={i} style={{ flex: 1, height: `${h}%`, background: i === 3 ? '#2C3079' : '#c9cbe0', borderRadius: '2px 2px 0 0' }} />
+                            <div key={i} style={{ flex: 1, height: `${h}%`, background: i === 3 ? '#327488' : '#c9cbe0', borderRadius: '2px 2px 0 0' }} />
                           ))}
                         </div>
                       )}
                       {kind === 'table' && (
                         <>
-                          <div style={{ height: 3, width: '100%', background: '#2C3079', borderRadius: 2 }} />
+                          <div style={{ height: 3, width: '100%', background: '#327488', borderRadius: 2 }} />
                           <div style={{ height: 3, width: '100%', background: '#d7d9e8', borderRadius: 2 }} />
                           <div style={{ height: 3, width: '100%', background: '#d7d9e8', borderRadius: 2 }} />
                           <div style={{ height: 3, width: '70%', background: '#d7d9e8', borderRadius: 2 }} />
@@ -314,7 +314,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                       {kind === 'kpi' && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                           {[0, 1, 2, 3].map((i) => (
-                            <div key={i} style={{ width: 'calc(50% - 1.5px)', height: 13, background: i === 0 ? '#2C3079' : '#d7d9e8', borderRadius: 3 }} />
+                            <div key={i} style={{ width: 'calc(50% - 1.5px)', height: 13, background: i === 0 ? '#327488' : '#d7d9e8', borderRadius: 3 }} />
                           ))}
                         </div>
                       )}
@@ -323,7 +323,7 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
                 </div>
 
                 <div style={{ height: 4, background: 'rgba(0,0,0,0.07)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
-                  <div style={{ width: '100%', height: '100%', background: '#2C3079', borderRadius: 4 }} />
+                  <div style={{ width: '100%', height: '100%', background: '#327488', borderRadius: 4 }} />
                 </div>
                 <p style={{ fontSize: 11.5, color: '#8a8ca6', margin: 0 }}>6 slides · PPTX ready</p>
               </div>
@@ -683,12 +683,12 @@ export default function WelcomePage({ hasOrgs, firstOrgSlug, initialInvitations 
           {/* ── Center hero ── */}
           <div className="wp-center">
             <div className="wp-product-icon">
-              {/* kepiai-mark.png is the complete mark cut from the official color
-                  logo onto a square canvas with even padding. The older
-                  kepiai-logo-icon.png had the capybara's rear clipped. */}
+              {/* autometric-mark.png is the icon logo as shipped — already a square
+                  canvas with even padding, so unlike the old Kepiai mark it needs
+                  no re-cutting to avoid clipping. */}
               <img
-                src="/kepiai-mark.png"
-                alt="Kepiai"
+                src="/autometric-mark.png"
+                alt="Autometric"
                 style={{ width: 64, height: 64, objectFit: 'contain' }}
               />
             </div>

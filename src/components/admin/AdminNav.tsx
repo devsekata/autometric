@@ -33,7 +33,7 @@ export default function AdminNav() {
                   : 'text-[#64748b] hover:bg-[#f8fafc] hover:text-[#334155]'
               }`}
             >
-              <span className={`material-symbols-outlined text-[18px] ${active ? 'text-[#1B8A80]' : 'text-[#94a3b8]'}`}>
+              <span className={`material-symbols-outlined text-[18px] ${active ? 'text-[#285D6E]' : 'text-[#94a3b8]'}`}>
                 {item.icon}
               </span>
               {item.label}

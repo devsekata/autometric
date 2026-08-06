@@ -31,7 +31,7 @@ export function Sparkline({ data, color, width = 96, height = 30 }: {
 
 /* ---------- Line / Area chart ---------- */
 
-export function LineChart({ data, color = '#1B8A80', height = 200, area = true, labels }: {
+export function LineChart({ data, color = '#285D6E', height = 200, area = true, labels }: {
   data: number[]; color?: string; height?: number; area?: boolean; labels?: string[]
 }) {
   const id = useId()
@@ -363,7 +363,7 @@ export function HBars({ items }: {
 
 /* ---------- Heatmap (day × time slot) ---------- */
 
-export function Heatmap({ rows, cols, grid, base = '#1B8A80', cellHeight = 34 }: {
+export function Heatmap({ rows, cols, grid, base = '#285D6E', cellHeight = 34 }: {
   rows: string[]; cols: string[]; grid: number[][]; base?: string; cellHeight?: number
 }) {
   return (

@@ -218,7 +218,7 @@ export default function DashboardChrome({ title, subtitle, children }: {
                 <button key={p} onClick={() => setPlatform(p)} style={PJ} title={p === 'All' ? 'All platforms' : PLATFORM_META[p].label}
                   className={`flex items-center justify-center h-7 rounded-md text-[12px] font-semibold transition-colors ${
                     p === 'All' ? 'px-3' : 'w-9'
-                  } ${active ? 'bg-white text-[#2C3079] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'}`}>
+                  } ${active ? 'bg-white text-[#327488] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'}`}>
                   {p === 'All'
                     ? 'All'
                     : <img src={PLATFORM_META[p].logo} alt={PLATFORM_META[p].label}
@@ -228,7 +228,7 @@ export default function DashboardChrome({ title, subtitle, children }: {
             })}
           </div>
           {range && <DateRangePicker value={range} onChange={handleRange} bounds={bounds} />}
-          <button className="w-9 h-9 flex items-center justify-center bg-white border border-[#e5e7eb] rounded-lg text-[#6b7280] hover:text-[#1B8A80] hover:border-[#d1d5db] transition-colors">
+          <button className="w-9 h-9 flex items-center justify-center bg-white border border-[#e5e7eb] rounded-lg text-[#6b7280] hover:text-[#285D6E] hover:border-[#d1d5db] transition-colors">
             <span className="material-symbols-outlined text-[18px]">refresh</span>
           </button>
         </div>

@@ -43,7 +43,7 @@ export default function BrandAccountsTab() {
           </p>
         </div>
         <button onClick={() => setShowConnect(true)} style={PJB}
-          className="flex items-center gap-1.5 h-9 px-4 bg-[#1B8A80] hover:bg-[#177A70] text-white text-[13px] font-semibold rounded-lg transition-colors">
+          className="flex items-center gap-1.5 h-9 px-4 bg-[#285D6E] hover:bg-[#1E4A58] text-white text-[13px] font-semibold rounded-lg transition-colors">
           <span className="material-symbols-outlined text-[15px]">add_link</span>
           Connect Account
         </button>
@@ -55,7 +55,7 @@ export default function BrandAccountsTab() {
           <p style={PJB} className="text-[14px] font-bold text-[#374151]">No accounts yet</p>
           <p className="text-[13px] text-[#9ca3af]">Connect a social account to start tracking performance</p>
           <button onClick={() => setShowConnect(true)} style={PJB}
-            className="mt-1 flex items-center gap-1.5 h-9 px-4 bg-[#1B8A80] hover:bg-[#177A70] text-white text-[13px] font-semibold rounded-lg transition-colors">
+            className="mt-1 flex items-center gap-1.5 h-9 px-4 bg-[#285D6E] hover:bg-[#1E4A58] text-white text-[13px] font-semibold rounded-lg transition-colors">
             <span className="material-symbols-outlined text-[15px]">add</span>
             Connect Account
           </button>

@@ -9,7 +9,7 @@ export default function AdminHeader({ userName }: { userName: string }) {
   return (
     <header className="h-14 bg-white border-b border-[#e2e8f0] flex items-center px-8">
       <Link href="/admin">
-        <img src="/kepiai-logo-long.png" alt="Kepiai" className="h-7 w-auto" />
+        <img src="/autometric-logo-long.png" alt="Autometric" className="h-7 w-auto" />
       </Link>
 
       <div className="ml-4 flex items-center gap-1.5">

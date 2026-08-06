@@ -79,7 +79,7 @@ export default function CreateOrgModal({ onClose, onCreated }: Props) {
             className={`h-9 px-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-md outline-none transition-all disabled:opacity-60 ${
               error
                 ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                : 'border-[#e5e7eb] focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10'
+                : 'border-[#e5e7eb] focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10'
             }`}
           />
           {error && <p className="text-[12px] text-red-500">{error}</p>}
@@ -99,7 +99,7 @@ export default function CreateOrgModal({ onClose, onCreated }: Props) {
           <button
             onClick={handleSubmit}
             disabled={!name.trim() || loading}
-            className="h-8 px-3.5 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-medium rounded-md transition-colors"
+            className="h-8 px-3.5 bg-[#285D6E] hover:bg-[#1E4A58] disabled:opacity-40 text-white text-[13px] font-medium rounded-md transition-colors"
           >
             {loading ? 'Creating…' : 'Create Organization'}
           </button>

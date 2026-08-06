@@ -47,7 +47,7 @@ export async function registerUser(input: RegisterInput): Promise<RegisterResult
   const { subject, html } = otpEmailTemplate(name, otp)
 
   await transporter.sendMail({
-    from: `"Kepiai" <${process.env.SMTP_USER}>`,
+    from: `"Autometric" <${process.env.SMTP_USER}>`,
     to: email,
     subject,
     html,

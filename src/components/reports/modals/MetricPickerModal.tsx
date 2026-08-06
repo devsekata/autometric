@@ -56,9 +56,9 @@ export default function MetricPickerModal({
               <button
                 key={m.key}
                 onClick={() => onSelect(m.key)}
-                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${active ? 'border-[#2C3079] bg-[#F1F2FB] ring-1 ring-[#2C3079]' : 'border-[#e5e7eb] hover:border-[#cbd5e1] hover:bg-[#f9fafb]'}`}
+                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${active ? 'border-[#327488] bg-[#EAF2F6] ring-1 ring-[#327488]' : 'border-[#e5e7eb] hover:border-[#cbd5e1] hover:bg-[#f9fafb]'}`}
               >
-                <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${active ? 'bg-[#2C3079] text-white' : 'bg-[#eef0f2] text-[#9ca3af]'}`}>
+                <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${active ? 'bg-[#327488] text-white' : 'bg-[#eef0f2] text-[#9ca3af]'}`}>
                   <span className="material-symbols-outlined text-[19px]">{m.icon}</span>
                 </span>
                 <div className="min-w-0">
@@ -73,7 +73,7 @@ export default function MetricPickerModal({
           })}
         </div>
         <div className="px-6 py-3 border-t border-[#f0f1f2] flex items-center">
-          <button onClick={() => setCmOpen(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-[#2C3079] hover:underline">
+          <button onClick={() => setCmOpen(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-[#327488] hover:underline">
             <span className="material-symbols-outlined text-[16px]">{customDefs.length ? 'tune' : 'add'}</span>
             {customDefs.length ? 'Manage custom metrics' : 'Create custom metric'}
           </button>

@@ -8,7 +8,7 @@ import DeleteOrgModal from './DeleteOrgModal'
 import { Organization } from '@/lib/organizations/types'
 
 const roleMeta: Record<Organization['role'], { label: string; color: string }> = {
-  ADMIN:  { label: 'Admin',  color: '#1B8A80' },
+  ADMIN:  { label: 'Admin',  color: '#285D6E' },
   MEMBER: { label: 'Member', color: '#6b7280' },
 }
 
@@ -44,7 +44,7 @@ export default function OrgListItem({ org, onRename, onDelete }: Props) {
       <div className="flex items-center h-[52px] px-6 hover:bg-[#f9fafb] transition-colors group">
         <Link href={`/organizations/${org.id}`} className="flex items-center gap-4 flex-1 min-w-0 h-full">
           <OrgAvatar name={org.name} size={30} />
-          <span className="text-[14px] font-medium text-[#111827] group-hover:text-[#1B8A80] transition-colors truncate">
+          <span className="text-[14px] font-medium text-[#111827] group-hover:text-[#285D6E] transition-colors truncate">
             {org.name}
           </span>
         </Link>

@@ -7,7 +7,7 @@ import { Organization } from '@/lib/organizations/types'
 import CreateOrgModal from '@/components/organizations/CreateOrgModal'
 
 function OrgAvatar({ name, size = 28 }: { name: string; size?: number }) {
-  const colors = ['#1B8A80', '#7c5cbf', '#d97706', '#059669', '#dc2626']
+  const colors = ['#285D6E', '#7c5cbf', '#d97706', '#059669', '#dc2626']
   const index = name.charCodeAt(0) % colors.length
   return (
     <div
@@ -100,7 +100,7 @@ export default function OrgSwitcher({ fallbackOrgSlug, initialOrgs }: Props) {
                 key={org.id}
                 onClick={() => switchOrg(org)}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[#f9fafb] transition-colors ${
-                  org.slug === orgSlug ? 'bg-[#edf5f8]' : ''
+                  org.slug === orgSlug ? 'bg-[#EDF4F7]' : ''
                 }`}
               >
                 <OrgAvatar name={org.name} size={24} />
@@ -109,7 +109,7 @@ export default function OrgSwitcher({ fallbackOrgSlug, initialOrgs }: Props) {
                   <p className="text-[11px] text-[#9ca3af] capitalize">{org.role.toLowerCase()}</p>
                 </div>
                 {org.slug === orgSlug && (
-                  <span className="material-symbols-outlined text-[14px] text-[#1B8A80]">check</span>
+                  <span className="material-symbols-outlined text-[14px] text-[#285D6E]">check</span>
                 )}
               </button>
             ))}
@@ -122,11 +122,11 @@ export default function OrgSwitcher({ fallbackOrgSlug, initialOrgs }: Props) {
         style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
         className={`flex items-center gap-2.5 h-9 rounded-md text-[13px] font-semibold transition-colors border-l-[3px] pl-[9px] pr-3 ${
           orgPageActive
-            ? 'border-l-[#1B8A80] bg-[#f0f7fa] text-[#111827]'
+            ? 'border-l-[#285D6E] bg-[#f0f7fa] text-[#111827]'
             : 'border-l-transparent text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#374151]'
         }`}
       >
-        <span className={`material-symbols-outlined text-[18px] flex-shrink-0 ${orgPageActive ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
+        <span className={`material-symbols-outlined text-[18px] flex-shrink-0 ${orgPageActive ? 'text-[#285D6E]' : 'text-[#9ca3af]'}`}>
           corporate_fare
         </span>
         Organizations

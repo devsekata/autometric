@@ -3,9 +3,9 @@ import './globals.css'
 import Providers from '@/components/Providers'
 
 export const metadata: Metadata = {
-  title: 'Kepiai',
+  title: 'Autometric',
   description: 'Track every brand. Outperform every competitor.',
-  icons: { icon: '/favicon-kepiai.png', apple: '/favicon-kepiai.png' },
+  icons: { icon: '/favicon-autometric.png', apple: '/favicon-autometric.png' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -207,7 +207,7 @@ function Calendar({ label, view, onView, selected, rangeStart, rangeEnd, today, 
               {MONTHS.map((m, i) => (
                 <button key={m} type="button" onClick={() => { onView({ ...view, m: i }); setJump(false) }} style={PJ}
                   className={`h-6 rounded text-[11px] font-semibold transition-colors ${
-                    i === view.m ? 'bg-[#2C3079] text-white' : 'text-[#374151] hover:bg-[#f3f4f6]'
+                    i === view.m ? 'bg-[#327488] text-white' : 'text-[#374151] hover:bg-[#f3f4f6]'
                   }`}>
                   {m}
                 </button>
@@ -244,7 +244,7 @@ function Calendar({ label, view, onView, selected, rangeStart, rangeEnd, today, 
                   : noData ? 'text-[#cbd1d8] hover:bg-[#f3f4f6]' : 'text-[#374151] font-medium hover:bg-[#f3f4f6]'
               }`}>
               <span className={`w-7 h-7 flex items-center justify-center rounded-full ${
-                isSel ? 'bg-[#2C3079]' : isToday ? 'border border-[#9ca3af]' : ''
+                isSel ? 'bg-[#327488]' : isToday ? 'border border-[#9ca3af]' : ''
               }`}>
                 {Number(d.slice(8))}
               </span>
@@ -375,7 +375,7 @@ export default function DateRangePicker({ value, onChange, bounds }: {
                         <button type="button" style={PJ}
                           onClick={() => entry.mode ? pickMode(entry.mode) : setSub(s => s === entry.label ? null : entry.label)}
                           className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-[12.5px] transition-colors ${
-                            active ? 'font-bold text-[#2C3079] bg-[#f2f3fa]' : 'font-medium text-[#374151] hover:bg-[#f7f8f9]'
+                            active ? 'font-bold text-[#327488] bg-[#f2f3fa]' : 'font-medium text-[#374151] hover:bg-[#f7f8f9]'
                           }`}>
                           <span className="truncate">{entry.label}</span>
                           {entry.children && (
@@ -392,7 +392,7 @@ export default function DateRangePicker({ value, onChange, bounds }: {
                               <button key={m} type="button" onClick={() => pickMode(m)} style={PJ}
                                 className={`w-full px-3 py-2 text-left text-[12.5px] transition-colors ${
                                   draft.mode === m
-                                    ? 'font-bold text-[#2C3079] bg-[#f2f3fa]'
+                                    ? 'font-bold text-[#327488] bg-[#f2f3fa]'
                                     : 'font-medium text-[#374151] hover:bg-[#f7f8f9]'
                                 }`}>
                                 {MODE_LABEL[m]}
@@ -413,11 +413,11 @@ export default function DateRangePicker({ value, onChange, bounds }: {
               <span className="text-[11.5px] font-semibold text-[#6b7280]">Dari</span>
               <input type="number" min={0} value={advFrom} style={PJ}
                 onChange={e => setResolved({ ...draft, advFrom: Math.max(0, Number(e.target.value) || 0) })}
-                className="w-16 text-[12px] font-semibold text-[#374151] bg-white border border-[#e5e7eb] rounded-md px-2 py-1.5 outline-none focus:border-[#2C3079]" />
+                className="w-16 text-[12px] font-semibold text-[#374151] bg-white border border-[#e5e7eb] rounded-md px-2 py-1.5 outline-none focus:border-[#327488]" />
               <span className="text-[11.5px] text-[#6b7280]">hari lalu sampai</span>
               <input type="number" min={0} value={advTo} style={PJ}
                 onChange={e => setResolved({ ...draft, advTo: Math.max(0, Number(e.target.value) || 0) })}
-                className="w-16 text-[12px] font-semibold text-[#374151] bg-white border border-[#e5e7eb] rounded-md px-2 py-1.5 outline-none focus:border-[#2C3079]" />
+                className="w-16 text-[12px] font-semibold text-[#374151] bg-white border border-[#e5e7eb] rounded-md px-2 py-1.5 outline-none focus:border-[#327488]" />
               <span className="text-[11.5px] text-[#6b7280]">hari lalu</span>
               <span className="text-[11px] text-[#9ca3af] ml-auto">0 = hari ini</span>
             </div>
@@ -446,7 +446,7 @@ export default function DateRangePicker({ value, onChange, bounds }: {
                 Batal
               </button>
               <button type="button" onClick={apply} style={PJ}
-                className="text-[12px] font-bold text-white bg-[#2C3079] px-4 py-2 rounded-lg hover:bg-[#242a68]">
+                className="text-[12px] font-bold text-white bg-[#327488] px-4 py-2 rounded-lg hover:bg-[#242a68]">
                 Terapkan
               </button>
             </div>

@@ -151,7 +151,7 @@ export default function CompetitorSchedulerSettingsPage() {
               <div key={idx} className="flex items-center justify-between px-4 py-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0]">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-white border border-[#e2e8f0] flex items-center justify-center flex-shrink-0">
-                    <span className="material-symbols-outlined text-[15px] text-[#1B8A80]">schedule</span>
+                    <span className="material-symbols-outlined text-[15px] text-[#285D6E]">schedule</span>
                   </div>
                   <div>
                     <span className="text-[16px] font-bold text-[#0f172a]" style={PJB}>{fmtTime(t)}</span>
@@ -167,7 +167,7 @@ export default function CompetitorSchedulerSettingsPage() {
 
             {adding ? (
               <div className="flex items-center gap-2 pt-1">
-                <div className="flex items-center gap-1.5 flex-1 px-4 py-2.5 bg-[#f8fafc] rounded-xl border border-[#1B8A80]">
+                <div className="flex items-center gap-1.5 flex-1 px-4 py-2.5 bg-[#f8fafc] rounded-xl border border-[#285D6E]">
                   <select value={addHour} onChange={e => setAddHour(+e.target.value)}
                     className="bg-transparent text-[15px] font-bold text-[#0f172a] focus:outline-none cursor-pointer" style={PJB}>
                     {Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{pad(i)}</option>)}
@@ -190,7 +190,7 @@ export default function CompetitorSchedulerSettingsPage() {
               </div>
             ) : (
               <button onClick={openAdd} style={PJB}
-                className="flex items-center gap-1.5 text-[13px] font-semibold text-[#1B8A80] hover:text-[#2d6a80] transition-colors pt-1">
+                className="flex items-center gap-1.5 text-[13px] font-semibold text-[#285D6E] hover:text-[#2d6a80] transition-colors pt-1">
                 <span className="material-symbols-outlined text-[17px]">add_circle</span>
                 Tambah jadwal
               </button>
@@ -207,7 +207,7 @@ export default function CompetitorSchedulerSettingsPage() {
           <div className="px-5 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-white border border-[#e2e8f0] flex items-center justify-center flex-shrink-0">
-                <span className="material-symbols-outlined text-[15px] text-[#1B8A80]">event_repeat</span>
+                <span className="material-symbols-outlined text-[15px] text-[#285D6E]">event_repeat</span>
               </div>
               <div>
                 <span className="text-[14px] font-semibold text-[#0f172a]" style={PJB}>Sync posts tiap</span>

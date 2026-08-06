@@ -1,23 +1,28 @@
 @import "tailwindcss";
 
 @theme {
-  /* ── Colors ── Kepiai brand: navy primary (#2C3079, wordmark) + teal accent
-     (#25BCB0, capybara). Dark teal (#1B8A80/#177A70) is the text-safe secondary. */
-  --color-primary:                  #2C3079;
-  --color-primary-container:        #1B8A80;
+  /* ── Colors ── Autometric brand: a single teal, #327488, sampled from the mark
+     in public/logo/autometric-logo-icon.png. The logo carries no second colour,
+     so the whole palette is one tonal ramp off that hue rather than an invented
+     complement:
+       #1E4A58  #285D6E  #327488  #4E96AC  #7DB4C6  #A7C8D4
+     Darker steps are the text-safe ones; #4E96AC and lighter are fills only.
+     (Replaced the Kepiai navy #2C3079 + capybara teal #25BCB0 pairing.) */
+  --color-primary:                  #327488;
+  --color-primary-container:        #285D6E;
   --color-on-primary:               #ffffff;
   --color-on-primary-container:     #e3f2f8;
-  --color-inverse-primary:          #A9ABDD;
+  --color-inverse-primary:          #A7C8D4;
 
-  /* Brand accent (bright teal) + capybara gradient — for fills/highlights/charts. */
-  --color-accent:                   #25BCB0;
-  --color-accent-strong:            #1B8A80;
-  --gradient-brand:                 linear-gradient(135deg, #3DBE9C 0%, #25BCB0 50%, #34BFC5 100%);
+  /* Brand accent + gradient — fills/highlights, same ramp, no second hue. */
+  --color-accent:                   #4E96AC;
+  --color-accent-strong:            #327488;
+  --gradient-brand:                 linear-gradient(135deg, #285D6E 0%, #327488 50%, #4E96AC 100%);
 
-  --color-secondary:                #177A70;
-  --color-secondary-container:      #edf5f8;
+  --color-secondary:                #285D6E;
+  --color-secondary-container:      #EDF4F7;
   --color-on-secondary:             #ffffff;
-  --color-on-secondary-container:   #1a5166;
+  --color-on-secondary-container:   #1E4A58;
 
   --color-tertiary:                 #4a6080;
   --color-tertiary-container:       #5b7a8e;
@@ -31,7 +36,7 @@
   --color-surface-container:        #f3f4f6;
   --color-surface-container-high:   #e5e7eb;
   --color-surface-container-highest:#d1d5db;
-  --color-surface-variant:          #edf5f8;
+  --color-surface-variant:          #EDF4F7;
   --color-on-surface:               #111827;
   --color-on-surface-variant:       #6b7280;
   --color-inverse-surface:          #1f2937;

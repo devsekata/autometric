@@ -43,8 +43,8 @@ function StepIndicator({ step }: { step: Step }) {
         <div key={s.n} className="flex items-center">
           <div className="flex items-center gap-1.5">
             <div style={PJB} className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center flex-shrink-0 ${
-              step > s.n  ? 'bg-[#1B8A80] text-white' :
-              step === s.n ? 'bg-[#1B8A80] text-white' :
+              step > s.n  ? 'bg-[#285D6E] text-white' :
+              step === s.n ? 'bg-[#285D6E] text-white' :
               'bg-[#f3f4f6] text-[#9ca3af]'
             }`}>
               {step > s.n ? '✓' : s.n}
@@ -56,7 +56,7 @@ function StepIndicator({ step }: { step: Step }) {
             </span>
           </div>
           {i < steps.length - 1 && (
-            <div className={`w-5 h-px mx-2 flex-shrink-0 ${step > s.n ? 'bg-[#1B8A80]' : 'bg-[#e5e7eb]'}`} />
+            <div className={`w-5 h-px mx-2 flex-shrink-0 ${step > s.n ? 'bg-[#285D6E]' : 'bg-[#e5e7eb]'}`} />
           )}
         </div>
       ))}
@@ -85,12 +85,12 @@ function PlatformPicker({ selected, onSelect, used }: {
               full
                 ? 'border-[#f3f4f6] bg-[#fafafa] opacity-45 cursor-not-allowed'
                 : selected === p
-                  ? 'border-[#1B8A80] bg-[#1B8A80]/5'
+                  ? 'border-[#285D6E] bg-[#285D6E]/5'
                   : 'border-[#e5e7eb] hover:border-[#d1d5db] hover:bg-[#f9fafb]'
             }`}
           >
             <PlatformIcon platform={p} size={24} />
-            <span className={`text-[9px] font-bold ${selected === p && !full ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
+            <span className={`text-[9px] font-bold ${selected === p && !full ? 'text-[#285D6E]' : 'text-[#9ca3af]'}`}>
               {count > 0 ? `${count}/${MAX_COMPETITORS_PER_PLATFORM}` : PLATFORM_CONFIG[p].short}
             </span>
           </button>
@@ -413,7 +413,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
         {step === 1 && (
           <div className="px-6 py-5 flex flex-col gap-5">
             <div className="flex items-center gap-3">
-              <div style={{ width: 40, height: 40, background: '#1B8A80', borderRadius: 10, fontSize: 14 }}
+              <div style={{ width: 40, height: 40, background: '#285D6E', borderRadius: 10, fontSize: 14 }}
                 className="flex items-center justify-center flex-shrink-0 font-bold text-white leading-none select-none">
                 {initials}
               </div>
@@ -437,7 +437,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 className={`h-9 px-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
                   nameErr
                     ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                    : 'border-[#e5e7eb] focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10'
+                    : 'border-[#e5e7eb] focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10'
                 }`}
               />
               {nameErr && <p className="text-[12px] text-red-500">{nameErr}</p>}
@@ -524,7 +524,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                         <span style={PJB} className="text-[11px] text-[#9ca3af] flex-shrink-0">Already connected</span>
                       ) : opt.method === 'manual' ? (
                         <button type="button" onClick={() => setTiktokOpen(o => !o)} style={PJB}
-                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] flex-shrink-0">
+                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#285D6E] flex-shrink-0">
                           Connect
                           <span className="material-symbols-outlined text-[15px]">
                             {tiktokOpen ? 'expand_less' : 'chevron_right'}
@@ -536,7 +536,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                           disabled={oauthLoading}
                           onClick={() => connectAccount(opt)}
                           style={PJB}
-                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] disabled:opacity-40 flex-shrink-0"
+                          className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#285D6E] disabled:opacity-40 flex-shrink-0"
                         >
                           Connect
                           <span className="material-symbols-outlined text-[15px]">chevron_right</span>
@@ -554,7 +554,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                           onChange={e => setTiktokInput(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && addTiktokAccount()}
                           placeholder="@username on TikTok"
-                          className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 transition-all"
+                          className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10 transition-all"
                         />
                         <button type="button" onClick={addTiktokAccount} style={PJB}
                           className="h-8 px-3 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[12.5px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0">
@@ -585,7 +585,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                   </p>
                 </div>
                 <button type="button" onClick={() => setCsvOpen(o => !o)} style={PJB}
-                  className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#1B8A80] flex-shrink-0">
+                  className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#285D6E] flex-shrink-0">
                   Tambah
                   <span className="material-symbols-outlined text-[15px]">
                     {csvOpen ? 'expand_less' : 'chevron_right'}
@@ -609,12 +609,12 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                             taken
                               ? 'border-[#f3f4f6] bg-[#fafafa] opacity-45 cursor-not-allowed'
                               : csvPlatform === p
-                                ? 'border-[#1B8A80] bg-[#1B8A80]/5'
+                                ? 'border-[#285D6E] bg-[#285D6E]/5'
                                 : 'border-[#e5e7eb] hover:border-[#d1d5db]'
                           }`}>
                           <PlatformIcon platform={p} size={20} />
                           <span className={`text-[9px] font-bold ${
-                            csvPlatform === p && !taken ? 'text-[#1B8A80]' : 'text-[#9ca3af]'}`}>
+                            csvPlatform === p && !taken ? 'text-[#285D6E]' : 'text-[#9ca3af]'}`}>
                             {PLATFORM_CONFIG[p].short}
                           </span>
                         </button>
@@ -629,7 +629,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                       onChange={e => { setCsvInput(e.target.value); setCsvErr('') }}
                       onKeyDown={e => e.key === 'Enter' && addCsvAccount()}
                       placeholder={`@username di ${PLATFORM_CONFIG[csvPlatform].label}`}
-                      className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 transition-all"
+                      className="flex-1 h-8 px-3 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10 transition-all"
                     />
                     <button type="button" onClick={addCsvAccount} style={PJB}
                       className="h-8 px-3 bg-[#f3f4f6] hover:bg-[#e5e7eb] text-[12.5px] font-semibold text-[#374151] rounded-lg transition-colors flex-shrink-0">
@@ -651,7 +651,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                       <span style={PJB} className="text-[12.5px] text-[#111827] flex-1 truncate">
                         @{a.username}
                       </span>
-                      <span className="text-[10px] font-bold text-[#1B8A80] bg-[#1B8A80]/10 px-1.5 py-0.5 rounded-full">
+                      <span className="text-[10px] font-bold text-[#285D6E] bg-[#285D6E]/10 px-1.5 py-0.5 rounded-full">
                         Manual
                       </span>
                       <button type="button" onClick={() => removeAccount(a.platform)}
@@ -695,7 +695,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                       className={`h-9 px-3 text-[13px] text-[#111827] placeholder:text-[#d1d5db] bg-white border rounded-lg outline-none transition-all ${
                         compErr
                           ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-                          : 'border-[#e5e7eb] focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10'
+                          : 'border-[#e5e7eb] focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10'
                       }`}
                     />
                     {compErr && <p className="text-[11px] text-red-500">{compErr}</p>}
@@ -721,7 +721,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
 
                 {verifying && (
                   <div className="flex items-start gap-2.5 px-3 py-2.5 bg-[#f0f7f5] border border-[#cfe6e1] rounded-lg">
-                    <span className="material-symbols-outlined text-[16px] text-[#1B8A80] animate-spin flex-shrink-0">
+                    <span className="material-symbols-outlined text-[16px] text-[#285D6E] animate-spin flex-shrink-0">
                       progress_activity
                     </span>
                     <p className="text-[12px] text-[#22615c] leading-relaxed">
@@ -756,7 +756,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 Cancel
               </button>
               <button type="button" onClick={handleStep1} disabled={!name.trim() || loading} style={PJB}
-                className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="h-8 px-4 bg-[#285D6E] hover:bg-[#1E4A58] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
                 {loading ? 'Creating…' : <><span>Next</span><span className="material-symbols-outlined text-[14px]">arrow_forward</span></>}
               </button>
             </>
@@ -785,7 +785,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 Skip
               </button>
               <button type="button" onClick={() => handleStep2(false)} disabled={loading} style={PJB}
-                className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="h-8 px-4 bg-[#285D6E] hover:bg-[#1E4A58] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
                 {loading ? 'Saving…' : <><span>Next</span><span className="material-symbols-outlined text-[14px]">arrow_forward</span></>}
               </button>
             </>
@@ -798,7 +798,7 @@ export default function CreateBrandModal({ orgId, onClose, onCreated }: Props) {
                 Skip
               </button>
               <button type="button" onClick={() => handleFinish(false)} disabled={loading} style={PJB}
-                className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
+                className="h-8 px-4 bg-[#285D6E] hover:bg-[#1E4A58] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5">
                 {verifying ? 'Memeriksa…'
                   : loading ? 'Saving…'
                   : <><span>Finish</span><span className="material-symbols-outlined text-[14px]">check</span></>}

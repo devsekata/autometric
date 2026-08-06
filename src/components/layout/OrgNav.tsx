@@ -34,12 +34,12 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
                 sectionActive
                   ? hasChildren
                     ? 'border-l-transparent text-[#111827]'
-                    : 'border-l-[#1B8A80] bg-[#f0f7fa] text-[#111827]'
+                    : 'border-l-[#285D6E] bg-[#f0f7fa] text-[#111827]'
                   : 'border-l-transparent text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#374151]'
               }`}
             >
               <span className={`material-symbols-outlined text-[18px] flex-shrink-0 ${
-                sectionActive ? 'text-[#1B8A80]' : 'text-[#9ca3af]'
+                sectionActive ? 'text-[#285D6E]' : 'text-[#9ca3af]'
               }`}>
                 {item.icon}
               </span>
@@ -69,12 +69,12 @@ function SubLink({ item, base, pathname }: { item: OrgNavItem; base: string; pat
       style={PJ}
       className={`flex items-center gap-2.5 h-8 rounded-md text-[12.5px] font-semibold transition-colors border-l-[3px] ml-[18px] pl-[10px] pr-3 ${
         active
-          ? 'border-l-[#1B8A80] bg-[#f0f7fa] text-[#111827]'
+          ? 'border-l-[#285D6E] bg-[#f0f7fa] text-[#111827]'
           : 'border-l-[#eef0f2] text-[#9ca3af] hover:bg-[#f9fafb] hover:text-[#374151] hover:border-l-[#d1d5db]'
       }`}
     >
       <span className={`material-symbols-outlined text-[16px] flex-shrink-0 ${
-        active ? 'text-[#1B8A80]' : 'text-[#b6bcc4]'
+        active ? 'text-[#285D6E]' : 'text-[#b6bcc4]'
       }`}>
         {item.icon}
       </span>

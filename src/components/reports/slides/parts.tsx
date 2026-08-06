@@ -19,7 +19,7 @@ export function Placeholder({ icon, label, editable, onClick }: { icon?: string;
       onClick={editable ? onClick : undefined}
       disabled={!editable}
       className={`w-full h-full flex flex-col items-center justify-center rounded-[1.4cqw] border-2 border-dashed transition-colors ${
-        editable ? 'border-[#cbd5e1] text-[#94a3b8] hover:border-[#2C3079] hover:text-[#2C3079] hover:bg-[#F1F2FB] cursor-pointer' : 'border-[#dbe1e8] text-[#b6bcc4] cursor-default'
+        editable ? 'border-[#cbd5e1] text-[#94a3b8] hover:border-[#327488] hover:text-[#327488] hover:bg-[#EAF2F6] cursor-pointer' : 'border-[#dbe1e8] text-[#b6bcc4] cursor-default'
       }`}
       style={{ background: 'rgba(255,255,255,0.45)' }}
     >
@@ -99,7 +99,7 @@ export function InsightsBlock({ value, editable, onChange, label = 'Key insights
   }
   return (
     <Card style={{ padding: '2cqh 1.8cqw', display: 'flex', flexDirection: 'column', gap: '1.4cqh' }}>
-      <CardLabel icon="auto_awesome" accent="#2C3079">{label}</CardLabel>
+      <CardLabel icon="auto_awesome" accent="#327488">{label}</CardLabel>
       <div className="flex-1 min-h-0">
         {editable ? (
           <textarea
@@ -119,7 +119,7 @@ export function InsightsBlock({ value, editable, onChange, label = 'Key insights
 }
 
 // ── AI Key Insights (Gemini analyst) ─────────────────────────────────────────
-const AI_COLORS = { primary: '#2C3079', secondary: '#1B8A80', accent: '#e0a458' }
+const AI_COLORS = { primary: '#327488', secondary: '#285D6E', accent: '#e0a458' }
 
 /** Render **bold** markers as <strong>. */
 function renderBold(text: string): React.ReactNode {
@@ -242,13 +242,13 @@ export function AiInsightBlock({ slide, editable, onChange, label = 'AI Key Insi
   return (
     <Card style={{ padding: '1.7cqh 1.5cqw', display: 'flex', flexDirection: 'column', gap: '1cqh' }}>
       <div className="flex items-center justify-between" style={{ ...PJ }}>
-        <span className="flex items-center" style={{ gap: '0.5cqw', fontSize: '1.15cqw', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#2C3079' }}>
+        <span className="flex items-center" style={{ gap: '0.5cqw', fontSize: '1.15cqw', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#327488' }}>
           <span className="material-symbols-outlined" style={{ fontSize: '1.6cqw' }}>auto_awesome</span>{label}
         </span>
         {editable && ai && (
           <button onClick={generate} disabled={loading} title={insight ? 'Regenerate' : 'Generate with AI'}
             className="flex items-center rounded-full transition-colors"
-            style={{ gap: '0.4cqw', fontSize: '1cqw', fontWeight: 700, padding: '0.5cqh 1cqw', color: loading ? '#94a3b8' : '#2C3079', background: '#F1F2FB', border: '1px solid #cfe5dd', ...PJ }}>
+            style={{ gap: '0.4cqw', fontSize: '1cqw', fontWeight: 700, padding: '0.5cqh 1cqw', color: loading ? '#94a3b8' : '#327488', background: '#EAF2F6', border: '1px solid #cfe5dd', ...PJ }}>
             <span className={`material-symbols-outlined ${loading ? 'animate-spin' : ''}`} style={{ fontSize: '1.3cqw' }}>{loading ? 'progress_activity' : 'auto_awesome'}</span>
             {loading ? 'Generating…' : insight ? 'Regenerate' : 'Generate AI'}
           </button>

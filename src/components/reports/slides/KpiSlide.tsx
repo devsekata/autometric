@@ -25,7 +25,7 @@ function Scorecard({ metric, accent, count, editable, onClick }: { metric: KpiMe
         onClick={editable ? onClick : undefined}
         disabled={!editable}
         className={`w-full h-full flex flex-col items-center justify-center rounded-[1.2cqw] border-2 border-dashed transition-colors ${
-          editable ? 'border-[#cbd5e1] text-[#94a3b8] hover:border-[#2C3079] hover:text-[#2C3079] hover:bg-[#F1F2FB] cursor-pointer' : 'border-[#dbe1e8] text-[#b6bcc4] cursor-default'
+          editable ? 'border-[#cbd5e1] text-[#94a3b8] hover:border-[#327488] hover:text-[#327488] hover:bg-[#EAF2F6] cursor-pointer' : 'border-[#dbe1e8] text-[#b6bcc4] cursor-default'
         }`}
         style={{ background: 'rgba(255,255,255,0.45)' }}
       >
@@ -99,7 +99,7 @@ export default function KpiSlide({
           <button
             onClick={() => setCountOpen(true)}
             title="Number of metrics"
-            className="absolute z-10 flex items-center justify-center rounded-[0.5cqw] bg-white border border-[#e2e8f0] text-[#94a3b8] hover:text-[#2C3079] hover:border-[#cbd5e1] shadow-sm transition-colors"
+            className="absolute z-10 flex items-center justify-center rounded-[0.5cqw] bg-white border border-[#e2e8f0] text-[#94a3b8] hover:text-[#327488] hover:border-[#cbd5e1] shadow-sm transition-colors"
             style={{ top: '-3cqh', right: 0, width: '2.6cqw', height: '2.6cqw' }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: '1.5cqw' }}>tune</span>
@@ -150,7 +150,7 @@ export default function KpiSlide({
                   key={n}
                   onClick={() => { onChange?.({ ...slide, metricCount: n }); setCountOpen(false) }}
                   style={PJ}
-                  className={`py-4 rounded-xl border flex flex-col items-center gap-1 transition-all ${count === n ? 'border-[#2C3079] bg-[#F1F2FB] text-[#2C3079] ring-1 ring-[#2C3079]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}
+                  className={`py-4 rounded-xl border flex flex-col items-center gap-1 transition-all ${count === n ? 'border-[#327488] bg-[#EAF2F6] text-[#327488] ring-1 ring-[#327488]' : 'border-[#e5e7eb] hover:bg-[#f9fafb] text-[#334155]'}`}
                 >
                   <span className="material-symbols-outlined text-[22px] opacity-70">grid_view</span>
                   <span className="text-[17px] font-bold">{n}</span>

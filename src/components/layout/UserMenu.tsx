@@ -17,7 +17,7 @@ export default function UserMenu() {
   return (
     <div className="px-3 py-3 border-t border-[#f0f0ee] flex-shrink-0">
       <div className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-[#f9fafb] transition-colors">
-        <div className="w-8 h-8 rounded-full bg-[#1B8A80] flex items-center justify-center flex-shrink-0">
+        <div className="w-8 h-8 rounded-full bg-[#285D6E] flex items-center justify-center flex-shrink-0">
           <span className="text-[12px] font-bold text-white leading-none">{initials}</span>
         </div>
 

@@ -61,7 +61,7 @@ export default function BrandSettingsTab() {
             value={name}
             onChange={e => { setName(e.target.value); setSaved(false) }}
             style={{ ...PJB, width: '100%', maxWidth: '24rem' }}
-            className="h-9 px-3 text-[13.5px] border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#1B8A80] focus:ring-1 focus:ring-[#1B8A80]/20 transition"
+            className="h-9 px-3 text-[13.5px] border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#285D6E] focus:ring-1 focus:ring-[#285D6E]/20 transition"
           />
         </div>
 
@@ -70,7 +70,7 @@ export default function BrandSettingsTab() {
             saved
               ? 'bg-[#ecfdf5] text-[#059669] border border-[#059669]/20'
               : isDirty
-              ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white'
+              ? 'bg-[#285D6E] hover:bg-[#1E4A58] text-white'
               : 'bg-[#f3f4f6] text-[#9ca3af] cursor-not-allowed'
           }`}>
           {saved

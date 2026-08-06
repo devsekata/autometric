@@ -15,7 +15,7 @@ const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 type ShowToast = (kind: ToastKind, message: string) => void
 
 // Default palette used for the cover-style gallery previews.
-const GALLERY_COLORS: CoverColors = { primary: '#2C3079', secondary: '#1B8A80', accent: '#e0a458' }
+const GALLERY_COLORS: CoverColors = { primary: '#327488', secondary: '#285D6E', accent: '#e0a458' }
 
 const DAY = 86_400_000
 
@@ -115,7 +115,7 @@ function ReportsIndex({
         <button
           onClick={() => onCreate(undefined)}
           style={PJ}
-          className="flex items-center gap-2 h-11 px-5 bg-[#2C3079] hover:bg-[#20224F] text-white text-[13.5px] font-bold rounded-xl transition-colors shadow-[0_2px_10px_rgba(30,79,73,0.30)] flex-shrink-0"
+          className="flex items-center gap-2 h-11 px-5 bg-[#327488] hover:bg-[#285D6E] text-white text-[13.5px] font-bold rounded-xl transition-colors shadow-[0_2px_10px_rgba(30,79,73,0.30)] flex-shrink-0"
         >
           <span className="material-symbols-outlined text-[19px]">add</span>
           Create report
@@ -124,8 +124,8 @@ function ReportsIndex({
 
       {/* ════ Stats ════ */}
       <div className="px-10 pt-6 grid grid-cols-3 gap-4">
-        <Stat icon="description" label="Total reports" value={String(total)} tint="#2C3079" />
-        <Stat icon="calendar_month" label="Exported this month" value={String(thisMonth)} tint="#1B8A80" />
+        <Stat icon="description" label="Total reports" value={String(total)} tint="#327488" />
+        <Stat icon="calendar_month" label="Exported this month" value={String(thisMonth)} tint="#285D6E" />
         <Stat icon="palette" label="Cover templates" value={String(COVER_TEMPLATES.length)} tint="#e0a458" />
       </div>
 
@@ -134,9 +134,9 @@ function ReportsIndex({
         <div className="flex-1 min-w-0 px-10 pt-8 pb-10 space-y-9">
 
           {/* Template quick-start strip — tinted panel, compact tiles (distinct from history) */}
-          <section className="rounded-2xl border border-[#e3ece9] bg-gradient-to-br from-[#F1F2FB] to-[#eef4f7] px-6 py-5">
+          <section className="rounded-2xl border border-[#e3ece9] bg-gradient-to-br from-[#EAF2F6] to-[#eef4f7] px-6 py-5">
             <div className="flex items-center gap-2.5 mb-4">
-              <span className="w-9 h-9 rounded-xl bg-[#2C3079] text-white flex items-center justify-center flex-shrink-0">
+              <span className="w-9 h-9 rounded-xl bg-[#327488] text-white flex items-center justify-center flex-shrink-0">
                 <span className="material-symbols-outlined text-[19px]">auto_awesome</span>
               </span>
               <div>
@@ -153,13 +153,13 @@ function ReportsIndex({
                   className="group text-left"
                 >
                   <div
-                    className="aspect-video rounded-lg overflow-hidden ring-1 ring-[#dde6e2] group-hover:ring-2 group-hover:ring-[#2C3079] group-hover:shadow-[0_4px_14px_rgba(30,79,73,0.18)] transition-all"
+                    className="aspect-video rounded-lg overflow-hidden ring-1 ring-[#dde6e2] group-hover:ring-2 group-hover:ring-[#327488] group-hover:shadow-[0_4px_14px_rgba(30,79,73,0.18)] transition-all"
                     style={{
                       backgroundImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(t.background(GALLERY_COLORS, 'light'))}")`,
                       backgroundSize: 'cover',
                     }}
                   />
-                  <p style={PJ} className="text-[11.5px] font-semibold text-[#5b6b73] group-hover:text-[#2C3079] mt-1.5 px-0.5 transition-colors">
+                  <p style={PJ} className="text-[11.5px] font-semibold text-[#5b6b73] group-hover:text-[#327488] mt-1.5 px-0.5 transition-colors">
                     {t.name}
                   </p>
                 </button>
@@ -186,7 +186,7 @@ function ReportsIndex({
                   <input
                     type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search reports"
                     style={PJ}
-                    className="h-9 pl-8 pr-3 w-48 text-[13px] text-[#334155] placeholder:text-[#94a3b8] bg-white border border-[#e2e8f0] rounded-lg outline-none focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 transition-all"
+                    className="h-9 pl-8 pr-3 w-48 text-[13px] text-[#334155] placeholder:text-[#94a3b8] bg-white border border-[#e2e8f0] rounded-lg outline-none focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10 transition-all"
                   />
                 </div>
               </div>
@@ -321,7 +321,7 @@ function ReportCard({ record, orgId, brands, showToast }: { record: ReportRecord
         }}
       >
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-          <span className="flex items-center gap-1.5 bg-white/95 text-[#2C3079] text-[12px] font-bold px-3.5 py-2 rounded-lg shadow-sm" style={PJ}>
+          <span className="flex items-center gap-1.5 bg-white/95 text-[#327488] text-[12px] font-bold px-3.5 py-2 rounded-lg shadow-sm" style={PJ}>
             <span className="material-symbols-outlined text-[16px]">download</span>
             Download
           </span>

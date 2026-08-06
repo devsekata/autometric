@@ -58,7 +58,7 @@ export default function CollapsedRail({
                 title={item.label}
                 className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
                   active
-                    ? 'bg-[#f0f7fa] text-[#1B8A80]'
+                    ? 'bg-[#f0f7fa] text-[#285D6E]'
                     : 'text-[#9ca3af] hover:bg-[#f9fafb] hover:text-[#374151]'
                 }`}
               >

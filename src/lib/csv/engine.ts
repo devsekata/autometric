@@ -2,7 +2,7 @@
  * Klien untuk service mapping-engine (Python, internal-only).
  *
  * Service itu tidak diekspos ke luar compose network — lihat docker-compose.yml.
- * Kepiai sudah memverifikasi sesi user dan hak akses brand sebelum memanggil,
+ * Autometric sudah memverifikasi sesi user dan hak akses brand sebelum memanggil,
  * jadi di sini hanya menempelkan shared secret opsional.
  */
 import { DetectedFile, IngestResponse } from './types'

@@ -104,10 +104,10 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
                     onClick={() => { setPlatform(p); setError('') }}
                     className={`flex flex-col items-center gap-1.5 py-3 rounded-lg border-2 transition-all ${
                       full     ? 'border-[#f3f4f6] bg-[#fafafa] opacity-45 cursor-not-allowed' :
-                      active   ? 'border-[#1B8A80] bg-[#f0f7fa]' : 'border-[#f3f4f6] hover:border-[#e5e7eb]'
+                      active   ? 'border-[#285D6E] bg-[#f0f7fa]' : 'border-[#f3f4f6] hover:border-[#e5e7eb]'
                     }`}>
                     <PlatformIcon platform={p} size={32} />
-                    <span style={PJB} className={`text-[10px] font-semibold ${active && !full ? 'text-[#2C3079]' : 'text-[#9ca3af]'}`}>
+                    <span style={PJB} className={`text-[10px] font-semibold ${active && !full ? 'text-[#327488]' : 'text-[#9ca3af]'}`}>
                       {cfg.label.replace(' (Twitter)', '')}
                     </span>
                     {used > 0 && (
@@ -135,7 +135,7 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
                 placeholder={platform ? `competitor.${platform}.handle` : 'select a platform first'}
                 disabled={!platform || busy}
                 maxLength={60}
-                className="w-full h-9 pl-7 pr-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none transition-all focus:border-[#1B8A80] focus:ring-2 focus:ring-[#1B8A80]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-9 pl-7 pr-3 text-[13.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none transition-all focus:border-[#285D6E] focus:ring-2 focus:ring-[#285D6E]/10 disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -144,7 +144,7 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
               detik) supaya menunggu terasa wajar, bukan seperti macet. */}
           {checking && (
             <div className="flex items-start gap-2.5 -mt-1 px-3 py-2.5 bg-[#f0f7f5] border border-[#cfe6e1] rounded-lg">
-              <span className="material-symbols-outlined text-[16px] text-[#1B8A80] animate-spin flex-shrink-0">
+              <span className="material-symbols-outlined text-[16px] text-[#285D6E] animate-spin flex-shrink-0">
                 progress_activity
               </span>
               <p className="text-[12px] text-[#22615c] leading-relaxed">
@@ -168,7 +168,7 @@ export default function CompetitorModal({ brandName, competitors, onClose, onAdd
             {busy ? 'Tutup' : 'Cancel'}
           </button>
           <button onClick={handleSubmit} disabled={!platform || selectedFull || !username.trim() || busy} style={PJB}
-            className="h-8 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors">
+            className="h-8 px-4 bg-[#285D6E] hover:bg-[#1E4A58] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors">
             {checking ? 'Memeriksa…' : loading ? 'Adding…' : 'Add Competitor'}
           </button>
         </div>

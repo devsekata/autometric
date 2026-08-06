@@ -47,7 +47,7 @@ export default function SlideEditor({
           onClick={onPrev}
           disabled={!onPrev}
           title="Previous slide"
-          className="w-12 h-12 flex items-center justify-center bg-white border-2 border-[#e5e7eb] rounded-xl text-[#475569] shadow-sm hover:border-[#1B8A80] hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex-shrink-0"
+          className="w-12 h-12 flex items-center justify-center bg-white border-2 border-[#e5e7eb] rounded-xl text-[#475569] shadow-sm hover:border-[#285D6E] hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex-shrink-0"
         >
           <span className="material-symbols-outlined text-[26px]">chevron_left</span>
         </button>
@@ -61,8 +61,8 @@ export default function SlideEditor({
           title={nextIsAdd ? 'Add new slide' : 'Next slide'}
           className={`w-12 h-12 flex items-center justify-center rounded-xl shadow-sm hover:scale-105 transition-all flex-shrink-0 border-2 ${
             nextIsAdd
-              ? 'bg-[#F1F2FB] border-[#cfe5dd] text-[#2C3079] hover:border-[#2C3079]'
-              : 'bg-white border-[#e5e7eb] text-[#475569] hover:border-[#1B8A80]'
+              ? 'bg-[#EAF2F6] border-[#cfe5dd] text-[#327488] hover:border-[#327488]'
+              : 'bg-white border-[#e5e7eb] text-[#475569] hover:border-[#285D6E]'
           }`}
         >
           <span className="material-symbols-outlined text-[26px]">{nextIsAdd ? 'add' : 'chevron_right'}</span>

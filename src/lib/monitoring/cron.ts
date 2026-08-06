@@ -41,5 +41,5 @@ export function startCron() {
     }
   })
 
-  console.log('[Cron] Kepiai scheduler started')
+  console.log('[Cron] Autometric scheduler started')
 }

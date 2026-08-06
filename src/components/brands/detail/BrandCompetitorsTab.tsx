@@ -29,7 +29,7 @@ export default function BrandCompetitorsTab() {
         const warn = competitorNotice.tone === 'warn'
         const c = warn
           ? { bg: 'bg-[#fffbeb]', border: 'border-[#fde68a]', icon: 'text-[#b45309]', text: 'text-[#92400e]', hover: 'hover:bg-[#fef3c7]', glyph: 'person_off' }
-          : { bg: 'bg-[#f0f7f5]', border: 'border-[#cfe6e1]', icon: 'text-[#1B8A80]', text: 'text-[#22615c]', hover: 'hover:bg-[#e2efec]', glyph: 'schedule' }
+          : { bg: 'bg-[#f0f7f5]', border: 'border-[#cfe6e1]', icon: 'text-[#285D6E]', text: 'text-[#22615c]', hover: 'hover:bg-[#e2efec]', glyph: 'schedule' }
         return (
           <div className={`flex items-start gap-2.5 mt-4 px-4 py-3 ${c.bg} border ${c.border} rounded-lg`}>
             <span className={`material-symbols-outlined text-[18px] ${c.icon} flex-shrink-0`}>{c.glyph}</span>
@@ -54,7 +54,7 @@ export default function BrandCompetitorsTab() {
         <button onClick={() => COMPETITOR_ADD_ENABLED && toggleAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
           title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
           className={`flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
-            COMPETITOR_ADD_ENABLED ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+            COMPETITOR_ADD_ENABLED ? 'bg-[#285D6E] hover:bg-[#1E4A58] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
           }`}>
           <span className="material-symbols-outlined text-[15px]">add</span>
           Add Competitor
@@ -69,7 +69,7 @@ export default function BrandCompetitorsTab() {
           <button onClick={() => COMPETITOR_ADD_ENABLED && toggleAdd(true)} disabled={!COMPETITOR_ADD_ENABLED} style={PJB}
             title={COMPETITOR_ADD_ENABLED ? undefined : ADD_DISABLED_TITLE}
             className={`mt-1 flex items-center gap-1.5 h-9 px-4 text-[13px] font-semibold rounded-lg transition-colors ${
-              COMPETITOR_ADD_ENABLED ? 'bg-[#1B8A80] hover:bg-[#177A70] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
+              COMPETITOR_ADD_ENABLED ? 'bg-[#285D6E] hover:bg-[#1E4A58] text-white' : 'bg-[#e5e7eb] text-[#9ca3af] cursor-not-allowed'
             }`}>
             <span className="material-symbols-outlined text-[15px]">add</span>
             Add Competitor
@@ -107,7 +107,7 @@ export default function BrandCompetitorsTab() {
               {comp.profile_url && (
                 <a href={comp.profile_url} target="_blank" rel="noopener noreferrer"
                   title="View profile"
-                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#e0f0f5] transition-colors text-[#9ca3af] hover:text-[#1B8A80]">
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[#e0f0f5] transition-colors text-[#9ca3af] hover:text-[#285D6E]">
                   <span className="material-symbols-outlined text-[16px]">open_in_new</span>
                 </a>
               )}

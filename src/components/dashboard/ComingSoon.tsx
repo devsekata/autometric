@@ -8,7 +8,7 @@ export default function ComingSoon({ title, icon, desc }: { title: string; icon:
       </header>
       <div className="flex flex-col items-center justify-center text-center gap-3 py-32 px-6">
         <div className="w-14 h-14 rounded-2xl bg-white border border-[#e5e7eb] flex items-center justify-center">
-          <span className="material-symbols-outlined text-[28px] text-[#1B8A80]">{icon}</span>
+          <span className="material-symbols-outlined text-[28px] text-[#285D6E]">{icon}</span>
         </div>
         <h2 style={PJ} className="text-[16px] font-bold text-[#111827] mt-1">{title}</h2>
         <p className="text-[13px] text-[#6b7280] max-w-sm leading-relaxed">{desc}</p>

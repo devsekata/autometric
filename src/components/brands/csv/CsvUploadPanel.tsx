@@ -177,11 +177,11 @@ export default function CsvUploadPanel({
           onClick={() => inputRef.current?.click()}
           className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
             compact ? 'py-7' : 'py-12'
-          } ${dragging ? 'border-[#1B8A80] bg-[#1B8A80]/5' : 'border-[#e5e7eb] hover:border-[#d1d5db] hover:bg-[#fafafa]'}`}
+          } ${dragging ? 'border-[#285D6E] bg-[#285D6E]/5' : 'border-[#e5e7eb] hover:border-[#d1d5db] hover:bg-[#fafafa]'}`}
         >
           {phase === 'detecting' ? (
             <>
-              <span className="material-symbols-outlined text-[30px] text-[#1B8A80] animate-spin">progress_activity</span>
+              <span className="material-symbols-outlined text-[30px] text-[#285D6E] animate-spin">progress_activity</span>
               <p style={PJB} className="text-[13px] font-semibold text-[#374151]">Mengenali file…</p>
             </>
           ) : (
@@ -276,7 +276,7 @@ export default function CsvUploadPanel({
           </button>
           {onCancel && (
             <button type="button" onClick={onCancel} style={PJB}
-              className="h-9 px-4 bg-[#1B8A80] hover:bg-[#177A70] text-white text-[13px] font-semibold rounded-lg transition-colors">
+              className="h-9 px-4 bg-[#285D6E] hover:bg-[#1E4A58] text-white text-[13px] font-semibold rounded-lg transition-colors">
               Selesai
             </button>
           )}
@@ -342,7 +342,7 @@ export default function CsvUploadPanel({
                   <select
                     value={r.platform}
                     onChange={e => patch(i, { platform: e.target.value as Platform, category: '' })}
-                    className="flex-1 h-8 px-1.5 text-[12px] text-[#111827] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80]">
+                    className="flex-1 h-8 px-1.5 text-[12px] text-[#111827] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#285D6E]">
                     <option value="">Pilih…</option>
                     {CSV_PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
@@ -351,7 +351,7 @@ export default function CsvUploadPanel({
                 <select
                   value={r.category}
                   onChange={e => patch(i, { category: e.target.value })}
-                  className="h-8 px-1.5 text-[12px] text-[#111827] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80]">
+                  className="h-8 px-1.5 text-[12px] text-[#111827] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#285D6E]">
                   <option value="">Pilih…</option>
                   {catsFor(r.platform).map(c => (
                     <option key={c.category} value={c.category}>{c.label}</option>
@@ -397,7 +397,7 @@ export default function CsvUploadPanel({
                   value={usernameByPlatform.get(p) ?? ''}
                   onChange={e => patch(idx, { username: e.target.value })}
                   placeholder={`@username di ${p}`}
-                  className="flex-1 h-8 px-2.5 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#1B8A80]"
+                  className="flex-1 h-8 px-2.5 text-[12.5px] text-[#111827] placeholder:text-[#d1d5db] bg-white border border-[#e5e7eb] rounded-lg outline-none focus:border-[#285D6E]"
                 />
               </div>
             )
@@ -466,7 +466,7 @@ export default function CsvUploadPanel({
             Pratinjau
           </button>
           <button type="button" onClick={() => send(false)} disabled={!canSend || phase === 'sending'} style={PJB}
-            className="h-9 px-4 bg-[#1B8A80] hover:bg-[#177A70] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-2">
+            className="h-9 px-4 bg-[#285D6E] hover:bg-[#1E4A58] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-2">
             {phase === 'sending'
               ? <><span className="material-symbols-outlined text-[15px] animate-spin">progress_activity</span> Memproses…</>
               : <>Proses {rows.length} file</>

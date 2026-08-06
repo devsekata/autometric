@@ -109,7 +109,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       platforms.add(a.platform)
     }
 
-    // ── Siapkan akun: Kepiai yang memilikinya, mesin Python tidak boleh
+    // ── Siapkan akun: Autometric yang memilikinya, mesin Python tidak boleh
     // membuat akun sendiri (self-heal-nya dimatikan di bootstrap.py). ──
     const existing = await getBrandAccounts(brandId)
     const accountByPlatform = new Map(existing.map(a => [a.platform, a]))

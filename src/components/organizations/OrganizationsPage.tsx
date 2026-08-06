@@ -85,7 +85,7 @@ export default function OrganizationsPage({ initialOrgs, initialInvitations }: P
           <button
             onClick={() => setShowCreate(true)}
             style={PJB}
-            className="flex items-center gap-2 h-10 px-5 bg-[#1B8A80] hover:bg-[#177A70] active:bg-[#2C3079] text-white text-[13.5px] font-semibold rounded-lg transition-colors shadow-[0_2px_10px_rgba(61,126,150,0.28)]"
+            className="flex items-center gap-2 h-10 px-5 bg-[#285D6E] hover:bg-[#1E4A58] active:bg-[#327488] text-white text-[13.5px] font-semibold rounded-lg transition-colors shadow-[0_2px_10px_rgba(61,126,150,0.28)]"
           >
             <span className="material-symbols-outlined text-[16px]">add</span>
             New Organization
@@ -98,7 +98,7 @@ export default function OrganizationsPage({ initialOrgs, initialInvitations }: P
         <div className="px-8 pt-6 pb-2">
           <div className="flex items-center gap-2 mb-3">
             <span style={PJB} className="text-[11px] font-bold uppercase tracking-widest text-[#9ca3af]">Invitations</span>
-            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#1B8A80] text-white text-[10px] font-bold flex items-center justify-center">
+            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#285D6E] text-white text-[10px] font-bold flex items-center justify-center">
               {invites.length}
             </span>
           </div>
@@ -129,7 +129,7 @@ export default function OrganizationsPage({ initialOrgs, initialInvitations }: P
                   <button
                     onClick={() => handleAccept(invite)}
                     style={PJB}
-                    className="h-8 px-3.5 text-[12px] font-semibold bg-[#1B8A80] hover:bg-[#177A70] text-white rounded-lg transition-colors"
+                    className="h-8 px-3.5 text-[12px] font-semibold bg-[#285D6E] hover:bg-[#1E4A58] text-white rounded-lg transition-colors"
                   >
                     Accept
                   </button>
@@ -153,12 +153,12 @@ export default function OrganizationsPage({ initialOrgs, initialInvitations }: P
               style={PJB}
               className={`flex items-center gap-1.5 h-7 px-3 rounded-md text-[12.5px] font-semibold transition-colors border-b-2 ${
                 active
-                  ? 'border-b-[#1B8A80] text-[#111827]'
+                  ? 'border-b-[#285D6E] text-[#111827]'
                   : 'border-b-transparent text-[#6b7280] hover:text-[#374151] hover:bg-[#f3f4f6]'
               }`}
             >
               {tab.label}
-              <span className={`text-[11px] font-bold ${active ? 'text-[#1B8A80]' : 'text-[#b0b8c4]'}`}>
+              <span className={`text-[11px] font-bold ${active ? 'text-[#285D6E]' : 'text-[#b0b8c4]'}`}>
                 {count}
               </span>
             </button>

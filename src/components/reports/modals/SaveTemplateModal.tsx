@@ -52,7 +52,7 @@ export default function SaveTemplateModal({
       <div className="absolute inset-0 bg-[#0f172a]/50 backdrop-blur-sm" />
       <div onClick={e => e.stopPropagation()} className="relative w-full max-w-[440px] p-7 rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.30)]">
         <div className="flex items-start gap-3 mb-5">
-          <span className="w-10 h-10 rounded-xl bg-[#E6E7F3] text-[#2C3079] flex items-center justify-center flex-shrink-0">
+          <span className="w-10 h-10 rounded-xl bg-[#E6E7F3] text-[#327488] flex items-center justify-center flex-shrink-0">
             <span className="material-symbols-outlined text-[20px]">bookmark_add</span>
           </span>
           <div>
@@ -72,7 +72,7 @@ export default function SaveTemplateModal({
           placeholder="e.g. Monthly performance report"
           disabled={saving}
           style={PJ}
-          className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#1B8A80] focus:outline-none disabled:bg-[#f9fafb]"
+          className="w-full border border-[#e5e7eb] rounded-lg px-3 py-2.5 text-[13px] text-[#111827] bg-white focus:border-[#285D6E] focus:outline-none disabled:bg-[#f9fafb]"
         />
         {error && <p className="text-[11.5px] text-[#dc2626] mt-1.5">{error}</p>}
 
@@ -89,7 +89,7 @@ export default function SaveTemplateModal({
             onClick={submit}
             disabled={saving || !name.trim()}
             style={PJ}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-bold text-white bg-[#2C3079] hover:bg-[#20224F] shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-bold text-white bg-[#327488] hover:bg-[#285D6E] shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving && <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>}
             {saving ? 'Saving…' : 'Save template'}

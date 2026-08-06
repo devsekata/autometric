@@ -58,7 +58,7 @@ export default function LoginForm({ onSwitch, onForgotPassword }: Props) {
         <div className="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center">
           <span className="material-symbols-outlined fill text-on-primary" style={{ fontSize: 16 }}>insert_chart</span>
         </div>
-        <span className="font-h3 text-h3 text-on-surface tracking-tight">Kepiai</span>
+        <span className="font-h3 text-h3 text-on-surface tracking-tight">Autometric</span>
       </div>
 
       <div>

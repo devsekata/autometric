@@ -5,7 +5,7 @@ export function otpEmailTemplate(
 ): { subject: string; html: string } {
   const isReset = variant === 'reset'
   return {
-    subject: isReset ? 'Reset your Kepiai password' : 'Your Kepiai verification code',
+    subject: isReset ? 'Reset your Autometric password' : 'Your Autometric verification code',
     html: `
       <!DOCTYPE html>
       <html>
@@ -19,7 +19,7 @@ export function otpEmailTemplate(
                   <tr>
                     <td style="background:#1a1f71;padding:32px 40px;">
                       <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;">
-                        Kepiai
+                        Autometric
                       </p>
                     </td>
                   </tr>
@@ -32,7 +32,7 @@ export function otpEmailTemplate(
                       </p>
                       <p style="margin:0 0 32px;font-size:15px;color:#6b7280;line-height:1.6;">
                         ${isReset
-                          ? 'Use the code below to reset your Kepiai password. This code expires in <strong>10 minutes</strong>.'
+                          ? 'Use the code below to reset your Autometric password. This code expires in <strong>10 minutes</strong>.'
                           : 'Use the code below to verify your email address. This code expires in <strong>10 minutes</strong>.'
                         }
                       </p>
@@ -55,7 +55,7 @@ export function otpEmailTemplate(
                   <tr>
                     <td style="padding:24px 40px;border-top:1px solid #f3f4f6;">
                       <p style="margin:0;font-size:12px;color:#9ca3af;">
-                        © ${new Date().getFullYear()} Kepiai. All rights reserved.
+                        © ${new Date().getFullYear()} Autometric. All rights reserved.
                       </p>
                     </td>
                   </tr>
