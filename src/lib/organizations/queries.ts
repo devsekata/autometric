@@ -5,6 +5,47 @@ export type { Organization as OrgRow }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// `pg` failures arrive in three shapes and none of them puts everything in
+// `message`:
+//   * DatabaseError — SQL rejected by the server; useful bits live in
+//     `code`/`detail`/`hint`/`constraint`.
+//   * socket errors — `code`/`address`/`port` (ECONNREFUSED, ENOTFOUND).
+//   * AggregateError — Node tries every address a host resolves to; when they
+//     all fail it collects them into `.errors` and leaves `message` an EMPTY
+//     STRING. This is the shape that produced the blank log line: a pool built
+//     from an undefined connection string falls back to localhost, both the
+//     IPv4 and IPv6 attempts are refused, and the result is an error that
+//     prints as bare `Error:` with nothing after it.
+// Flattening all three keeps the real cause in the log.
+function describeDbError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { raw: String(err), rawType: typeof err }
+  const e = err as Error & Record<string, unknown>
+  const fields: Record<string, unknown> = {
+    name: e.name,
+    message: e.message || '(empty message)',
+  }
+  for (const key of [
+    'code', 'detail', 'hint', 'position', 'severity', 'constraint',
+    'table', 'column', 'routine', 'schema',      // pg DatabaseError
+    'errno', 'syscall', 'address', 'port',       // socket-level failures
+  ]) {
+    if (e[key] != null) fields[key] = e[key]
+  }
+  // AggregateError hides every real reason in here.
+  if (Array.isArray(e.errors)) {
+    fields.aggregated = (e.errors as unknown[]).map((sub) =>
+      sub instanceof Error
+        ? [sub.message, (sub as Error & { code?: string }).code,
+           (sub as Error & { address?: string }).address,
+           (sub as Error & { port?: number }).port]
+            .filter(Boolean).join(' ')
+        : String(sub)
+    )
+  }
+  if (e.cause instanceof Error) fields.cause = describeDbError(e.cause)
+  return fields
+}
+
 const ORG_SELECT = `
   SELECT
     o.id,
@@ -57,6 +98,7 @@ export async function getMemberRole(
   orgId: string,
   userId: string
 ): Promise<'ADMIN' | 'MEMBER' | null> {
+  if (!isUserId(userId)) return null
   const { rows } = await pool.query<{ role: 'ADMIN' | 'MEMBER' }>(
     // Joining organizations keeps every org-scoped API in step with the soft
     // delete: once the org is marked deleted, role lookups return null and the
@@ -70,20 +112,52 @@ export async function getMemberRole(
   return rows[0]?.role ?? null
 }
 
+/**
+ * Callers throughout the app resolve the session id as `session?.user?.id ?? ''`
+ * and hand the result straight to these queries. For an anonymous request that
+ * empty string reaches Postgres as a uuid parameter and raises
+ * `22P02 invalid input syntax for type uuid`, so a signed-out visitor produced a
+ * DB exception and a stack trace in the log instead of a clean "no orgs" —
+ * visible on every org route, including the layout that wraps them.
+ *
+ * An id that is not a uuid can never match a row, so short-circuiting is
+ * behaviour-preserving: same result, minus the exception.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const isUserId = (v: string | null | undefined): v is string => !!v && UUID_RE.test(v)
+
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 export async function listOrgsForUser(userId: string): Promise<Organization[]> {
-  const { rows } = await pool.query(
-    `${ORG_SELECT} ORDER BY o.created_at DESC`,
-    [userId]
-  )
-  return rows
+  if (!isUserId(userId)) return []
+  try {
+    const { rows } = await pool.query(
+      `${ORG_SELECT} ORDER BY o.created_at DESC`,
+      [userId]
+    )
+    return rows
+  } catch (err) {
+    const detail = describeDbError(err)
+    // console.error's object formatting gets JSON-serialised into the Next dev
+    // log, which silently drops `undefined` values — stringify it here so the
+    // line is never just `{}`.
+    console.error(
+      `[listOrgsForUser] query failed userId=${userId ?? '(none)'} ${JSON.stringify(detail)}`
+    )
+    // Rethrow carrying the flattened detail: an empty-message rethrow is what
+    // made this invisible in the first place.
+    throw new Error(
+      `listOrgsForUser failed (userId=${userId ?? '(none)'}): ${JSON.stringify(detail)}`,
+      { cause: err }
+    )
+  }
 }
 
 export async function getOrgForUser(
   orgId: string,
   userId: string
 ): Promise<Organization | null> {
+  if (!isUserId(userId)) return null
   const { rows } = await pool.query(
     `${ORG_SELECT} AND o.id = $2`,
     [userId, orgId]
@@ -95,6 +169,7 @@ export async function getOrgBySlugForUser(
   slug: string,
   userId: string
 ): Promise<Organization | null> {
+  if (!isUserId(userId)) return null
   const { rows } = await pool.query(
     `${ORG_SELECT} AND o.slug = $2`,
     [userId, slug]
