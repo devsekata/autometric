@@ -21,6 +21,33 @@ export const TEAL = {
   wash: '#f0f7fa',
 } as const
 
+/**
+ * The full token set for surfaces that are painted with inline styles rather
+ * than Tailwind classes — the KOL Directory and its filter sidebar, which are
+ * ports of a design built on CSS variables. Same values as globals.css: the
+ * teal ramp, the neutral greys, and the text steps t1…t4 the source called
+ * --t1…--t4, so a rule from the original translates one-to-one.
+ */
+export const TOKENS = {
+  primary: '#327488',
+  primaryDeep: '#285D6E',
+  accent: '#4E96AC',
+  ink: '#1E4A58',
+  gradient: 'linear-gradient(135deg,#4E96AC,#327488)',
+  surface: '#ffffff',
+  surfaceLow: '#f9fafb',
+  surfaceVariant: '#EDF4F7',
+  outline: '#e5e7eb',
+  outlineSoft: '#f3f4f6',
+  t1: '#111827',
+  t2: '#374151',
+  t3: '#6b7280',
+  t4: '#9ca3af',
+  shadow: '0 1px 2px rgba(17,24,39,.05),0 4px 14px rgba(17,24,39,.05)',
+  shadowMd: '0 12px 32px rgba(40,93,110,.14)',
+  shadowLg: '0 26px 56px rgba(30,74,88,.18)',
+} as const
+
 /* ── formatting ───────────────────────────────────────────────────────────── */
 
 export function fmtNum(n: number): string {

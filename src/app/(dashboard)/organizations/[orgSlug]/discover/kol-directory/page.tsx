@@ -6,12 +6,12 @@ import KolDirectoryPage from '@/components/discover/KolDirectoryPage'
 interface Props { params: Promise<{ orgSlug: string }> }
 
 /**
- * KOL Directory reference layout.
+ * KOL Directory.
  *
  * Kept on its own route rather than replacing the Directory tab in the KOL
- * Intelligence workspace: this page renders a fixed creator set that does not
- * exist in the warehouse, so pointing it at the database would show different
- * people. The live Directory is untouched.
+ * Intelligence workspace: the two read different sources. That tab lists the
+ * accounts this org already tracks in the warehouse; this page browses the
+ * commercial KOL platform's roster (`public.kol_directory` in the KOL database).
  */
 export default async function KolDirectoryRoute({ params }: Props) {
   const { orgSlug } = await params
@@ -19,5 +19,5 @@ export default async function KolDirectoryRoute({ params }: Props) {
   const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
   if (!org) notFound()
 
-  return <KolDirectoryPage />
+  return <KolDirectoryPage orgId={org.id} orgSlug={orgSlug} />
 }
