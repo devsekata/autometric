@@ -27,11 +27,12 @@ import {
   CAMPAIGN_STAGES, type SampleContentItem, type SampleIntel,
 } from '@/lib/discover/kolSample'
 import type {
-  KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
+  KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
 
 export interface SectionProps {
   creator: KolDirectoryRow
+  identity: KolCreatorIdentity
   rank: KolCreatorRank
   platforms: KolCreatorPlatformRow[]
   similar: KolSimilarRow[]

@@ -271,6 +271,21 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
  * position by engagement rate among the creators whose rate has been measured,
  * and position by followers inside the creator's own category.
  */
+/**
+ * Identity the roster table itself does not carry, but the agency tables do.
+ *
+ * `agency_kol_accounts.label` is the creator's display name — "Raffi Ahmad" for
+ * @raffinagita1717 — filled for 7.684 of the 7.718 active rows, and different
+ * from the handle for about half of them. It is the only real name anywhere in
+ * this database, so the header uses it and falls back to the handle.
+ */
+export interface KolCreatorIdentity {
+  /** Null when absent, or when it merely repeats the username. */
+  displayName: string | null
+  /** Every creator in this roster belongs to one agency. */
+  agency: string | null
+}
+
 export interface KolCreatorRank {
   rosterTotal: number
   followersRank: number
@@ -285,6 +300,14 @@ export interface KolCreatorRank {
   categoryName: string | null
   categoryTotal: number
   categoryFollowersRank: number | null
+  /**
+   * Standing by engagement rate *inside the category* — what "top 8% in
+   * category" actually means, computed rather than asserted. Null when the
+   * creator has no category or no measured rate.
+   */
+  categoryErRank: number | null
+  categoryErTotal: number
+  categoryErPercentile: number | null
 }
 
 /** A sibling account of the same creator on another platform, when one exists. */
@@ -311,6 +334,7 @@ export interface KolSimilarRow {
 
 export interface KolCreatorPayload {
   creator: KolDirectoryRow
+  identity: KolCreatorIdentity
   rank: KolCreatorRank
   /** Always includes the creator's own row, so the caller can render one list. */
   platforms: KolCreatorPlatformRow[]
@@ -330,7 +354,22 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     city: string | null; categories: string[] | null; followers: number | null
     er_pct: number | null; tier: string | null; verified: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
-  }>(`WITH base AS (${BASE}) SELECT * FROM base WHERE id = $1`, [id])
+    display_name: string | null; agency: string | null
+  }>(`
+    WITH base AS (${BASE})
+    SELECT b.*, aka.label AS display_name, ag.name AS agency
+      FROM base b
+      -- One row per creator in practice; DISTINCT ON guards the join anyway so a
+      -- duplicate agency link could never fan the creator out into two rows.
+      LEFT JOIN LATERAL (
+        SELECT a.label, a.agency_id
+          FROM public.agency_kol_accounts a
+         WHERE a.kol_account_id = b.id
+         ORDER BY a.created_at DESC NULLS LAST
+         LIMIT 1
+      ) aka ON TRUE
+      LEFT JOIN public.agencies ag ON ag.id = aka.agency_id AND ag.deleted_at IS NULL
+     WHERE b.id = $1`, [id])
 
   const r = rows[0]
   if (!r) return null
@@ -347,6 +386,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       roster_total: number; followers_rank: number
       er_rank: number | null; er_measured_total: number
       category_total: number; category_followers_rank: number | null
+      category_er_rank: number | null; category_er_total: number
     }>(`
       SELECT
         (SELECT COUNT(*) FROM public.kol_directory kd WHERE ${ACTIVE})::int AS roster_total,
@@ -367,7 +407,18 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
           (SELECT COUNT(*) + 1 FROM public.kol_directory kd
             JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
            WHERE ${ACTIVE} AND kc.name = $3 AND kd.followers_count > $1)::int
-        END AS category_followers_rank`,
+        END AS category_followers_rank,
+        -- "Top N% in category" is a claim about engagement inside the niche, so
+        -- it is ranked against the category's measured rows, not the roster's.
+        CASE WHEN $3::text IS NULL OR $2::float8 IS NULL THEN NULL ELSE
+          (SELECT COUNT(*) + 1 FROM public.kol_directory kd
+            JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
+           WHERE ${ACTIVE} AND kc.name = $3 AND kd.engagement_rate > $2)::int
+        END AS category_er_rank,
+        (SELECT COUNT(*) FROM public.kol_directory kd
+          JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
+         WHERE ${ACTIVE} AND kc.name = $3 AND kd.engagement_rate IS NOT NULL)::int
+          AS category_er_total`,
       // The creator's own id is deliberately absent: every count here is over
       // the roster, and an unused parameter leaves Postgres unable to infer a
       // type for it ("could not determine data type of parameter $1").
@@ -446,6 +497,14 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
     },
+    identity: {
+      // A label that just repeats the handle is not a display name; treating it
+      // as one would print "@budi budi" in the header.
+      displayName: r.display_name && r.display_name.toLowerCase() !== (r.username ?? '').toLowerCase()
+        ? r.display_name
+        : null,
+      agency: r.agency,
+    },
     rank: {
       rosterTotal: k.roster_total,
       followersRank: k.followers_rank,
@@ -456,6 +515,10 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       categoryName: r.categories?.[0] ?? null,
       categoryTotal: k.category_total,
       categoryFollowersRank: k.category_followers_rank,
+      categoryErRank: k.category_er_rank,
+      categoryErTotal: k.category_er_total,
+      categoryErPercentile: k.category_er_rank === null
+        ? null : pct(k.category_er_rank, k.category_er_total),
     },
     platforms: platforms.rows.map(p => ({
       id: p.id,

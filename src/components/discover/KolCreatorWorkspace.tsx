@@ -5,34 +5,32 @@
  *
  * Deliberately not a second dashboard. It renders inside the app's existing
  * shell — same sidebar, same topbar, same tokens, same card style — and only
- * the main content area changes. The page is the Directory's detail view, not a
- * new place.
+ * the main content area changes.
  *
- * Shape: back link → creator header → quick metrics → tabs → tab content.
- * Overview is the default and lives in `KolCreatorOverview`; the other six tabs
- * are in `KolCreatorSections`. Report is a button rather than a tab — it is
- * something you do once you have decided, not something you read every visit.
+ * Shape: back link → creator header → three primary KPIs → six secondary KPIs →
+ * a two-column body whose LEFT column is this page's own navigation, not the
+ * app's. That distinction matters: the app sidebar says where you are in the
+ * product, this one says which view of one creator you are reading. Horizontal
+ * tabs were the earlier shape and lost that separation — seven labels in a strip
+ * read as peers of Directory rather than as sections of a record.
  *
  * ── What is real and what is not ─────────────────────────────────────────────
- * The commercial roster (`public.kol_directory`) stores identity only. Real
- * here: username, platform, profile URL, avatar, bio, followers, engagement
- * rate, category, tier, verified, last refresh — plus what the API computes from
- * the roster: rank by followers, rank inside the creator's category, rank by
- * engagement rate among measured rows, the sibling account on the other
- * platform, and the Similar Creators row.
+ * The roster stores identity. Real here: display name and agency (from the
+ * agency tables — 7.684 of 7.718 rows carry a name), username, platform, avatar,
+ * bio, followers, engagement rate, category, tier, verified, last refresh, the
+ * follower split across the creator's accounts, and every ranking the API
+ * computes (roster, category, engagement inside the category).
  *
- * Everything else the brief asks for — reach, views, growth, audience
- * demographics, content, campaigns, brand fit, AI insights — has no source, so
- * it comes from `@/lib/discover/kolSample` and is marked at every figure. The
- * header carries a "Demo profile · Sample data" chip and each sampled number
- * wears `<SampleTag />`, so no screenshot can be mistaken for a measurement.
+ * Reach beyond followers × ER, views, EMV, CPE, growth, audience demographics,
+ * content, campaigns, brand fit and AI prose have no source, so they come from
+ * `@/lib/discover/kolSample` and are marked at every figure.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PJ, TOKENS as T, PLATFORM_ICON, Btn, fmtNum } from './ui'
 import { ErrorBlock, Overlay, Row, SampleTag, Skeleton, StatTile, VIZ } from './kolViz'
-import OverviewSection from './KolCreatorOverview'
+import { ProfileSection, InsightsSection } from './KolCreatorProfile'
 import KolCreatorReport from './KolCreatorReport'
 import {
   AiSection, AudienceSection, BrandFitSection, CampaignSection, ContentSection,
@@ -41,18 +39,21 @@ import {
 import { sampleIntel } from '@/lib/discover/kolSample'
 import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
 
-/** Report is absent on purpose — it is an action in the header, not a tab. */
-const TABS = [
-  { id: 'overview', label: 'Overview', icon: 'dashboard' },
-  { id: 'performance', label: 'Performance', icon: 'insights' },
-  { id: 'audience', label: 'Audience', icon: 'group' },
-  { id: 'content', label: 'Content', icon: 'grid_view' },
-  { id: 'campaigns', label: 'Campaign', icon: 'campaign' },
-  { id: 'brandfit', label: 'Brand Fit', icon: 'handshake' },
+/**
+ * The creator navigation. Report is absent on purpose — it is an action in the
+ * header, not a view of the creator.
+ */
+const NAV = [
+  { id: 'profile', label: 'Profile', icon: 'person' },
+  { id: 'content', label: 'Content Analytics', icon: 'grid_view' },
+  { id: 'analytics', label: 'Analytics', icon: 'insights' },
+  { id: 'audience', label: 'Audience Insights', icon: 'group' },
+  { id: 'campaigns', label: 'Brand & Campaign History', icon: 'campaign' },
   { id: 'ai', label: 'AI Insights', icon: 'auto_awesome' },
+  { id: 'insights', label: 'Insights', icon: 'lightbulb' },
 ] as const
 
-type TabId = (typeof TABS)[number]['id']
+type NavId = (typeof NAV)[number]['id']
 
 const CAMPAIGN_OPTIONS = ['Summer Beauty Campaign', 'Ramadan 2026', 'Product Launch Q3']
 
@@ -65,7 +66,7 @@ export default function KolCreatorWorkspace({
   const [data, setData] = useState<KolCreatorPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
-  const [tab, setTab] = useState<TabId>('overview')
+  const [view, setView] = useState<NavId>('profile')
 
   const [fav, setFav] = useState(false)
   const [compareTray, setCompareTray] = useState(false)
@@ -78,9 +79,9 @@ export default function KolCreatorWorkspace({
     let cancelled = false
     setError(null)
     setData(null)
-    // Landing on a creator from Similar Creators should start at the top of
-    // their page, not wherever the previous creator was being read.
-    setTab('overview')
+    // Landing on a creator from Similar Creators starts at the top of their
+    // page, not wherever the previous creator was being read.
+    setView('profile')
     fetch(`/api/organizations/${orgId}/discover/kol-directory/${kolId}`)
       .then(async r => {
         if (r.ok) return r.json()
@@ -101,15 +102,23 @@ export default function KolCreatorWorkspace({
   /**
    * Seeded from the creator id, so the sampled figures are identical on every
    * render and every reload — placeholder numbers that reshuffle themselves make
-   * the screen obviously fake and the screenshots irreproducible.
+   * the screen obviously fake and screenshots irreproducible.
    */
   const intel = useMemo(() => (data ? sampleIntel(data.creator) : null), [data])
 
   const backToDirectory = () => router.push(`/organizations/${orgSlug}/discover/kol`)
 
+  /** Similar Creators hands back `creator:<id>`; everything else is a nav id. */
+  const goTo = (id: string) => {
+    if (id.startsWith('creator:')) {
+      router.push(`/organizations/${orgSlug}/discover/kol-directory/${id.slice(8)}`)
+      return
+    }
+    setView(id as NavId)
+  }
+
   return (
     <div className="p-5 pb-24 max-w-[1360px] mx-auto">
-      {/* Back first, breadcrumb second: leaving is the more common intent. */}
       <button type="button" onClick={backToDirectory} style={{ ...PJ, color: T.primary }}
         className="inline-flex items-center gap-1 text-[11.5px] font-bold hover:underline mb-1.5">
         <span className="material-symbols-outlined text-[16px]">arrow_back</span>
@@ -117,7 +126,9 @@ export default function KolCreatorWorkspace({
       </button>
 
       <nav aria-label="Breadcrumb" className="flex items-center gap-1 flex-wrap mb-3">
-        {['Discovery', 'Directory', data ? `@${data.creator.username}` : 'Creator Profile'].map((label, i) => (
+        {['Discovery', 'Directory', data
+          ? (data.identity.displayName ?? `@${data.creator.username}`)
+          : 'Creator Profile'].map((label, i) => (
           <span key={label} className="inline-flex items-center gap-1">
             {i > 0 && <span className="material-symbols-outlined text-[13px]" style={{ color: T.outline }}>chevron_right</span>}
             <span style={{ ...PJ, color: T.t4 }} className="text-[10.5px] font-bold uppercase tracking-widest">
@@ -137,28 +148,27 @@ export default function KolCreatorWorkspace({
         <CreatorSkeleton />
       ) : (
         <Loaded
-          data={data} intel={intel} tab={tab} setTab={setTab}
+          data={data} intel={intel} view={view} goTo={goTo}
           fav={fav} setFav={setFav}
           onCompare={() => { setCompareTray(true); setToast('Ditambahkan ke compare') }}
           onAddCampaign={() => setCampaignOpen(true)}
           onReport={() => setReportOpen(true)}
           addedTo={addedTo}
-          orgSlug={orgSlug}
           setToast={setToast}
         />
       )}
 
-      {/* ── overlays ── */}
       {data && intel && (
         <>
           <AddToCampaign
             open={campaignOpen} onClose={() => setCampaignOpen(false)}
+            name={data.identity.displayName ?? `@${data.creator.username}`}
             username={data.creator.username}
             tier={data.creator.tier}
-            onAdd={name => {
-              setAddedTo(name)
+            onAdd={campaign => {
+              setAddedTo(campaign)
               setCampaignOpen(false)
-              setToast(`@${data.creator.username} ditambahkan ke ${name}`)
+              setToast(`@${data.creator.username} ditambahkan ke ${campaign}`)
             }} />
 
           <KolCreatorReport
@@ -167,16 +177,15 @@ export default function KolCreatorWorkspace({
         </>
       )}
 
-      {/* ── compare tray ── */}
       {compareTray && data && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-2xl border px-3.5 py-2.5"
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-2xl border px-3.5 py-2.5 flex-wrap"
           style={{ background: VIZ.surface, borderColor: T.outline, boxShadow: T.shadowMd }}>
           <span style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide">
             Compare
           </span>
           <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
             className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1">
-            @{data.creator.username}
+            {data.identity.displayName ?? `@${data.creator.username}`}
             <button type="button" onClick={() => setCompareTray(false)}
               className="material-symbols-outlined text-[13px] cursor-pointer" title="Hapus">close</button>
           </span>
@@ -198,27 +207,31 @@ export default function KolCreatorWorkspace({
 /* ── loaded page ──────────────────────────────────────────────────────────── */
 
 function Loaded({
-  data, intel, tab, setTab, fav, setFav, onCompare, onAddCampaign, onReport,
-  addedTo, orgSlug, setToast,
+  data, intel, view, goTo, fav, setFav, onCompare, onAddCampaign, onReport, addedTo, setToast,
 }: {
   data: KolCreatorPayload
   intel: NonNullable<ReturnType<typeof sampleIntel>>
-  tab: TabId
-  setTab: (t: TabId) => void
+  view: NavId
+  goTo: (id: string) => void
   fav: boolean
   setFav: (f: (v: boolean) => boolean) => void
   onCompare: () => void
   onAddCampaign: () => void
   onReport: () => void
   addedTo: string | null
-  orgSlug: string
   setToast: (s: string) => void
 }) {
-  const { creator, rank, platforms, similar } = data
-  const sectionProps: SectionProps = { creator, rank, platforms, similar, intel }
+  const { creator, identity, rank, platforms, similar } = data
+  const sectionProps: SectionProps = { creator, identity, rank, platforms, similar, intel }
+  const name = identity.displayName ?? `@${creator.username}`
+
   const estReach = creator.followers !== null && creator.erPct !== null
     ? Math.round((creator.followers * creator.erPct) / 100)
     : null
+
+  /** "Top N% in category" — the real standing, not a slogan. */
+  const categoryTop = rank.categoryErPercentile === null
+    ? null : Math.max(1, Math.round(100 - rank.categoryErPercentile))
 
   return (
     <>
@@ -240,9 +253,10 @@ function Loaded({
 
             <div className="flex-1 min-w-[240px] pb-0.5">
               <div className="flex items-center gap-2 flex-wrap">
-                {/* The roster has no display-name column — the handle is the name. */}
+                {/* The display name comes from the agency tables; the handle sits
+                    under it. Where no name exists, the handle is promoted. */}
                 <h1 style={{ ...PJ, color: T.t1 }} className="text-[20px] font-extrabold tracking-[-0.02em]">
-                  @{creator.username}
+                  {name}
                 </h1>
                 {creator.verified && (
                   <span style={{ ...PJ, background: '#eaf5ef', color: '#3d8a5f' }}
@@ -256,8 +270,6 @@ function Loaded({
                     {creator.tier}
                   </span>
                 )}
-                {/* Status is metadata — small, and marked, because the roster has
-                    no availability column at all. */}
                 <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: T.t4 }}>
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#3d8a5f' }} />
                   Available
@@ -265,11 +277,15 @@ function Loaded({
                 </span>
               </div>
 
-              <div className="text-[11.5px] mt-1" style={{ color: T.t3 }}>
+              {identity.displayName && (
+                <div className="text-[12px]" style={{ color: T.t3 }}>@{creator.username}</div>
+              )}
+              <div className="text-[11.5px] mt-0.5" style={{ color: T.t3 }}>
                 {creator.categories.length ? creator.categories.join(' · ') : 'Kategori belum diisi di roster'}
               </div>
               <div className="text-[11.5px]" style={{ color: T.t4 }}>
                 {creator.city || 'Lokasi belum diisi di roster'}
+                {identity.agency && <> · dikelola {identity.agency}</>}
               </div>
 
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -289,8 +305,6 @@ function Loaded({
               </div>
             </div>
 
-            {/* Actions top-right, horizontal, primary last: Favorite is tertiary,
-                Compare secondary, Add to Campaign the thing this page is for. */}
             <div className="flex items-center gap-1.5 flex-wrap pb-0.5">
               <span style={{ ...PJ, background: '#fdf3e7', color: '#b5761f' }}
                 className="text-[9px] font-extrabold px-2 py-1 rounded-md mr-1">
@@ -313,67 +327,121 @@ function Loaded({
         </div>
       </div>
 
-      {/* ── quick metrics ── */}
-      <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(148px,1fr))' }}>
-        <StatTile label="Followers"
+      {/* ── three primary KPIs ── */}
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
+        <BigKpi label="Followers"
           value={creator.followers === null ? '—' : fmtNum(creator.followers)}
-          hint={`#${rank.followersRank.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')}`} />
-        <StatTile label="Engagement Rate"
+          note={`▲ ${intel.growth.monthly}% / bulan`} noteSample
+          sub={`#${rank.followersRank.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')} creator`} />
+        <BigKpi label="Engagement Rate"
           value={creator.erPct === null ? 'belum diukur' : `${creator.erPct.toFixed(2)}%`}
-          hint={rank.erRank === null
-            ? 'tidak masuk peringkat'
-            : `#${rank.erRank.toLocaleString('id-ID')} dari ${rank.erMeasuredTotal.toLocaleString('id-ID')} terukur`} />
-        <StatTile label="Est. Reach"
-          value={estReach === null ? '—' : fmtNum(estReach)} hint="followers × ER" />
-        <StatTile label="Avg Views" value={fmtNum(intel.kpi.avgViews)} delta={intel.kpi.delta.views} sample />
-        <StatTile label="Growth" value={`${intel.growth.monthly}%`} sample hint="30 hari terakhir" />
+          note={categoryTop !== null && rank.categoryName
+            ? `Top ${categoryTop}% di ${rank.categoryName}`
+            : rank.erRank !== null
+              ? `#${rank.erRank.toLocaleString('id-ID')} dari ${rank.erMeasuredTotal.toLocaleString('id-ID')} terukur`
+              : 'belum masuk peringkat'}
+          sub={rank.categoryErTotal > 0
+            ? `dibanding ${rank.categoryErTotal.toLocaleString('id-ID')} creator kategori ini yang terukur`
+            : undefined} />
+        <BigKpi label="Est. Media Value" value={`$${fmtNum(intel.kpi.emvUsd)}`}
+          note="per campaign" sample sub="belum ada rate card di database KOL" />
       </div>
 
-      {/* ── tabs ── */}
-      <div className="flex gap-1 flex-wrap mb-4" style={{ borderBottom: `1px solid ${T.outline}` }}>
-        {TABS.map(t => {
-          const on = tab === t.id
-          return (
-            <button key={t.id} type="button" onClick={() => setTab(t.id)}
-              style={{
-                ...PJ,
-                color: on ? T.primaryDeep : T.t3,
-                // Marked by a rule under it rather than a filled pill: the row
-                // reads as one strip, and the rule points at what it belongs to.
-                borderBottom: `2px solid ${on ? T.primary : 'transparent'}`,
-                marginBottom: -1,
-              }}
-              className="inline-flex items-center gap-1.5 h-9 px-3 text-[11.5px] font-bold">
-              <span className="material-symbols-outlined text-[15px]">{t.icon}</span>
-              {t.label}
-            </button>
-          )
-        })}
+      {/* ── six secondary KPIs ── */}
+      <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
+        <StatTile label="Reach" value={estReach === null ? '—' : fmtNum(estReach)}
+          hint="followers × ER" />
+        <StatTile label="Avg. Views" value={fmtNum(intel.kpi.avgViews)} hint="avg / post" sample />
+        <StatTile label="CPE" value={`$${(intel.kpi.emvUsd / Math.max(1, intel.performance.likes)).toFixed(2)}`}
+          hint="per engagement" sample />
+        <StatTile label="Audience Quality" value={`${intel.audience.qualityScore}`} hint="/ 100" sample />
+        <StatTile label="Authenticity" value={`${intel.audience.authenticity}%`} hint="real" sample />
+        <StatTile label="Growth Rate" value={`${intel.growth.monthly}%`} hint="per month" sample />
       </div>
 
-      {tab === 'overview' && <OverviewSection {...sectionProps} onGoTo={setTab} orgSlug={orgSlug} />}
-      {tab === 'performance' && <PerformanceSection {...sectionProps} />}
-      {tab === 'audience' && <AudienceSection {...sectionProps} />}
-      {tab === 'content' && <ContentSection {...sectionProps} />}
-      {tab === 'campaigns' && <CampaignSection {...sectionProps} />}
-      {tab === 'brandfit' && <BrandFitSection {...sectionProps} />}
-      {tab === 'ai' && <AiSection {...sectionProps} />}
+      {/* ── creator navigation + the view it selects ── */}
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(210px,250px) minmax(0,1fr)' }}>
+        <nav className="rounded-[16px] border p-1.5 sticky top-4"
+          style={{ borderColor: T.outline, background: VIZ.surface }}>
+          {NAV.map(n => {
+            const on = view === n.id
+            return (
+              <button key={n.id} type="button" onClick={() => goTo(n.id)}
+                style={{
+                  ...PJ,
+                  background: on ? T.surfaceVariant : 'transparent',
+                  color: on ? T.primaryDeep : T.t3,
+                  // The active row is marked on its leading edge, so the list
+                  // reads as one column with a pointer rather than seven pills.
+                  boxShadow: on ? `inset 2px 0 0 ${T.primary}` : undefined,
+                }}
+                className="w-full flex items-center gap-2 h-9 px-2.5 rounded-lg text-[11.5px] font-bold text-left transition-colors hover:bg-[#f9fbfc]">
+                <span className="material-symbols-outlined text-[16px] flex-shrink-0">{n.icon}</span>
+                <span className="truncate">{n.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="min-w-0">
+          {view === 'profile' && <ProfileSection {...sectionProps} onGoTo={goTo} />}
+          {view === 'content' && <ContentSection {...sectionProps} />}
+          {view === 'analytics' && <PerformanceSection {...sectionProps} />}
+          {view === 'audience' && <AudienceSection {...sectionProps} />}
+          {view === 'campaigns' && <CampaignSection {...sectionProps} />}
+          {/* Brand Fit is the scoring half of AI Insights, so the two share a
+              view rather than splitting one argument across two nav rows. */}
+          {view === 'ai' && (
+            <div className="flex flex-col gap-4">
+              <BrandFitSection {...sectionProps} />
+              <AiSection {...sectionProps} />
+            </div>
+          )}
+          {view === 'insights' && <InsightsSection {...sectionProps} />}
+        </div>
+      </div>
     </>
+  )
+}
+
+/**
+ * A primary KPI: bigger figure, a qualifier under it, and the roster context
+ * that makes the qualifier checkable.
+ */
+function BigKpi({
+  label, value, note, sub, sample, noteSample,
+}: {
+  label: string; value: string; note: string; sub?: string
+  sample?: boolean; noteSample?: boolean
+}) {
+  return (
+    <div className="rounded-[16px] border px-4 py-3.5" style={{ borderColor: T.outline, background: VIZ.surface }}>
+      <div className="flex items-center gap-1.5">
+        <span style={{ ...PJ, color: T.t4 }} className="text-[10px] font-extrabold uppercase tracking-widest">
+          {label}
+        </span>
+        {sample && <SampleTag compact />}
+      </div>
+      <div style={{ ...PJ, color: T.t1 }} className="text-[27px] font-extrabold mt-1.5 tracking-[-0.03em] leading-none">
+        {value}
+      </div>
+      <div className="flex items-center gap-1 mt-1.5">
+        <span style={{ ...PJ, color: T.primaryDeep }} className="text-[11px] font-bold">{note}</span>
+        {noteSample && <SampleTag compact />}
+      </div>
+      {sub && <div className="text-[9.5px] mt-1" style={{ color: T.t4 }}>{sub}</div>}
+    </div>
   )
 }
 
 /* ── add to campaign ──────────────────────────────────────────────────────── */
 
-/**
- * A drawer rather than a silent add: dropping a creator into a campaign with no
- * confirmation leaves the user unsure whether it happened, and with no chance to
- * pick *which* campaign.
- */
 function AddToCampaign({
-  open, onClose, username, tier, onAdd,
+  open, onClose, name, username, tier, onAdd,
 }: {
   open: boolean
   onClose: () => void
+  name: string
   username: string
   tier: string | null
   onAdd: (campaign: string) => void
@@ -388,8 +456,8 @@ function AddToCampaign({
           <Btn variant="primary" onClick={() => onAdd(campaign)}>Add Creator</Btn>
         </>
       }>
-      <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold">@{username}</div>
-      <div className="text-[11px] mb-4" style={{ color: T.t4 }}>{tier ?? 'Creator'}</div>
+      <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold">{name}</div>
+      <div className="text-[11px] mb-4" style={{ color: T.t4 }}>@{username} · {tier ?? 'Creator'}</div>
 
       <div className="text-[10.5px] mb-1" style={{ color: T.t3 }}>Select campaign</div>
       <select value={campaign} onChange={e => setCampaign(e.target.value)}
@@ -402,7 +470,7 @@ function AddToCampaign({
         <div className="text-[10.5px] mb-1.5" style={{ color: T.t3 }}>Selected creator</div>
         <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: T.t1 }}>
           <span className="material-symbols-outlined text-[15px]" style={{ color: '#3d8a5f' }}>check_circle</span>
-          @{username}
+          {name}
         </div>
       </div>
 
@@ -415,9 +483,8 @@ function AddToCampaign({
   )
 }
 
-/* ── states ───────────────────────────────────────────────────────────────── */
+/* ── skeleton ─────────────────────────────────────────────────────────────── */
 
-/** The page's own shape while it loads, rather than a spinner in the middle. */
 function CreatorSkeleton() {
   return (
     <div className="flex flex-col gap-4">
@@ -435,28 +502,39 @@ function CreatorSkeleton() {
         </div>
       </div>
 
-      <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(148px,1fr))' }}>
-        {Array.from({ length: 5 }, (_, i) => (
-          <div key={i} className="rounded-[14px] border px-3.5 py-3 flex flex-col gap-2"
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} className="rounded-[16px] border px-4 py-3.5 flex flex-col gap-2.5"
             style={{ borderColor: T.outline, background: VIZ.surface }}>
-            <Skeleton h={10} w="52%" />
-            <Skeleton h={18} w="66%" />
-            <Skeleton h={9} w="44%" />
+            <Skeleton h={10} w="46%" />
+            <Skeleton h={26} w="62%" />
+            <Skeleton h={10} w="38%" />
           </div>
         ))}
       </div>
 
-      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,70fr) minmax(250px,30fr)' }}>
-        {[0, 1].map(i => (
-          <div key={i} className="rounded-[16px] border p-4 flex flex-col gap-2.5"
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className="rounded-[14px] border px-3.5 py-3 flex flex-col gap-2"
             style={{ borderColor: T.outline, background: VIZ.surface }}>
-            <Skeleton h={13} w="38%" />
-            <Skeleton h={11} w="92%" />
-            <Skeleton h={11} w="84%" />
-            <Skeleton h={11} w="70%" />
-            <Skeleton h={90} />
+            <Skeleton h={10} w="52%" />
+            <Skeleton h={18} w="66%" />
           </div>
         ))}
+      </div>
+
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(210px,250px) minmax(0,1fr)' }}>
+        <div className="rounded-[16px] border p-2 flex flex-col gap-1.5"
+          style={{ borderColor: T.outline, background: VIZ.surface }}>
+          {Array.from({ length: 7 }, (_, i) => <Skeleton key={i} h={30} />)}
+        </div>
+        <div className="rounded-[16px] border p-4 flex flex-col gap-2.5"
+          style={{ borderColor: T.outline, background: VIZ.surface }}>
+          <Skeleton h={13} w="30%" />
+          <Skeleton h={11} w="92%" />
+          <Skeleton h={11} w="84%" />
+          <Skeleton h={110} />
+        </div>
       </div>
     </div>
   )
