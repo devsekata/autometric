@@ -298,11 +298,23 @@ export interface KolCreatorPlatformRow {
   verified: boolean
 }
 
+/** A neighbour in the roster — same category where there is one, nearest in size. */
+export interface KolSimilarRow {
+  id: string
+  username: string
+  platform: string | null
+  avatarUrl: string | null
+  followers: number | null
+  erPct: number | null
+  tier: string | null
+}
+
 export interface KolCreatorPayload {
   creator: KolDirectoryRow
   rank: KolCreatorRank
   /** Always includes the creator's own row, so the caller can render one list. */
   platforms: KolCreatorPlatformRow[]
+  similar: KolSimilarRow[]
 }
 
 /**
@@ -330,7 +342,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
    * `>` not `>=`: a creator is not ranked ahead of themselves, so the count of
    * creators strictly above them, plus one, is their position.
    */
-  const [rank, platforms] = await Promise.all([
+  const [rank, platforms, similar] = await Promise.all([
     db.query<{
       roster_total: number; followers_rank: number
       er_rank: number | null; er_measured_total: number
@@ -383,6 +395,34 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
        ORDER BY kd.followers_count DESC NULLS LAST`,
       [id],
     ),
+    /**
+     * "Creator lain yang mirip" — genuinely comparable, not sampled: the same
+     * category where the creator has one, ordered by how close their follower
+     * count is. For the 46% of the roster with no category the filter drops away
+     * and size alone decides, which is still a real answer to "siapa lagi yang
+     * sekelas dia".
+     */
+    db.query<{
+      id: string; username: string; platform: string | null; avatar_url: string | null
+      followers: number | null; er_pct: number | null; tier: string | null
+    }>(`
+      SELECT kd.id, kd.username, pl.key AS platform, kd.avatar_url,
+             kd.followers_count AS followers, kd.engagement_rate::float AS er_pct,
+             t.name AS tier
+        FROM public.kol_directory kd
+        LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
+        LEFT JOIN public.kol_tiers t
+               ON kd.followers_count >= t.min_followers
+              AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)
+       WHERE ${ACTIVE}
+         AND kd.id <> $1
+         AND ($2::text IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_categories kc
+                WHERE kc.id = ANY (${CATEGORY_IDS}) AND kc.name = $2))
+       ORDER BY ABS(COALESCE(kd.followers_count, 0) - $3) ASC
+       LIMIT 4`,
+      [id, r.categories?.[0] ?? null, r.followers ?? 0],
+    ),
   ])
 
   const k = rank.rows[0]
@@ -425,6 +465,15 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: p.followers,
       erPct: p.er_pct,
       verified: p.verified,
+    })),
+    similar: similar.rows.map(s => ({
+      id: s.id,
+      username: s.username,
+      platform: s.platform,
+      avatarUrl: s.avatar_url,
+      followers: s.followers,
+      erPct: s.er_pct,
+      tier: s.tier,
     })),
   }
 }

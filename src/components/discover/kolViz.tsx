@@ -344,6 +344,47 @@ export function Meter({ label, value, max = 100 }: { label: string; value: numbe
   )
 }
 
+/* ── layout ───────────────────────────────────────────────────────────────── */
+
+/**
+ * The workspace's repeating rhythm: data on the left, the reading of it on the
+ * right. Deliberately not two equal cards — equal weight would say the score is
+ * as big a thing as the chart it summarises, and the whole point of the right
+ * column is that it is the short answer.
+ *
+ * Collapses to one column under 900px, where 35% of the width is too narrow for
+ * a meter with a label.
+ */
+export function Split({ main, aside }: { main: React.ReactNode; aside: React.ReactNode }) {
+  return (
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,65fr) minmax(260px,35fr)' }}>
+      <div className="min-w-0 flex flex-col gap-4">{main}</div>
+      <div className="min-w-0 flex flex-col gap-4">{aside}</div>
+    </div>
+  )
+}
+
+/** A big score with its verdict — the right column's usual opening. */
+export function ScoreBlock({
+  score, verdict, max = 100,
+}: { score: number; verdict: string; max?: number }) {
+  const pct = Math.max(0, Math.min(100, (score / max) * 100))
+  return (
+    <div className="text-center">
+      <div style={{ ...PJ, color: T.primaryDeep }} className="text-[40px] font-extrabold leading-none">
+        {score}
+      </div>
+      <div className="text-[10.5px] mt-0.5" style={{ color: T.t4 }}>/ {max}</div>
+      <div className="h-[10px] rounded-[4px] mt-2.5" style={{ background: '#e8eff2' }}>
+        <div className="h-full rounded-r-[4px]" style={{ width: `${pct}%`, background: VIZ.series }} />
+      </div>
+      <div style={{ ...PJ, color: T.primaryDeep }} className="text-[11.5px] font-extrabold mt-2">
+        {verdict}
+      </div>
+    </div>
+  )
+}
+
 /* ── shared card ──────────────────────────────────────────────────────────── */
 
 export function VizCard({

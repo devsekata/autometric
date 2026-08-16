@@ -95,7 +95,28 @@ export const CAMPAIGN_STAGES = [
   'Brief', 'Content Draft', 'Revision', 'Approval', 'Scheduled', 'Published', 'Completed',
 ] as const
 
+export interface SampleHighlight {
+  icon: string
+  tone: 'good' | 'warning' | 'neutral'
+  headline: string
+  detail: string
+}
+
 export interface SampleIntel {
+  /** The composite the Overview leads with, and its four contributing scores. */
+  quality: { score: number; verdict: string; bars: SampleShare[] }
+  /** Interpretations that sit beside the trend chart rather than under it. */
+  highlights: SampleHighlight[]
+  collaboration: {
+    completed: number
+    avgCampaignErPct: number
+    onTimePct: number
+    repeat: number
+    reliability: number
+  }
+  suggestedBrands: string[]
+  /** How sure the summary claims to be — sampled like the summary itself. */
+  aiConfidence: number
   kpi: {
     avgReach: number
     avgViews: number
@@ -309,7 +330,51 @@ export function sampleIntel(creator: KolDirectoryRow): SampleIntel {
   const tier = creator.tier ?? 'Micro'
   const platformLabel = isTikTok ? 'TikTok' : 'Instagram'
 
+  const qualityBars = normaliseScores([
+    { label: 'Engagement', pct: Math.round(between(74, 96)) },
+    { label: 'Audience', pct: Math.round(between(72, 95)) },
+    { label: 'Growth', pct: Math.round(between(68, 94)) },
+    { label: 'Authenticity', pct: authenticity },
+  ])
+  const qualityScore = Math.round(qualityBars.reduce((s, b) => s + b.pct, 0) / qualityBars.length)
+
+  const deltaViews = round(between(6, 24), 1)
+  const deltaReach = round(between(4, 19), 1)
+
   return {
+    quality: {
+      score: qualityScore,
+      verdict: qualityScore >= 90 ? 'Excellent' : qualityScore >= 80 ? 'Strong' : qualityScore >= 70 ? 'Fair' : 'Weak',
+      bars: qualityBars,
+    },
+    highlights: [
+      {
+        icon: 'visibility', tone: 'good',
+        headline: `↑ ${deltaViews}% Views`,
+        detail: 'Views naik dibanding periode sebelumnya',
+      },
+      {
+        icon: 'podcasts', tone: 'good',
+        headline: `↑ ${deltaReach}% Reach`,
+        detail: 'Jangkauan konten terakhir menguat',
+      },
+      {
+        icon: 'check_circle', tone: 'good',
+        headline: 'Di atas rata-rata kategori',
+        detail: `ER ${erPct.toFixed(2)}% melampaui rata-rata ${category === 'default' ? 'roster' : category}`,
+      },
+    ],
+    collaboration: {
+      completed: Math.floor(between(4, 16)),
+      avgCampaignErPct: round(erPct * between(1.1, 1.7), 1),
+      onTimePct: Math.round(between(88, 99)),
+      repeat: Math.floor(between(1, 8)),
+      reliability: Math.round(between(82, 98)),
+    },
+    suggestedBrands: [
+      pick(BRANDS), pick(BRANDS), pick(BRANDS),
+    ].filter((b, i, xs) => xs.indexOf(b) === i),
+    aiConfidence: Math.round(between(76, 94)),
     kpi: {
       avgReach,
       avgViews,
@@ -317,8 +382,9 @@ export function sampleIntel(creator: KolDirectoryRow): SampleIntel {
       delta: {
         followers: growthMonthly,
         er: round(erPct - trend[trend.length - 2].erPct, 2),
-        reach: round(between(4, 19), 1),
-        views: round(between(6, 24), 1),
+        // Shared with the highlight cards so the two never disagree on screen.
+        reach: deltaReach,
+        views: deltaViews,
         emv: round(between(3, 16), 1),
       },
     },
