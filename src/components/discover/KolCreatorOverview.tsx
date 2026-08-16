@@ -25,7 +25,7 @@ import { platformLabel, type SectionProps } from './KolCreatorSections'
 import type { KolCreatorRank, KolSimilarRow } from '@/lib/discover/kolDirectory'
 
 export type OverviewTab =
-  'overview' | 'performance' | 'audience' | 'campaigns' | 'brandfit' | 'ai' | 'report'
+  'overview' | 'performance' | 'audience' | 'content' | 'campaigns' | 'brandfit' | 'ai'
 
 export default function OverviewSection({
   creator, rank, platforms, similar, intel, onGoTo, orgSlug,
@@ -132,7 +132,7 @@ export default function OverviewSection({
       <Split
         main={
           <VizCard title="Top Performing Content" sample
-            action={<TabLink label="Semua konten" onClick={() => onGoTo('performance')} />}>
+            action={<TabLink label="View all" onClick={() => onGoTo('content')} />}>
             <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
               {intel.content.top.map((c, i) => (
                 <div key={i} className="rounded-[12px] border overflow-hidden" style={{ borderColor: T.outline }}>
@@ -197,77 +197,6 @@ export default function OverviewSection({
             <div className="mt-3">
               <Meter label="Reliability" value={intel.collaboration.reliability} />
             </div>
-          </VizCard>
-        }
-      />
-
-      {/* ── 6 · brand fit ── */}
-      <Split
-        main={
-          <VizCard title="Brand Fit" sample
-            action={<TabLink label="Detail" onClick={() => onGoTo('brandfit')} />}>
-            <div className="flex items-center gap-6 flex-wrap">
-              <div className="w-[116px] flex-shrink-0">
-                <ScoreBlock score={intel.brandFit.score} verdict={intel.brandFit.verdict} />
-              </div>
-              <div className="flex-1 min-w-[220px] flex flex-col gap-2">
-                {intel.brandFit.bars.map(b => <Meter key={b.label} label={b.label} value={b.pct} />)}
-              </div>
-            </div>
-          </VizCard>
-        }
-        aside={
-          <VizCard title="Why this creator fits" sample>
-            <ul className="flex flex-col gap-2">
-              {intel.brandFit.strengths.map(s => (
-                <li key={s} className="flex items-start gap-2 text-[11.5px] leading-[1.5]" style={{ color: T.t2 }}>
-                  <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: VIZ.good }}>check</span>
-                  {s}
-                </li>
-              ))}
-              {intel.brandFit.watchouts.slice(0, 1).map(s => (
-                <li key={s} className="flex items-start gap-2 text-[11.5px] leading-[1.5]" style={{ color: T.t2 }}>
-                  <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: VIZ.warning }}>warning</span>
-                  {s}
-                </li>
-              ))}
-            </ul>
-          </VizCard>
-        }
-      />
-
-      {/* ── 7 · what the product recommends ── */}
-      <Split
-        main={
-          <VizCard title="AI Creator Summary" sample
-            action={<TabLink label="AI Insights" onClick={() => onGoTo('ai')} />}>
-            <p className="text-[12.5px] leading-[1.65]" style={{ color: T.t2 }}>{intel.ai.summary}</p>
-            <div className="text-[10.5px] mt-2.5" style={{ color: T.t4 }}>Confidence: {intel.aiConfidence}%</div>
-
-            {/* The measured counterpart, so this card is never only sampled prose. */}
-            <div className="mt-3 rounded-xl px-3 py-2.5" style={{ background: T.surfaceVariant }}>
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="material-symbols-outlined text-[15px]" style={{ color: T.primary }}>verified</span>
-                <span style={{ ...PJ, color: T.primaryDeep }} className="text-[10px] font-extrabold uppercase tracking-wide">
-                  Dari data asli
-                </span>
-              </div>
-              <p className="text-[11.5px] leading-[1.6]" style={{ color: T.t2 }}>
-                Peringkat <b>#{rank.followersRank.toLocaleString('id-ID')}</b> dari{' '}
-                {rank.rosterTotal.toLocaleString('id-ID')} creator berdasarkan followers
-                {rank.categoryName && rank.categoryFollowersRank !== null && (
-                  <> — <b>#{rank.categoryFollowersRank}</b> di kategori {rank.categoryName}</>
-                )}.
-              </p>
-            </div>
-          </VizCard>
-        }
-        aside={
-          <VizCard title="Recommended" sample>
-            <Row label="Campaign type" value={intel.ai.suggestion.campaignType} />
-            <Row label="Best format" value={intel.ai.suggestion.content} />
-            <Row label="Best objective" value={intel.ai.suggestion.objective} />
-            <Row label="Recommended time" value={intel.ai.suggestion.postingTime} />
           </VizCard>
         }
       />

@@ -1,17 +1,17 @@
 'use client'
 
 /**
- * Creator Intelligence Workspace — what a creator card in the KOL Directory
- * opens into.
+ * Creator Profile — what a creator card in the KOL Directory opens into.
  *
- * The shell: a back link, the identity header, the KPI strip, the tab row, and
- * a sticky action bar. Overview lives in `KolCreatorOverview`; the other six
- * tabs in `KolCreatorSections`.
+ * Deliberately not a second dashboard. It renders inside the app's existing
+ * shell — same sidebar, same topbar, same tokens, same card style — and only
+ * the main content area changes. The page is the Directory's detail view, not a
+ * new place.
  *
- * The page keeps one rhythm throughout — data at 65% on the left, its reading at
- * 35% on the right (see `Split` in `kolViz`) — so cards are never a uniform grid
- * of equal boxes. Card size is the hierarchy: KPI tiles small, charts and tables
- * large, scores and interpretations narrow beside them.
+ * Shape: back link → creator header → quick metrics → tabs → tab content.
+ * Overview is the default and lives in `KolCreatorOverview`; the other six tabs
+ * are in `KolCreatorSections`. Report is a button rather than a tab — it is
+ * something you do once you have decided, not something you read every visit.
  *
  * ── What is real and what is not ─────────────────────────────────────────────
  * The commercial roster (`public.kol_directory`) stores identity only. Real
@@ -21,36 +21,40 @@
  * engagement rate among measured rows, the sibling account on the other
  * platform, and the Similar Creators row.
  *
- * Everything else the brief asks for — reach, views, EMV, growth, audience
- * demographics, content, campaigns, brand fit, AI insights — has no source at
- * all, so it comes from `@/lib/discover/kolSample` and is marked at every figure.
- * The banner states it once; `<SampleTag />` repeats it beside each number so a
- * screenshot of any single card still carries the caveat.
+ * Everything else the brief asks for — reach, views, growth, audience
+ * demographics, content, campaigns, brand fit, AI insights — has no source, so
+ * it comes from `@/lib/discover/kolSample` and is marked at every figure. The
+ * header carries a "Demo profile · Sample data" chip and each sampled number
+ * wears `<SampleTag />`, so no screenshot can be mistaken for a measurement.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PJ, TOKENS as T, PLATFORM_ICON, Spinner, fmtNum } from './ui'
-import { SampleBanner, SampleTag, StatTile, VIZ } from './kolViz'
+import { PJ, TOKENS as T, PLATFORM_ICON, Btn, fmtNum } from './ui'
+import { ErrorBlock, Overlay, Row, SampleTag, Skeleton, StatTile, VIZ } from './kolViz'
 import OverviewSection from './KolCreatorOverview'
+import KolCreatorReport from './KolCreatorReport'
 import {
-  AiSection, AudienceSection, BrandFitSection, CampaignSection, PerformanceSection,
-  ReportSection, platformLabel, type SectionProps,
+  AiSection, AudienceSection, BrandFitSection, CampaignSection, ContentSection,
+  PerformanceSection, platformLabel, type SectionProps,
 } from './KolCreatorSections'
 import { sampleIntel } from '@/lib/discover/kolSample'
 import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
 
+/** Report is absent on purpose — it is an action in the header, not a tab. */
 const TABS = [
   { id: 'overview', label: 'Overview', icon: 'dashboard' },
   { id: 'performance', label: 'Performance', icon: 'insights' },
-  { id: 'audience', label: 'Audience Insights', icon: 'group' },
-  { id: 'campaigns', label: 'Campaign History', icon: 'campaign' },
+  { id: 'audience', label: 'Audience', icon: 'group' },
+  { id: 'content', label: 'Content', icon: 'grid_view' },
+  { id: 'campaigns', label: 'Campaign', icon: 'campaign' },
   { id: 'brandfit', label: 'Brand Fit', icon: 'handshake' },
   { id: 'ai', label: 'AI Insights', icon: 'auto_awesome' },
-  { id: 'report', label: 'Report', icon: 'lab_profile' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
+
+const CAMPAIGN_OPTIONS = ['Summer Beauty Campaign', 'Ramadan 2026', 'Product Launch Q3']
 
 const initialsOf = (u: string) => (u.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toUpperCase()
 
@@ -60,9 +64,14 @@ export default function KolCreatorWorkspace({
   const router = useRouter()
   const [data, setData] = useState<KolCreatorPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
   const [tab, setTab] = useState<TabId>('overview')
+
   const [fav, setFav] = useState(false)
-  const [inCampaign, setInCampaign] = useState(false)
+  const [compareTray, setCompareTray] = useState(false)
+  const [campaignOpen, setCampaignOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [addedTo, setAddedTo] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -81,7 +90,7 @@ export default function KolCreatorWorkspace({
       .then((d: KolCreatorPayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
     return () => { cancelled = true }
-  }, [orgId, kolId])
+  }, [orgId, kolId, reload])
 
   useEffect(() => {
     if (!toast) return
@@ -98,46 +107,17 @@ export default function KolCreatorWorkspace({
 
   const backToDirectory = () => router.push(`/organizations/${orgSlug}/discover/kol`)
 
-  if (error) {
-    return (
-      <div className="p-5 max-w-[1360px] mx-auto">
-        <div className="rounded-[16px] border p-8 text-center" style={{ borderColor: T.outline }}>
-          <span className="material-symbols-outlined text-[34px]" style={{ color: '#e6b8b8' }}>error</span>
-          <p style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold mt-2">Creator gagal dimuat</p>
-          <p className="text-[11.5px] mt-1" style={{ color: T.t3 }}>{error}</p>
-          <button type="button" onClick={backToDirectory} style={{ ...PJ, color: T.primary }}
-            className="text-[11.5px] font-bold mt-3 hover:underline">
-            Kembali ke Directory
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  if (!data || !intel) return <div className="p-5"><Spinner label="Memuat creator…" /></div>
-
-  const { creator, rank, platforms, similar } = data
-  const sectionProps: SectionProps = { creator, rank, platforms, similar, intel }
-  const estReach = creator.followers !== null && creator.erPct !== null
-    ? Math.round((creator.followers * creator.erPct) / 100)
-    : null
-
-  const addToCampaign = () => {
-    setInCampaign(true)
-    setToast(`@${creator.username} ditambahkan ke campaign`)
-  }
-
   return (
     <div className="p-5 pb-24 max-w-[1360px] mx-auto">
       {/* Back first, breadcrumb second: leaving is the more common intent. */}
       <button type="button" onClick={backToDirectory} style={{ ...PJ, color: T.primary }}
-        className="inline-flex items-center gap-1 text-[11.5px] font-bold hover:underline mb-2">
+        className="inline-flex items-center gap-1 text-[11.5px] font-bold hover:underline mb-1.5">
         <span className="material-symbols-outlined text-[16px]">arrow_back</span>
         Back to Directory
       </button>
 
       <nav aria-label="Breadcrumb" className="flex items-center gap-1 flex-wrap mb-3">
-        {['KOL Intelligence', 'Directory', `@${creator.username}`].map((label, i) => (
+        {['Discovery', 'Directory', data ? `@${data.creator.username}` : 'Creator Profile'].map((label, i) => (
           <span key={label} className="inline-flex items-center gap-1">
             {i > 0 && <span className="material-symbols-outlined text-[13px]" style={{ color: T.outline }}>chevron_right</span>}
             <span style={{ ...PJ, color: T.t4 }} className="text-[10.5px] font-bold uppercase tracking-widest">
@@ -147,14 +127,102 @@ export default function KolCreatorWorkspace({
         ))}
       </nav>
 
-      <SampleBanner>
-        Database KOL hanya menyimpan identitas roster. <b>Followers, engagement rate,
-        est. reach, peringkat, perbandingan platform dan Similar Creators di halaman
-        ini adalah data asli.</b> Angka lain yang bertanda <SampleTag compact /> adalah
-        contoh untuk memperlihatkan bentuk halamannya, bukan hasil pengukuran.
-      </SampleBanner>
+      {error ? (
+        <div className="rounded-[18px] border" style={{ borderColor: T.outline, background: VIZ.surface }}>
+          <ErrorBlock title="Creator gagal dimuat"
+            body={`Kami tidak bisa mengambil data creator ini. ${error}`}
+            onRetry={() => setReload(n => n + 1)} />
+        </div>
+      ) : !data || !intel ? (
+        <CreatorSkeleton />
+      ) : (
+        <Loaded
+          data={data} intel={intel} tab={tab} setTab={setTab}
+          fav={fav} setFav={setFav}
+          onCompare={() => { setCompareTray(true); setToast('Ditambahkan ke compare') }}
+          onAddCampaign={() => setCampaignOpen(true)}
+          onReport={() => setReportOpen(true)}
+          addedTo={addedTo}
+          orgSlug={orgSlug}
+          setToast={setToast}
+        />
+      )}
 
-      {/* ── header ── */}
+      {/* ── overlays ── */}
+      {data && intel && (
+        <>
+          <AddToCampaign
+            open={campaignOpen} onClose={() => setCampaignOpen(false)}
+            username={data.creator.username}
+            tier={data.creator.tier}
+            onAdd={name => {
+              setAddedTo(name)
+              setCampaignOpen(false)
+              setToast(`@${data.creator.username} ditambahkan ke ${name}`)
+            }} />
+
+          <KolCreatorReport
+            open={reportOpen} onClose={() => setReportOpen(false)}
+            creator={data.creator} rank={data.rank} platforms={data.platforms} intel={intel} />
+        </>
+      )}
+
+      {/* ── compare tray ── */}
+      {compareTray && data && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-2xl border px-3.5 py-2.5"
+          style={{ background: VIZ.surface, borderColor: T.outline, boxShadow: T.shadowMd }}>
+          <span style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide">
+            Compare
+          </span>
+          <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+            className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1">
+            @{data.creator.username}
+            <button type="button" onClick={() => setCompareTray(false)}
+              className="material-symbols-outlined text-[13px] cursor-pointer" title="Hapus">close</button>
+          </span>
+          <span className="text-[11px]" style={{ color: T.t4 }}>+ tambah creator lain dari Directory</span>
+          <Btn variant="primary" size="sm" onClick={backToDirectory}>Compare Now</Btn>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ ...PJ, background: T.primaryDeep }}
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 text-white text-[11.5px] font-bold px-3.5 py-2 rounded-xl shadow-lg z-50">
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── loaded page ──────────────────────────────────────────────────────────── */
+
+function Loaded({
+  data, intel, tab, setTab, fav, setFav, onCompare, onAddCampaign, onReport,
+  addedTo, orgSlug, setToast,
+}: {
+  data: KolCreatorPayload
+  intel: NonNullable<ReturnType<typeof sampleIntel>>
+  tab: TabId
+  setTab: (t: TabId) => void
+  fav: boolean
+  setFav: (f: (v: boolean) => boolean) => void
+  onCompare: () => void
+  onAddCampaign: () => void
+  onReport: () => void
+  addedTo: string | null
+  orgSlug: string
+  setToast: (s: string) => void
+}) {
+  const { creator, rank, platforms, similar } = data
+  const sectionProps: SectionProps = { creator, rank, platforms, similar, intel }
+  const estReach = creator.followers !== null && creator.erPct !== null
+    ? Math.round((creator.followers * creator.erPct) / 100)
+    : null
+
+  return (
+    <>
+      {/* ── creator header ── */}
       <div className="rounded-[18px] border overflow-hidden mb-4"
         style={{ borderColor: T.outline, background: VIZ.surface }}>
         <div className="h-[76px]" style={{ background: T.gradient }} />
@@ -188,9 +256,10 @@ export default function KolCreatorWorkspace({
                     {creator.tier}
                   </span>
                 )}
-                <span style={{ ...PJ, background: '#fdf3e7', color: '#b5761f' }}
-                  className="inline-flex items-center gap-1 text-[9.5px] font-extrabold px-2 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#b5761f' }} />
+                {/* Status is metadata — small, and marked, because the roster has
+                    no availability column at all. */}
+                <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: T.t4 }}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#3d8a5f' }} />
                   Available
                   <SampleTag compact />
                 </span>
@@ -220,20 +289,32 @@ export default function KolCreatorWorkspace({
               </div>
             </div>
 
+            {/* Actions top-right, horizontal, primary last: Favorite is tertiary,
+                Compare secondary, Add to Campaign the thing this page is for. */}
             <div className="flex items-center gap-1.5 flex-wrap pb-0.5">
-              <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite"
-                on={fav}
-                onClick={() => { setFav(f => !f); setToast(fav ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') }} />
-              <ActionBtn icon="compare" label="Compare" onClick={() => setToast('Ditambahkan ke compare')} />
-              {/* Primary: choosing a creator for a campaign is what Directory is for. */}
-              <ActionBtn icon="add" label="Add to Campaign" primary onClick={addToCampaign} />
+              <span style={{ ...PJ, background: '#fdf3e7', color: '#b5761f' }}
+                className="text-[9px] font-extrabold px-2 py-1 rounded-md mr-1">
+                Demo profile · Sample data
+              </span>
+              <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite" on={fav}
+                onClick={() => { setFav(f => !f); setToast(fav ? 'Dihapus dari favorit' : 'Creator added to Favorites') }} />
+              <ActionBtn icon="compare" label="Compare" onClick={onCompare} />
+              <ActionBtn icon="lab_profile" label="Report" onClick={onReport} />
+              <ActionBtn icon="add" label="Add to Campaign" primary onClick={onAddCampaign} />
             </div>
           </div>
+
+          {addedTo && (
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[11px]" style={{ color: '#3d8a5f' }}>
+              <span className="material-symbols-outlined text-[15px]">check_circle</span>
+              Sudah ada di <b>{addedTo}</b>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── KPI strip ── */}
-      <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
+      {/* ── quick metrics ── */}
+      <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(148px,1fr))' }}>
         <StatTile label="Followers"
           value={creator.followers === null ? '—' : fmtNum(creator.followers)}
           hint={`#${rank.followersRank.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')}`} />
@@ -244,8 +325,8 @@ export default function KolCreatorWorkspace({
             : `#${rank.erRank.toLocaleString('id-ID')} dari ${rank.erMeasuredTotal.toLocaleString('id-ID')} terukur`} />
         <StatTile label="Est. Reach"
           value={estReach === null ? '—' : fmtNum(estReach)} hint="followers × ER" />
-        <StatTile label="Views" value={fmtNum(intel.kpi.avgViews)} delta={intel.kpi.delta.views} sample />
-        <StatTile label="EMV" value={`$${fmtNum(intel.kpi.emvUsd)}`} delta={intel.kpi.delta.emv} sample />
+        <StatTile label="Avg Views" value={fmtNum(intel.kpi.avgViews)} delta={intel.kpi.delta.views} sample />
+        <StatTile label="Growth" value={`${intel.growth.monthly}%`} sample hint="30 hari terakhir" />
       </div>
 
       {/* ── tabs ── */}
@@ -257,9 +338,8 @@ export default function KolCreatorWorkspace({
               style={{
                 ...PJ,
                 color: on ? T.primaryDeep : T.t3,
-                // The active tab is marked by a rule under it, not a filled pill:
-                // the row reads as one strip that way, and the rule points at the
-                // content it belongs to.
+                // Marked by a rule under it rather than a filled pill: the row
+                // reads as one strip, and the rule points at what it belongs to.
                 borderBottom: `2px solid ${on ? T.primary : 'transparent'}`,
                 marginBottom: -1,
               }}
@@ -274,39 +354,110 @@ export default function KolCreatorWorkspace({
       {tab === 'overview' && <OverviewSection {...sectionProps} onGoTo={setTab} orgSlug={orgSlug} />}
       {tab === 'performance' && <PerformanceSection {...sectionProps} />}
       {tab === 'audience' && <AudienceSection {...sectionProps} />}
+      {tab === 'content' && <ContentSection {...sectionProps} />}
       {tab === 'campaigns' && <CampaignSection {...sectionProps} />}
       {tab === 'brandfit' && <BrandFitSection {...sectionProps} />}
       {tab === 'ai' && <AiSection {...sectionProps} />}
-      {tab === 'report' && <ReportSection {...sectionProps} />}
+    </>
+  )
+}
 
-      {/**
-        * Sticky actions. The page is seven rows long, and the decision it exists
-        * to support — take this creator — is usually made somewhere in the
-        * middle. Scrolling back to the header to act on it is the friction this
-        * removes.
-        */}
-      <div className="fixed bottom-4 right-4 z-40 flex items-center gap-1.5 rounded-2xl border px-2 py-2"
-        style={{ background: VIZ.surface, borderColor: T.outline, boxShadow: T.shadowMd }}>
-        <span className="hidden sm:flex flex-col pl-1.5 pr-1">
-          <span style={{ ...PJ, color: T.t1 }} className="text-[11px] font-extrabold leading-tight">
-            @{creator.username}
-          </span>
-          <span className="text-[9.5px]" style={{ color: inCampaign ? '#3d8a5f' : T.t4 }}>
-            {inCampaign ? '✓ Ditambahkan' : creator.tier ?? 'creator'}
-          </span>
-        </span>
-        <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} on={fav}
-          onClick={() => { setFav(f => !f); setToast(fav ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') }} />
-        <ActionBtn icon="compare" label="Compare" onClick={() => setToast('Ditambahkan ke compare')} />
-        <ActionBtn icon="add" label="Add to Campaign" primary onClick={addToCampaign} />
+/* ── add to campaign ──────────────────────────────────────────────────────── */
+
+/**
+ * A drawer rather than a silent add: dropping a creator into a campaign with no
+ * confirmation leaves the user unsure whether it happened, and with no chance to
+ * pick *which* campaign.
+ */
+function AddToCampaign({
+  open, onClose, username, tier, onAdd,
+}: {
+  open: boolean
+  onClose: () => void
+  username: string
+  tier: string | null
+  onAdd: (campaign: string) => void
+}) {
+  const [campaign, setCampaign] = useState(CAMPAIGN_OPTIONS[0])
+
+  return (
+    <Overlay open={open} title="Add Creator to Campaign" side="right" onClose={onClose}
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => onAdd(campaign)}>Add Creator</Btn>
+        </>
+      }>
+      <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold">@{username}</div>
+      <div className="text-[11px] mb-4" style={{ color: T.t4 }}>{tier ?? 'Creator'}</div>
+
+      <div className="text-[10.5px] mb-1" style={{ color: T.t3 }}>Select campaign</div>
+      <select value={campaign} onChange={e => setCampaign(e.target.value)}
+        className="w-full h-9 rounded-lg border px-2 text-[11.5px] mb-4"
+        style={{ borderColor: T.outline, color: T.t1, background: T.surface }}>
+        {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+
+      <div className="rounded-xl border px-3 py-2.5 mb-3" style={{ borderColor: T.outline }}>
+        <div className="text-[10.5px] mb-1.5" style={{ color: T.t3 }}>Selected creator</div>
+        <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: T.t1 }}>
+          <span className="material-symbols-outlined text-[15px]" style={{ color: '#3d8a5f' }}>check_circle</span>
+          @{username}
+        </div>
       </div>
 
-      {toast && (
-        <div style={{ ...PJ, background: T.primaryDeep }}
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 text-white text-[11.5px] font-bold px-3.5 py-2 rounded-xl shadow-lg z-50">
-          {toast}
+      <Row label="Estimated cost" value="$4,500 – $6,000" sample />
+      <p className="text-[10px] mt-2.5 leading-[1.5]" style={{ color: T.t4 }}>
+        Rate card belum ada di database KOL, jadi estimasi biaya di atas contoh.
+        Daftar campaign juga masih contoh — tabel campaign platform KOL masih kosong.
+      </p>
+    </Overlay>
+  )
+}
+
+/* ── states ───────────────────────────────────────────────────────────────── */
+
+/** The page's own shape while it loads, rather than a spinner in the middle. */
+function CreatorSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-[18px] border overflow-hidden" style={{ borderColor: T.outline, background: VIZ.surface }}>
+        <Skeleton h={76} radius={0} />
+        <div className="px-4 pb-4 -mt-9">
+          <div className="flex items-end gap-3.5">
+            <Skeleton h={80} w={80} radius={20} />
+            <div className="flex-1 flex flex-col gap-2 pb-1">
+              <Skeleton h={18} w="42%" />
+              <Skeleton h={12} w="28%" />
+              <Skeleton h={12} w="34%" />
+            </div>
+          </div>
         </div>
-      )}
+      </div>
+
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(148px,1fr))' }}>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="rounded-[14px] border px-3.5 py-3 flex flex-col gap-2"
+            style={{ borderColor: T.outline, background: VIZ.surface }}>
+            <Skeleton h={10} w="52%" />
+            <Skeleton h={18} w="66%" />
+            <Skeleton h={9} w="44%" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,70fr) minmax(250px,30fr)' }}>
+        {[0, 1].map(i => (
+          <div key={i} className="rounded-[16px] border p-4 flex flex-col gap-2.5"
+            style={{ borderColor: T.outline, background: VIZ.surface }}>
+            <Skeleton h={13} w="38%" />
+            <Skeleton h={11} w="92%" />
+            <Skeleton h={11} w="84%" />
+            <Skeleton h={11} w="70%" />
+            <Skeleton h={90} />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -324,7 +475,7 @@ function ActionBtn({
       }}
       className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11.5px] font-bold hover:brightness-[.98]">
       <span className="material-symbols-outlined text-[15px]">{icon}</span>
-      {label && <span className={label === 'Favorite' ? 'hidden md:inline' : ''}>{label}</span>}
+      {label && <span className="hidden sm:inline">{label}</span>}
     </button>
   )
 }

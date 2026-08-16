@@ -32,7 +32,7 @@
  * The app renders light-only, so no dark steps are declared here.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PJ, TOKENS as T, fmtNum } from './ui'
 
 export const VIZ = {
@@ -357,9 +357,113 @@ export function Meter({ label, value, max = 100 }: { label: string; value: numbe
  */
 export function Split({ main, aside }: { main: React.ReactNode; aside: React.ReactNode }) {
   return (
-    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,65fr) minmax(260px,35fr)' }}>
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,70fr) minmax(250px,30fr)' }}>
       <div className="min-w-0 flex flex-col gap-4">{main}</div>
       <div className="min-w-0 flex flex-col gap-4">{aside}</div>
+    </div>
+  )
+}
+
+/* ── states ───────────────────────────────────────────────────────────────── */
+
+/**
+ * Skeleton, not a page-centred spinner: the page has a known shape before the
+ * data lands, so showing that shape tells the reader what is coming and stops
+ * the layout jumping when it arrives.
+ */
+export function Skeleton({ h = 16, w = '100%', radius = 8 }: { h?: number; w?: string | number; radius?: number }) {
+  return (
+    <span className="block animate-pulse" style={{
+      height: h, width: w, borderRadius: radius, background: T.outlineSoft,
+    }} />
+  )
+}
+
+export function EmptyBlock({
+  icon = 'inbox', title, body, action,
+}: { icon?: string; title: string; body: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-10 px-4">
+      <span className="material-symbols-outlined text-[30px]" style={{ color: '#cfd8dd' }}>{icon}</span>
+      <p style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold mt-2">{title}</p>
+      <p className="text-[11px] mt-1 max-w-[320px] leading-[1.55]" style={{ color: T.t3 }}>{body}</p>
+      {action && <div className="mt-3">{action}</div>}
+    </div>
+  )
+}
+
+export function ErrorBlock({
+  title, body, onRetry,
+}: { title: string; body: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-10 px-4">
+      <span className="material-symbols-outlined text-[30px]" style={{ color: '#e6b8b8' }}>error</span>
+      <p style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold mt-2">{title}</p>
+      <p className="text-[11px] mt-1 max-w-[340px] leading-[1.55]" style={{ color: T.t3 }}>{body}</p>
+      {onRetry && (
+        <button type="button" onClick={onRetry}
+          style={{ ...PJ, background: T.primary }}
+          className="mt-3 h-8 px-3.5 rounded-lg text-white text-[11.5px] font-bold">
+          Retry
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ── overlay ──────────────────────────────────────────────────────────────── */
+
+/**
+ * One overlay for the three things that must not lose the page behind them:
+ * the content detail, the report builder and the add-to-campaign step. `side`
+ * picks a centred modal or a right-hand drawer — the drawer is for actions that
+ * continue the page's flow, the modal for a self-contained form.
+ */
+export function Overlay({
+  open, title, side = 'center', onClose, footer, children,
+}: {
+  open: boolean
+  title: string
+  side?: 'center' | 'right'
+  onClose: () => void
+  footer?: React.ReactNode
+  children: React.ReactNode
+}) {
+  // Escape closes; the listener only exists while something is open.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const panel = side === 'right'
+    ? 'ml-auto h-full w-full max-w-[430px] rounded-l-2xl'
+    : 'm-auto w-full max-w-[720px] rounded-2xl'
+
+  return (
+    <div className="fixed inset-0 z-[60] flex p-4" style={{ background: 'rgba(17,24,39,.34)' }}
+      onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`${panel} flex flex-col overflow-hidden`}
+        style={{ background: VIZ.surface, boxShadow: T.shadowLg, maxHeight: '100%' }}
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${T.outline}` }}>
+          <h2 style={{ ...PJ, color: T.t1 }} className="flex-1 text-[13px] font-extrabold">{title}</h2>
+          <button type="button" onClick={onClose} title="Tutup"
+            className="material-symbols-outlined text-[19px] cursor-pointer" style={{ color: T.t4 }}>
+            close
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">{children}</div>
+        {footer && (
+          <div className="flex items-center justify-end gap-2 px-4 py-3"
+            style={{ borderTop: `1px solid ${T.outline}`, background: T.surfaceLow }}>
+            {footer}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

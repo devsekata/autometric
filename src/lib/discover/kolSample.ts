@@ -73,6 +73,16 @@ export interface SampleContentItem {
   views: number
   erPct: number
   format: string
+  /** Filled in for the content detail overlay. */
+  caption: string
+  likes: number
+  comments: number
+  shares: number
+  saves: number
+  sentiment: 'Positif' | 'Netral' | 'Negatif'
+  hashtags: string[]
+  postedAt: string
+  platform: string
 }
 
 export interface SampleCampaign {
@@ -292,12 +302,29 @@ export function sampleIntel(creator: KolDirectoryRow): SampleIntel {
   const femaleShare = round(between(38, 78), 1)
   const authenticity = Math.round(between(72, 95))
 
-  const contentItem = (i: number, boost: number): SampleContentItem => ({
-    title: titles[i % titles.length],
-    views: Math.round(avgViews * boost * between(0.75, 1.35)),
-    erPct: round(erPct * between(0.8, 1.6), 2),
-    format: formats[i % formats.length],
-  })
+  const contentItem = (i: number, boost: number): SampleContentItem => {
+    const views = Math.round(avgViews * boost * between(0.75, 1.35))
+    const er = round(erPct * between(0.8, 1.6), 2)
+    const interactions = Math.round((views * er) / 100)
+    const tags = interests.slice(0, 3).map(t => `#${t.toLowerCase().replace(/\s+/g, '')}`)
+    return {
+      title: titles[i % titles.length],
+      views,
+      erPct: er,
+      format: formats[i % formats.length],
+      caption: `${titles[i % titles.length]} — ${
+        category === 'default' ? 'konten harian' : category.toLowerCase()} buat kalian yang lagi cari referensi. ` +
+        'Simpan dulu, nanti dibahas lebih detail di post berikutnya.',
+      likes: Math.round(interactions * between(0.72, 0.86)),
+      comments: Math.round(interactions * between(0.04, 0.09)),
+      shares: Math.round(interactions * between(0.05, 0.12)),
+      saves: Math.round(interactions * between(0.06, 0.16)),
+      sentiment: rand() > 0.85 ? 'Netral' : 'Positif',
+      hashtags: tags,
+      postedAt: `${MONTHS[(MONTHS.length - 1 - (i % MONTHS.length))]} 2026`,
+      platform: isTikTok ? 'TikTok' : 'Instagram',
+    }
+  }
 
   const campaignCount = Math.floor(between(2, 5))
   const campaigns: SampleCampaign[] = Array.from({ length: campaignCount }, (_, i) => {
@@ -430,7 +457,8 @@ export function sampleIntel(creator: KolDirectoryRow): SampleIntel {
       ]),
     },
     content: {
-      recent: Array.from({ length: 6 }, (_, i) => contentItem(i, between(0.7, 1.2))),
+      // Nine fills the Content tab's grid; Overview only ever shows the top three.
+      recent: Array.from({ length: 9 }, (_, i) => contentItem(i, between(0.7, 1.2))),
       top: Array.from({ length: 3 }, (_, i) => contentItem(i + 1, between(1.8, 3.4)))
         .sort((a, b) => b.views - a.views),
       formats: normalise(formats.map((f, i) => ({ label: f, pct: between(50 - i * 12, 64 - i * 14) }))),

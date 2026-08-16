@@ -20,9 +20,12 @@ import { useMemo, useState } from 'react'
 import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, Btn } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import {
-  Bars, Donut, Meter, Row, SampleTag, ScoreBlock, Split, TrendChart, VIZ, VizCard, StatTile,
+  Bars, Donut, EmptyBlock, Meter, Overlay, Row, SampleTag, ScoreBlock, Split, TrendChart,
+  VIZ, VizCard, StatTile,
 } from './kolViz'
-import { CAMPAIGN_STAGES, type SampleIntel } from '@/lib/discover/kolSample'
+import {
+  CAMPAIGN_STAGES, type SampleContentItem, type SampleIntel,
+} from '@/lib/discover/kolSample'
 import type {
   KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
@@ -54,13 +57,41 @@ const METRICS: { key: MetricKey; label: string; format: (n: number) => string }[
   { key: 'followers', label: 'Followers', format: fmtNum },
 ]
 
+const PERIODS = ['30 hari terakhir', '90 hari terakhir', '6 bulan terakhir'] as const
+
 export function PerformanceSection({ creator, platforms, intel }: SectionProps) {
   const [metric, setMetric] = useState<MetricKey>('erPct')
+  const [platform, setPlatform] = useState('all')
+  const [period, setPeriod] = useState<string>(PERIODS[2])
   const m = METRICS.find(x => x.key === metric) ?? METRICS[0]
-  const points = intel.trend.map(p => ({ x: p.month, y: p[metric] }))
+
+  /**
+   * The period control trims the series rather than refetching: there is only
+   * one sampled series behind it, and a filter that visibly does nothing is
+   * worse than one that does the honest, small thing.
+   */
+  const months = period === PERIODS[0] ? 1 : period === PERIODS[1] ? 3 : 6
+  const points = intel.trend.slice(-Math.max(2, months)).map(p => ({ x: p.month, y: p[metric] }))
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Sub-filters sit in one row above the cards, never inside them. */}
+      <div className="flex items-end gap-2.5 flex-wrap">
+        <Field label="Platform">
+          <Select value={platform} onChange={setPlatform}
+            options={([['all', 'Semua platform']] as [string, string][])
+              .concat(platforms.map(p => [p.platform ?? 'other', platformLabel(p.platform)] as [string, string]))} />
+        </Field>
+        <Field label="Period">
+          <Select value={period} onChange={setPeriod}
+            options={PERIODS.map(p => [p, p] as [string, string])} />
+        </Field>
+        <Field label="Metric">
+          <Select value={metric} onChange={v => setMetric(v as MetricKey)}
+            options={METRICS.map(x => [x.key, x.label] as [string, string])} />
+        </Field>
+      </div>
+
       <VizCard title="Performance Overview" subtitle="Rata-rata per konten">
         <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
           {/* The only measured figure in this card carries no marker. */}
@@ -79,23 +110,7 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
 
       <Split
         main={
-          <VizCard title="Trend" subtitle="Enam bulan terakhir" sample
-            action={
-              <div className="flex gap-1.5 flex-wrap">
-                {METRICS.map(x => (
-                  <button key={x.key} type="button" onClick={() => setMetric(x.key)}
-                    style={{
-                      ...PJ,
-                      background: metric === x.key ? T.surfaceVariant : T.surface,
-                      borderColor: metric === x.key ? T.primary : T.outline,
-                      color: metric === x.key ? T.primaryDeep : T.t3,
-                    }}
-                    className="h-7 px-2.5 rounded-lg border text-[10.5px] font-bold">
-                    {x.label}
-                  </button>
-                ))}
-              </div>
-            }>
+          <VizCard title="Performance Trend" subtitle={`${m.label} · ${period.toLowerCase()}`} sample>
             {/* One metric at a time: two units on one chart would need a second
                 y-axis, which is never the answer. */}
             <TrendChart points={points} format={m.format} label={m.label} />
@@ -184,8 +199,6 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
         }
         aside={<EngagementBreakdown intel={intel} />}
       />
-
-      <ContentAnalytics intel={intel} />
     </div>
   )
 }
@@ -229,98 +242,193 @@ function MetricRow({ label, cells, sample }: { label: string; cells: string[]; s
   )
 }
 
+
+/* ── Content ──────────────────────────────────────────────────────────────── */
+
+const CONTENT_SORTS = [
+  ['top', 'Top performing'], ['recent', 'Terbaru'], ['views', 'Views terbanyak'],
+] as const
+
 /**
- * Content Analytics lives inside Performance rather than as its own tab, which
- * is where the spec put it: "konten seperti apa yang membuat KOL ini perform"
- * is a question about performance, asked one level down.
+ * Content gets its own tab rather than living under Performance: "konten apa
+ * yang berhasil" is the question a brief is written from, and it is asked on
+ * its own, not as a footnote to the rate.
  */
-function ContentAnalytics({ intel }: { intel: SampleIntel }) {
+export function ContentSection({ creator, intel }: SectionProps) {
+  const [format, setFormat] = useState('all')
+  const [sort, setSort] = useState<string>('top')
+  const [openItem, setOpenItem] = useState<SampleContentItem | null>(null)
+
+  const formats = useMemo(
+    () => [...new Set(intel.content.recent.map(c => c.format))], [intel.content.recent])
+
+  const items = useMemo(() => {
+    const out = intel.content.recent.filter(c => format === 'all' || c.format === format)
+    if (sort === 'views') return [...out].sort((a, b) => b.views - a.views)
+    if (sort === 'top') return [...out].sort((a, b) => b.erPct - a.erPct)
+    return out
+  }, [intel.content.recent, format, sort])
+
   return (
     <div className="flex flex-col gap-4">
-      <div style={{ borderTop: `1px solid ${T.outline}` }} className="pt-4">
-        <h2 style={{ ...PJ, color: T.t1 }} className="text-[14px] font-extrabold">Content Analytics</h2>
-        <p className="text-[10.5px] mt-0.5" style={{ color: T.t4 }}>
-          Seluruh bagian ini contoh — roster tidak menyimpan satu pun post.
-        </p>
-      </div>
-
-      <VizCard title="Recent Content" sample>
-        <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))' }}>
-          {intel.content.recent.map((c, i) => (
-            <div key={i} className="rounded-[12px] border overflow-hidden" style={{ borderColor: T.outline }}>
-              <div className="h-[74px] flex items-center justify-center"
-                style={{ background: `linear-gradient(135deg,${VIZ.ordinal[i % VIZ.ordinal.length]},${VIZ.ordinal[(i + 2) % VIZ.ordinal.length]})` }}>
-                <span className="material-symbols-outlined text-white text-[22px] opacity-90">image</span>
+      <Split
+        main={
+          <VizCard title="Content Performance" sample
+            subtitle="Roster tidak menyimpan satu pun post — seluruh konten di bawah contoh"
+            action={
+              <div className="flex gap-1.5 flex-wrap">
+                <Select value={format} onChange={setFormat}
+                  options={([['all', 'Semua format']] as [string, string][])
+                    .concat(formats.map(f => [f, f] as [string, string]))} />
+                <Select value={sort} onChange={setSort}
+                  options={CONTENT_SORTS.map(([v, l]) => [v, l] as [string, string])} />
               </div>
-              <div className="p-2">
-                <div style={{ ...PJ, color: T.t1 }} className="text-[11px] font-bold truncate">{c.title}</div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-[10px]" style={{ color: T.t4 }}>{fmtNum(c.views)} views</span>
-                  <span style={{ ...PJ, color: T.primaryDeep }} className="text-[10px] font-extrabold">
-                    ER {c.erPct}%
+            }>
+            {items.length === 0 ? (
+              <EmptyBlock icon="grid_off" title="Tidak ada konten pada filter ini"
+                body="Coba ganti format atau urutannya."
+                action={
+                  <Btn onClick={() => { setFormat('all'); setSort('top') }}>Reset filter</Btn>
+                } />
+            ) : (
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))' }}>
+                {items.map((c, i) => (
+                  <button key={`${c.title}-${i}`} type="button" onClick={() => setOpenItem(c)}
+                    className="rounded-[12px] border overflow-hidden text-left hover:brightness-[.99] transition"
+                    style={{ borderColor: T.outline }}>
+                    <div className="h-[96px] flex items-center justify-center"
+                      style={{ background: `linear-gradient(135deg,${VIZ.ordinal[i % VIZ.ordinal.length]},${VIZ.ordinal[(i + 2) % VIZ.ordinal.length]})` }}>
+                      <span className="material-symbols-outlined text-white text-[22px] opacity-90">
+                        {c.format === 'Reels' || c.format === 'Video' ? 'play_circle' : 'image'}
+                      </span>
+                    </div>
+                    <div className="p-2">
+                      <div style={{ ...PJ, color: T.t1 }} className="text-[11px] font-bold truncate">{c.title}</div>
+                      <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold mt-0.5">
+                        {fmtNum(c.views)}
+                      </div>
+                      <div className="text-[10px]" style={{ color: T.t4 }}>
+                        views · ER {c.erPct}% · {fmtNum(c.likes)} likes
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </VizCard>
+        }
+        aside={
+          <>
+            <VizCard title="Content Format" sample>
+              <Bars parts={intel.content.formats} />
+            </VizCard>
+            <VizCard title="Content Topic" sample>
+              <Bars parts={intel.content.topics} />
+            </VizCard>
+            <VizCard title="Sentiment" sample>
+              <SentimentBars parts={intel.content.sentiment} />
+            </VizCard>
+          </>
+        }
+      />
+
+      <ContentDetail item={openItem} creator={creator} onClose={() => setOpenItem(null)} />
+    </div>
+  )
+}
+
+function ContentDetail({
+  item, creator, onClose,
+}: { item: SampleContentItem | null; creator: KolDirectoryRow; onClose: () => void }) {
+  return (
+    <Overlay open={item !== null} title="Content Detail" onClose={onClose}>
+      {item && (
+        <div className="flex gap-4 flex-wrap">
+          <div className="w-[200px] flex-shrink-0">
+            <div className="h-[200px] rounded-[14px] flex items-center justify-center"
+              style={{ background: `linear-gradient(135deg,${VIZ.ordinal[1]},${VIZ.ordinal[3]})` }}>
+              <span className="material-symbols-outlined text-white text-[30px] opacity-90">
+                {item.format === 'Reels' || item.format === 'Video' ? 'play_circle' : 'image'}
+              </span>
+            </div>
+            <div className="text-[10.5px] mt-2 text-center" style={{ color: T.t4 }}>
+              {item.platform} · {item.format} · {item.postedAt}
+            </div>
+          </div>
+
+          <div className="flex-1 min-w-[240px]">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold">{item.title}</span>
+              <SampleTag compact />
+            </div>
+            <p className="text-[11.5px] leading-[1.6] mb-3" style={{ color: T.t2 }}>{item.caption}</p>
+
+            <Row label="Views" value={fmtNum(item.views)} />
+            <Row label="Likes" value={fmtNum(item.likes)} />
+            <Row label="Comments" value={fmtNum(item.comments)} />
+            <Row label="Shares" value={fmtNum(item.shares)} />
+            <Row label="Saves" value={fmtNum(item.saves)} />
+            <Row label="Engagement rate" value={`${item.erPct}%`} />
+            <Row label="Sentiment" value={
+              <span className="inline-flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px]"
+                  style={{ color: item.sentiment === 'Positif' ? VIZ.good : T.t4 }}>
+                  {item.sentiment === 'Positif' ? 'sentiment_satisfied' : 'sentiment_neutral'}
+                </span>
+                {item.sentiment}
+              </span>
+            } />
+
+            <div className="mt-3">
+              <div className="text-[10.5px] mb-1.5" style={{ color: T.t3 }}>Hashtags</div>
+              <div className="flex flex-wrap gap-1.5">
+                {item.hashtags.map(h => (
+                  <span key={h} style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                    className="h-6 px-2 rounded-md text-[10.5px] font-bold inline-flex items-center">
+                    {h}
                   </span>
-                </div>
+                ))}
               </div>
             </div>
-          ))}
+
+            {creator.profileUrl && (
+              <a href={creator.profileUrl} target="_blank" rel="noopener noreferrer"
+                style={{ ...PJ, color: T.primary }}
+                className="inline-flex items-center gap-1 text-[11px] font-bold mt-3.5 hover:underline">
+                Buka profil asli
+                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              </a>
+            )}
+          </div>
         </div>
-      </VizCard>
+      )}
+    </Overlay>
+  )
+}
 
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))' }}>
-        <VizCard title="Top Performing Content" sample>
-          <div className="flex flex-col gap-2">
-            {intel.content.top.map((c, i) => (
-              <div key={i} className="flex items-center gap-2.5 py-1.5"
-                style={{ borderBottom: i < 2 ? `1px solid ${T.outlineSoft}` : undefined }}>
-                <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
-                  className="w-6 h-6 rounded-lg text-[11px] font-extrabold inline-flex items-center justify-center flex-shrink-0">
-                  {i + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div style={{ ...PJ, color: T.t1 }} className="text-[11.5px] font-bold truncate">{c.title}</div>
-                  <div className="text-[10px]" style={{ color: T.t4 }}>{fmtNum(c.views)} views · {c.format}</div>
-                </div>
-                <span style={{ ...PJ, color: T.primaryDeep }} className="text-[11.5px] font-extrabold tabular-nums">
-                  {c.erPct}%
-                </span>
-              </div>
-            ))}
+/** Sentiment wears status colours, so each row carries an icon and a label. */
+function SentimentBars({ parts }: { parts: { label: string; pct: number }[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {parts.map((s, i) => {
+        const tone = [
+          { c: VIZ.good, icon: 'sentiment_satisfied' },
+          { c: T.t4, icon: 'sentiment_neutral' },
+          { c: VIZ.critical, icon: 'sentiment_dissatisfied' },
+        ][i] ?? { c: T.t4, icon: 'circle' }
+        return (
+          <div key={s.label} className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[16px]" style={{ color: tone.c }}>{tone.icon}</span>
+            <span className="text-[11px] w-[48px]" style={{ color: T.t3 }}>{s.label}</span>
+            <div className="flex-1 h-[10px] rounded-[4px]" style={{ background: T.outlineSoft }}>
+              <div className="h-full rounded-r-[4px]" style={{ width: `${s.pct}%`, background: tone.c }} />
+            </div>
+            <span style={{ ...PJ, color: T.t1 }} className="text-[11px] font-extrabold w-[38px] text-right tabular-nums">
+              {s.pct}%
+            </span>
           </div>
-        </VizCard>
-
-        <VizCard title="Content Format" sample>
-          <Bars parts={intel.content.formats} />
-        </VizCard>
-
-        <VizCard title="Content Topic" sample>
-          <Bars parts={intel.content.topics} />
-        </VizCard>
-
-        <VizCard title="Sentiment" sample subtitle="Berdasarkan komentar">
-          <div className="flex flex-col gap-2">
-            {intel.content.sentiment.map((s, i) => {
-              const tone = [
-                { c: VIZ.good, icon: 'sentiment_satisfied' },
-                { c: T.t4, icon: 'sentiment_neutral' },
-                { c: VIZ.critical, icon: 'sentiment_dissatisfied' },
-              ][i] ?? { c: T.t4, icon: 'circle' }
-              return (
-                <div key={s.label} className="flex items-center gap-2.5">
-                  {/* Status colour always ships with an icon and a label. */}
-                  <span className="material-symbols-outlined text-[16px]" style={{ color: tone.c }}>{tone.icon}</span>
-                  <span className="text-[11.5px] w-[54px]" style={{ color: T.t3 }}>{s.label}</span>
-                  <div className="flex-1 h-[10px] rounded-[4px]" style={{ background: T.outlineSoft }}>
-                    <div className="h-full rounded-r-[4px]" style={{ width: `${s.pct}%`, background: tone.c }} />
-                  </div>
-                  <span style={{ ...PJ, color: T.t1 }} className="text-[11px] font-extrabold w-[38px] text-right tabular-nums">
-                    {s.pct}%
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </VizCard>
-      </div>
+        )
+      })}
     </div>
   )
 }
@@ -410,8 +518,30 @@ export function AudienceSection({ intel }: SectionProps) {
 
 export function CampaignSection({ intel }: SectionProps) {
   const [open, setOpen] = useState<number | null>(0)
+  const [status, setStatus] = useState('all')
+  const [brand, setBrand] = useState('all')
+
+  const brands = useMemo(
+    () => [...new Set(intel.campaigns.map(c => c.brand))], [intel.campaigns])
+  const rows = useMemo(
+    () => intel.campaigns.filter(c =>
+      (status === 'all' || c.status === status) && (brand === 'all' || c.brand === brand)),
+    [intel.campaigns, status, brand])
+
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex items-end gap-2.5 flex-wrap">
+        <Field label="Status">
+          <Select value={status} onChange={setStatus}
+            options={[['all', 'Semua status'], ['Completed', 'Completed'], ['Running', 'Running']]} />
+        </Field>
+        <Field label="Brand">
+          <Select value={brand} onChange={setBrand}
+            options={([['all', 'Semua brand']] as [string, string][])
+              .concat(brands.map(b => [b, b] as [string, string]))} />
+        </Field>
+      </div>
+
       <Split
         main={
       <VizCard title="Campaign History" sample
@@ -426,7 +556,7 @@ export function CampaignSection({ intel }: SectionProps) {
               </tr>
             </thead>
             <tbody>
-              {intel.campaigns.map((c, i) => (
+              {rows.map((c, i) => (
                 <tr key={i} onClick={() => setOpen(open === i ? null : i)}
                   className="cursor-pointer hover:bg-[#f9fbfc]"
                   style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
@@ -467,23 +597,23 @@ export function CampaignSection({ intel }: SectionProps) {
         }
       />
 
-      {open !== null && intel.campaigns[open] && (
-        <VizCard title={`Campaign Overview — ${intel.campaigns[open].name}`} sample>
+      {open !== null && rows[open] && (
+        <VizCard title={`Campaign Overview — ${rows[open].name}`} sample>
           <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
-            <StatTile label="Status" value={intel.campaigns[open].status} sample />
+            <StatTile label="Status" value={rows[open].status} sample />
             <StatTile label="Deliverables"
-              value={`${intel.campaigns[open].deliverables} / ${intel.campaigns[open].deliverables}`} sample />
-            <StatTile label="Budget" value={usd(intel.campaigns[open].budgetUsd)} sample />
-            <StatTile label="Payment" value={intel.campaigns[open].paid ? 'Paid' : 'Pending'} sample />
-            <StatTile label="ROAS" value={`${intel.campaigns[open].roas}x`} sample />
-            <StatTile label="Reach" value={fmtNum(intel.campaigns[open].reach)} sample />
-            <StatTile label="Engagement" value={fmtNum(intel.campaigns[open].engagement)} sample />
+              value={`${rows[open].deliverables} / ${rows[open].deliverables}`} sample />
+            <StatTile label="Budget" value={usd(rows[open].budgetUsd)} sample />
+            <StatTile label="Payment" value={rows[open].paid ? 'Paid' : 'Pending'} sample />
+            <StatTile label="ROAS" value={`${rows[open].roas}x`} sample />
+            <StatTile label="Reach" value={fmtNum(rows[open].reach)} sample />
+            <StatTile label="Engagement" value={fmtNum(rows[open].engagement)} sample />
           </div>
 
           <div style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-extrabold mb-2">Campaign Timeline</div>
           <div className="flex items-center gap-1 flex-wrap">
             {CAMPAIGN_STAGES.map((s, i) => {
-              const done = i <= intel.campaigns[open].stage
+              const done = i <= rows[open].stage
               return (
                 <span key={s} className="inline-flex items-center gap-1">
                   <span style={{
@@ -653,182 +783,9 @@ export function AiSection({ creator, rank, intel }: SectionProps) {
   )
 }
 
-/* ── Report ───────────────────────────────────────────────────────────────── */
+/* ── shared form bits ─────────────────────────────────────────────────────── */
 
-const REPORT_SECTIONS = [
-  'Profile & Metrics', 'Performance', 'Audience Insights', 'Content Analytics',
-  'Campaign History', 'Brand Fit', 'AI Insights',
-] as const
-
-/** Only the first section has a real source; the rest export sampled figures. */
-const REAL_SECTION = REPORT_SECTIONS[0]
-
-const DATE_RANGES = ['30 hari terakhir', '90 hari terakhir', '6 bulan terakhir', 'Sepanjang waktu'] as const
-
-export function ReportSection({ creator, rank, platforms, intel }: SectionProps) {
-  const [picked, setPicked] = useState<Set<string>>(new Set(REPORT_SECTIONS))
-  const [format, setFormat] = useState<'PDF' | 'Excel' | 'CSV'>('CSV')
-  const [range, setRange] = useState<string>(DATE_RANGES[0])
-  const [platform, setPlatform] = useState<string>('all')
-  const [campaign, setCampaign] = useState<string>('all')
-  const [note, setNote] = useState<string | null>(null)
-
-  /**
-   * The export carries the roster fields plus the standings — the parts that
-   * survive leaving the screen. Sampled figures are deliberately left out: a
-   * spreadsheet strips the markers that qualify them here, and a number in a
-   * downloaded file outlives every caveat around it.
-   */
-  const rows = useMemo(() => [{
-    username: creator.username,
-    platform: platformLabel(creator.platform),
-    tier: creator.tier ?? '—',
-    categories: creator.categories.join(' · ') || '—',
-    followers: creator.followers ?? 0,
-    erPct: creator.erPct === null ? '' : creator.erPct.toFixed(2),
-    verified: creator.verified ? 'Ya' : 'Tidak',
-    status: creator.status,
-    followersRank: `#${rank.followersRank} dari ${rank.rosterTotal}`,
-    categoryRank: rank.categoryFollowersRank === null
-      ? '—' : `#${rank.categoryFollowersRank} dari ${rank.categoryTotal} (${rank.categoryName})`,
-    erRank: rank.erRank === null ? '—' : `#${rank.erRank} dari ${rank.erMeasuredTotal}`,
-    profileUrl: creator.profileUrl ?? '',
-    lastRefreshed: creator.lastRefreshedAt?.slice(0, 10) ?? '',
-  }], [creator, rank])
-
-  const cols: ExportColumn<(typeof rows)[number]>[] = [
-    { key: 'username', header: 'Username', value: r => r.username },
-    { key: 'platform', header: 'Platform', value: r => r.platform },
-    { key: 'tier', header: 'Tier', value: r => r.tier },
-    { key: 'categories', header: 'Kategori', value: r => r.categories },
-    { key: 'followers', header: 'Followers', value: r => r.followers },
-    { key: 'erPct', header: 'Engagement rate %', value: r => r.erPct },
-    { key: 'verified', header: 'Verified', value: r => r.verified },
-    { key: 'status', header: 'Data status', value: r => r.status },
-    { key: 'followersRank', header: 'Peringkat followers', value: r => r.followersRank },
-    { key: 'categoryRank', header: 'Peringkat kategori', value: r => r.categoryRank },
-    { key: 'erRank', header: 'Peringkat ER', value: r => r.erRank },
-    { key: 'profileUrl', header: 'Profile URL', value: r => r.profileUrl },
-    { key: 'lastRefreshed', header: 'Terakhir refresh', value: r => r.lastRefreshed },
-  ]
-
-  const toggle = (s: string) => setPicked(p => {
-    const next = new Set(p)
-    if (next.has(s)) next.delete(s); else next.add(s)
-    return next
-  })
-
-  const generate = () => {
-    const file = `kol-${creator.username}`
-    if (format === 'CSV') exportCsv(rows, cols, file)
-    else if (format === 'Excel') exportExcel(rows, cols, file)
-    else { setNote('Export PDF belum tersedia — pakai CSV atau Excel dulu.'); return }
-    const sampled = [...picked].filter(s => s !== REAL_SECTION)
-    setNote(sampled.length
-      ? `File berisi ${REAL_SECTION} (data asli). ${sampled.length} section lain tidak diekspor karena isinya angka contoh.`
-      : `File berisi ${REAL_SECTION} (data asli).`)
-  }
-
-  const pickedSampled = [...picked].filter(s => s !== REAL_SECTION)
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Split
-        main={
-          <VizCard title="Generate Creator Report"
-            subtitle="Pilih bagian dan cakupan laporan">
-            <div style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-extrabold mb-2">Sections</div>
-            <div className="flex flex-col gap-1.5 mb-4">
-              {REPORT_SECTIONS.map(s => (
-                <button key={s} type="button" onClick={() => toggle(s)}
-                  style={{ ...PJ, borderColor: picked.has(s) ? T.primary : T.outline }}
-                  className="flex items-center gap-2 h-9 px-2.5 rounded-lg border text-[11.5px] font-bold transition-colors">
-                  <span className="material-symbols-outlined text-[16px]"
-                    style={{ color: picked.has(s) ? T.primary : T.t4 }}>
-                    {picked.has(s) ? 'check_box' : 'check_box_outline_blank'}
-                  </span>
-                  <span style={{ color: picked.has(s) ? T.t1 : T.t3 }}>{s}</span>
-                  {s !== REAL_SECTION && <SampleTag compact />}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
-              <Field label="Date range">
-                <Select value={range} onChange={setRange} options={DATE_RANGES.map(r => [r, r])} />
-              </Field>
-              <Field label="Platform">
-                <Select value={platform} onChange={setPlatform}
-                  options={[['all', 'Semua platform'] as [string, string]]
-                    .concat(platforms.map(p => [p.platform ?? 'other', platformLabel(p.platform)] as [string, string]))} />
-              </Field>
-              <Field label="Campaign">
-                <Select value={campaign} onChange={setCampaign}
-                  options={[['all', 'Semua campaign'] as [string, string]]
-                    .concat(intel.campaigns.map(c => [c.name, `${c.brand} · ${c.name}`] as [string, string]))} />
-              </Field>
-            </div>
-
-            <div style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-extrabold mb-2">Format</div>
-            <div className="flex gap-1.5 mb-4">
-              {(['PDF', 'Excel', 'CSV'] as const).map(f => (
-                <button key={f} type="button" onClick={() => setFormat(f)}
-                  style={{
-                    ...PJ,
-                    background: format === f ? T.surfaceVariant : T.surface,
-                    borderColor: format === f ? T.primary : T.outline,
-                    color: format === f ? T.primaryDeep : T.t3,
-                  }}
-                  className="h-8 px-3.5 rounded-lg border text-[11.5px] font-bold">
-                  {f}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-2 flex-wrap">
-              <Btn variant="primary" onClick={generate}>
-                <span className="material-symbols-outlined text-[15px]">download</span>
-                Generate {format}
-              </Btn>
-              <Btn onClick={() => { setFormat('Excel'); exportExcel(rows, cols, `kol-${creator.username}`) }}>
-                <span className="material-symbols-outlined text-[15px]">table_view</span>
-                Export Excel
-              </Btn>
-            </div>
-            {note && <p className="text-[10.5px] mt-2.5" style={{ color: T.t3 }}>{note}</p>}
-          </VizCard>
-        }
-        aside={
-          <VizCard title="Report Preview"
-            subtitle="Isi file, bukan tampilan halaman">
-            <Row label="Creator" value={`@${creator.username}`} />
-            <Row label="Platform" value={platform === 'all' ? 'Semua' : platformLabel(platform)} />
-            <Row label="Date range" value={range} />
-            <Row label="Campaign" value={campaign === 'all' ? 'Semua' : campaign} />
-            <Row label="Sections dipilih" value={`${picked.size} dari ${REPORT_SECTIONS.length}`} />
-            <Row label="Format" value={format} />
-
-            <div className="mt-3.5 rounded-xl px-3 py-2.5" style={{ background: T.surfaceVariant }}>
-              <div style={{ ...PJ, color: T.primaryDeep }} className="text-[10px] font-extrabold uppercase tracking-wide mb-1">
-                Yang benar-benar ikut
-              </div>
-              <p className="text-[11px] leading-[1.55]" style={{ color: T.t2 }}>
-                {REAL_SECTION}: followers, engagement rate, tier, kategori, verified,
-                dan peringkat di roster — {rank.rosterTotal.toLocaleString('id-ID')} creator
-                sebagai pembanding.
-                {pickedSampled.length > 0 && (
-                  <> {pickedSampled.length} section lain tidak diekspor: isinya angka contoh,
-                  dan file spreadsheet melepas penanda yang ada di layar.</>
-                )}
-              </p>
-            </div>
-          </VizCard>
-        }
-      />
-    </div>
-  )
-}
-
+/** Used by the sub-filter rows above Performance, Content and Campaign. */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
