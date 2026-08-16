@@ -11,6 +11,10 @@ tsconfig.tsbuildinfo
 # Local debug dumps (from scripts/dev)
 *.dump.json
 
+# Ekspor L0 mentah — hanya baris header, tidak ada datanya
+l0_raw/
+l0_raw.rar
+
 # Environment
 .env
 .env.local*
