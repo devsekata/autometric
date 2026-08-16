@@ -52,6 +52,7 @@ import { useDiscoverSelection } from './useDiscoverSelection'
 import { useDiscoverCart } from './useDiscoverCart'
 import { useActiveKol } from './useActiveKol'
 import DiscoverDirectoryView from './DiscoverDirectoryView'
+import KolDirectoryPage from './KolDirectoryPage'
 import DiscoverCart from './DiscoverCart'
 import CampaignBuilder from './CampaignBuilder'
 import DiscoverCompare from './DiscoverCompare'
@@ -75,6 +76,12 @@ type ModuleId = (typeof MODULES)[number]['id']
  */
 const KOL_SECTIONS = [
   { id: 'directory', label: 'Directory', icon: 'grid_view', perKol: false },
+  // The two rosters are different populations, so they are two entries rather
+  // than one list with a toggle: Directory browses the commercial KOL platform's
+  // creators (public.kol_directory), Akun Saya lists the accounts this org
+  // already tracks in the warehouse. Only the latter has post-level history,
+  // which is why the nine per-creator analysis views hang off it.
+  { id: 'accounts', label: 'Akun Saya', icon: 'inventory_2', perKol: false },
   { id: 'profile', label: 'Profile', icon: 'person', perKol: true },
   { id: 'analytics', label: 'Performance', icon: 'insights', perKol: true },
   { id: 'content', label: 'Content Analytics', icon: 'summarize', perKol: true },
@@ -116,7 +123,8 @@ function moduleOf(tab: Tab): ModuleId {
 }
 
 const SUBTITLE: Record<string, string> = {
-  directory: 'Cari KOL dengan keyword, platform, kategori, followers, ER, lokasi, tier dan audience quality.',
+  directory: 'Roster KOL platform komersial: cari dengan keyword, lalu saring per platform, tier, followers, engagement rate dan kategori.',
+  accounts: 'Akun brand dan kompetitor yang di-track organisasi ini, lengkap dengan metrik dari post yang sudah terkumpul.',
   profile: 'Identitas dan KPI utama KOL aktif.',
   content: '10 post terakhir: reach, engagement, sentimen, topik, hashtag dan waktu posting.',
   analytics: 'Tren performa, format dan engagement rate KOL aktif.',
@@ -134,6 +142,7 @@ const SUBTITLE: Record<string, string> = {
 
 const PAGE_TITLE: Record<string, string> = {
   directory: 'Directory',
+  accounts: 'Akun Saya',
   profile: 'Profile',
   content: 'Content Analytics',
   analytics: 'Analytics',
@@ -204,7 +213,11 @@ export default function DiscoverKolWorkspace({
   const crumbs = useMemo(() => {
     const out: { label: string; href?: () => void }[] = [{ label: 'KOL Intelligence' }]
     if (activeModule === 'kol') {
-      out.push({ label: 'Directory', href: tab === 'directory' ? undefined : () => go('directory') })
+      // The per-creator views belong to a tracked account, so they hang off
+      // Akun Saya — the list you actually opened the creator from — not off
+      // Directory, which browses a different roster entirely.
+      if (tab === 'directory') out.push({ label: 'Directory' })
+      else out.push({ label: 'Akun Saya', href: tab === 'accounts' ? undefined : () => go('accounts') })
       // KOL Detail is a node of its own: the creator, then the section of them.
       if (inCreator && kolName) out.push({ label: kolName })
     } else if (activeModule === 'order') {
@@ -248,7 +261,9 @@ export default function DiscoverKolWorkspace({
       />
 
       <div>
-        {tab === 'directory' && (
+        {tab === 'directory' && <KolDirectoryPage orgId={orgId} orgSlug={orgSlug} embedded />}
+
+        {tab === 'accounts' && (
           <DiscoverDirectoryView
             orgId={orgId}
             orgSlug={orgSlug}
@@ -275,7 +290,8 @@ export default function DiscoverKolWorkspace({
             orgSlug={orgSlug}
             kol={activeKol.ready ? activeKol.kol : null}
             section={PER_KOL_SECTIONS[tab]}
-            onGoToDirectory={() => go('directory')}
+            // Back to the list these creators actually came from.
+            onGoToDirectory={() => go('accounts')}
             onGoToCart={() => go('cart')}
             onGoToRateCard={() => go('ratecard')}
             onGoToCompare={() => go('compare')}
@@ -311,7 +327,8 @@ export default function DiscoverKolWorkspace({
             seed={checkoutSeed}
             onGoToRates={() => go('ratecard')}
             onGoToCart={() => go('cart')}
-            onGoToDirectory={() => go('directory')}
+            // Back to the list these creators actually came from.
+            onGoToDirectory={() => go('accounts')}
           />
         )}
 

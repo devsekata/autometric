@@ -53,6 +53,10 @@ export const KOL_INTELLIGENCE: OrgNavItem = {
     // under Directory by OrgNav once a creator is active; that is the KOL Detail
     // node, and it belongs to Directory because that is where you found them.
     { label: 'Directory', path: 'discover/kol', tab: 'directory', icon: 'grid_view' },
+    // Two rosters, two entries. Directory browses the commercial KOL platform's
+    // creators; this one lists the accounts the org already tracks in the
+    // warehouse, which is where the per-creator analysis views come from.
+    { label: 'Akun Saya', path: 'discover/kol', tab: 'accounts', icon: 'inventory_2' },
     { label: 'Compare',   path: 'discover/kol', tab: 'compare',   icon: 'compare' },
     // Cart, Ordering Flow and Purchase History are deliberately NOT nav entries.
     // They are steps you fall into from a creator — add to cart, check out, look

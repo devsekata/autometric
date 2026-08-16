@@ -65,16 +65,17 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
   }, [])
 
   /**
-   * Inject the KOL Detail sections under Directory once a creator is selected.
+   * Inject the KOL Detail sections under Akun Saya once a creator is selected.
    *
-   * They hang off Directory because that is where the creator was found —
-   * opening one is a drill-down from the list, not a sibling of it. Matched on
-   * `tab` rather than on the label, so renaming the entry cannot silently
-   * detach the creator's sections from the tree.
+   * They hang off Akun Saya because that is where the creator was found —
+   * opening one is a drill-down from that list, not a sibling of it. Directory
+   * browses the commercial roster, which has no post history behind it and so
+   * opens no detail sections. Matched on `tab` rather than on the label, so
+   * renaming the entry cannot silently detach the creator's sections.
    */
   const items = useMemo(() => {
     const withCreator = (item: OrgNavItem): OrgNavItem => {
-      if (item.tab === 'directory') {
+      if (item.tab === 'accounts') {
         return activeKol.kol
           ? { ...item, children: [...KOL_CREATOR_SECTIONS, ...(item.children ?? [])] }
           : item
