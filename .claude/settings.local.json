@@ -272,7 +272,18 @@
       "Bash(head -320 src/lib/discover/campaignStore.ts)",
       "Bash(cp /tmp/cs.ts src/lib/discover/campaignStore.ts)",
       "Bash(git ls-remote *)",
-      "Bash(echo \"--- exit: $? \\(kosong = aman\\) ---\")"
+      "Bash(echo \"--- exit: $? \\(kosong = aman\\) ---\")",
+      "Bash(grep -inE \"\\(sk-[a-zA-Z0-9]{20}|AIza[0-9A-Za-z_-]{30}|xox[baprs]-|BEGIN [A-Z ]*PRIVATE KEY|password\\\\s*[:=]\\\\s*['\\\\\"][^'\\\\\"]{6,}\\)\")",
+      "Bash(tasklist //FI \"PID eq 7040\" //FO CSV)",
+      "Bash(awk '{print $6, $7}')",
+      "Bash(powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter 'ProcessId=14608' | Select-Object ProcessId,Name,CommandLine | Format-List\")",
+      "Bash(powershell -NoProfile -Command \"Get-Process -Id 14608 | Select-Object Id,StartTime,@{n='UpMin';e={[int]\\(\\(Get-Date\\)-\\\\$_.StartTime\\).TotalMinutes}} | Format-List\")",
+      "Bash(powershell -NoProfile -Command \"\\\\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=14608'; \\\\$pp = \\\\$p.ParentProcessId; Get-CimInstance Win32_Process -Filter \\\\\"ProcessId=\\\\$pp\\\\\" | Select-Object ProcessId,Name,CommandLine | Format-List; Write-Output '--- cwd via handle ---'; \\(Get-Process -Id 14608\\).Path\")",
+      "Bash(powershell -NoProfile -Command \"Get-Item 'C:\\\\Users\\\\Lenovo\\\\autometric\\\\autometric_dashboard' | Select-Object Name,Attributes,LinkType,Target | Format-List\")",
+      "Bash(powershell -NoProfile -Command \"Stop-Process -Id 14608,23704 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; 'killed'\")",
+      "Bash(rm -rf .next)",
+      "Bash(grep -n \"^/\\\\* ── Audience Insights\" src/components/discover/KolCreatorSections.tsx)",
+      "Bash(grep -n \"Split$\\\\|<Split\" src/components/discover/KolCreatorOverview.tsx)"
     ]
   }
 }
