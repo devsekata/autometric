@@ -28,9 +28,13 @@ import {
   KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, filtersToParams,
   type KolFilters,
 } from './KolDirectoryFilters'
+import { useDiscoverCart } from './useDiscoverCart'
+import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
+import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryPayload, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
+import type { Deliverable, RosterRateCard } from '@/lib/discover/vocab'
 
 /* ── tokens & vocabulary ──────────────────────────────────────────────────── */
 
@@ -75,6 +79,10 @@ const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => stri
   platform: { label: 'Platform', get: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '—') },
   category: { label: 'Category', get: r => (r.categories.length ? r.categories.join(' · ') : '—') },
   updated: { label: 'Updated', get: r => sinceLabel(r.lastRefreshedAt), sort: 'recent' },
+  // The source's `agency` and `rate` columns. Both were dropped from this port
+  // as unbacked; both are in fact backed — see `attachRosterExtras`.
+  agency: { label: 'Agency', get: r => r.agency ?? '—' },
+  rate: { label: 'Rate card', get: r => rateLabel(r) },
 }
 type ColKey = keyof typeof COLDEFS
 
@@ -115,6 +123,24 @@ const erLabel = (er: number | null) => (er === null ? '—' : `${er.toFixed(2)}%
  * so it is derived, and the card says so: rows carrying a measured rate are
  * badged Calculated, rows without one show no reach at all rather than a guess.
  */
+/**
+ * "from Rp1,4 jt" — the source's `'from ' + money(min(deliverables))`, in rupiah
+ * and abbreviated, because the roster's prices run from Rp370K to Rp1 miliar and
+ * a full number in a table cell pushes every other column off a laptop screen.
+ */
+export function rateLabel(r: KolDirectoryRow): string {
+  if (r.rateFrom === null) return '—'
+  return `from ${idrShort(r.rateFrom)}`
+}
+
+/** Rp1,4 jt · Rp95 jt · Rp1 mlr — Indonesian short scale, one decimal at most. */
+export function idrShort(n: number): string {
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(n % 1_000_000_000 ? 1 : 0)} mlr`
+  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)} jt`
+  if (n >= 1_000) return `Rp${Math.round(n / 1_000)}rb`
+  return `Rp${n}`
+}
+
 function reachLabel(r: KolDirectoryRow): string {
   return r.followers === null || r.erPct === null ? '—' : fmtNum((r.followers * r.erPct) / 100)
 }
@@ -169,6 +195,8 @@ export default function KolDirectoryPage({
   const [fpOpen, setFpOpen] = useState<Set<string>>(new Set(['platform']))
   const [cols, setCols] = useState<Record<ColKey, boolean>>({
     tier: true, reach: true, platform: true, category: false, updated: false,
+    // Rate card is on by default: it is the column a buyer opens the table for.
+    rate: true, agency: false,
   })
   const [colOpen, setColOpen] = useState(false)
   const [listsOpen, setListsOpen] = useState(false)
@@ -190,8 +218,19 @@ export default function KolDirectoryPage({
    */
   const [selected, setSelected] = useState<Map<string, KolDirectoryRow>>(new Map())
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
-  const [compare, setCompare] = useState<Set<string>>(new Set())
-  const [cart, setCart] = useState<Set<string>>(new Set())
+  const compare = useDiscoverSelection(orgId, 'compare')
+  const cart = useDiscoverCart(orgId)
+  /**
+   * Prices this org has stated for roster creators, keyed by creator id.
+   *
+   * The roster carries no price of its own, so Add to Cart cannot work until
+   * somebody sets one — this is what the button checks before it can do anything
+   * but ask. Loaded once with the page rather than per row.
+   */
+  const [rosterRates, setRosterRates] = useState<Record<string, RosterRateCard>>({})
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([])
+  /** The creator whose price is being set, when the rate dialog is open. */
+  const [pricing, setPricing] = useState<KolDirectoryRow | null>(null)
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   const [toast, setToast] = useState<string | null>(null)
 
@@ -199,6 +238,23 @@ export default function KolDirectoryPage({
     setToast(msg)
     window.setTimeout(() => setToast(null), 2200)
   }, [])
+
+  /**
+   * Compare selection, shared with the Compare tab through localStorage.
+   *
+   * Was a local Set until now, which meant the button lit an icon and the
+   * comparison never saw the creator — the same dead end Add to Cart had. Roster
+   * ids are stored prefixed, so Compare can tell them from tracked accounts.
+   */
+  const inCompare = useCallback(
+    (id: string) => compare.ids.has(selectionKey('roster', id)),
+    [compare.ids])
+
+  const toggleCompare = useCallback((r: KolDirectoryRow) => {
+    const was = compare.ids.has(selectionKey('roster', r.id))
+    compare.toggle(selectionKey('roster', r.id))
+    flash(was ? `@${r.username} dihapus dari compare` : `@${r.username} ditambahkan ke compare`)
+  }, [compare, flash])
 
   const toggle = (set: Set<string>, id: string) => {
     const next = new Set(set)
@@ -224,6 +280,27 @@ export default function KolDirectoryPage({
     const t = window.setTimeout(() => { setSearch(query.trim()); setPage(1) }, 350)
     return () => window.clearTimeout(t)
   }, [query])
+
+  /**
+   * Roster prices and the deliverable catalogue, fetched once.
+   *
+   * The grid shows a price badge per row and Add to Cart needs the platform's
+   * headline deliverable, so both have to be here before the first click. A
+   * failure leaves Add to Cart offering to set a price, which is the same thing
+   * it does for a creator nobody has priced — no worse a state than the truth.
+   */
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/organizations/${orgId}/discover/rates`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { rosterRates?: Record<string, RosterRateCard>; deliverables: Deliverable[] }) => {
+        if (cancelled) return
+        setRosterRates(d.rosterRates ?? {})
+        setDeliverables(d.deliverables ?? [])
+      })
+      .catch(() => { /* Add to Cart still works, it just always asks for a price */ })
+    return () => { cancelled = true }
+  }, [orgId])
 
   const filterParams = filtersToParams(filters)
   const filterKey = JSON.stringify(filterParams)
@@ -298,12 +375,53 @@ export default function KolDirectoryPage({
   const selectedRows = useMemo(() => [...selected.values()], [selected])
 
   const bulkCompare = () => {
-    setCompare(s => new Set([...s, ...selected.keys()]))
+    const next = new Set(compare.ids)
+    for (const id of selected.keys()) next.add(selectionKey('roster', id))
+    compare.setIds(next)
     flash(`${selected.size} creator ditambahkan ke compare`)
   }
+  /**
+   * Adds one unit of the platform's headline deliverable to the real cart.
+   *
+   * A roster creator can only be carted once the org has priced them, so an
+   * unpriced one opens the rate dialog instead of failing quietly. That is the
+   * whole difference between this and the icon-toggle it replaced: the cart, the
+   * badge in the header and the checkout all read the same store now.
+   */
+  const addToCart = useCallback((r: KolDirectoryRow) => {
+    if (!r.platform) { flash('Creator ini tidak punya platform — belum bisa dipesan'); return }
+    const first = deliverables.find(d => d.platform === r.platform)
+    if (!first) { flash(`Belum ada deliverable untuk ${r.platform}`); return }
+    if (!rosterRates[r.id] || rosterRates[r.id].baseRate <= 0) { setPricing(r); return }
+
+    cart.add({ socialAccountId: r.id, relation: 'roster', deliverableId: first.id })
+    flash(`@${r.username} masuk keranjang · ${first.label}`)
+  }, [cart, deliverables, rosterRates, flash])
+
+  const removeFromCart = useCallback((r: KolDirectoryRow) => {
+    cart.removeAccount(r.id)
+    flash(`@${r.username} dihapus dari keranjang`)
+  }, [cart, flash])
+
+  const inCart = useCallback(
+    (id: string) => cart.lines.some(
+      (l: { relation: string; socialAccountId: string }) =>
+        l.relation === 'roster' && l.socialAccountId === id),
+    [cart.lines])
+
   const bulkCart = () => {
-    setCart(s => new Set([...s, ...selected.keys()]))
-    flash(`${selected.size} creator ditambahkan ke campaign`)
+    const rows = [...selected.values()]
+    const priced = rows.filter(r => r.platform && (rosterRates[r.id]?.baseRate ?? 0) > 0)
+    for (const r of priced) {
+      const first = deliverables.find(d => d.platform === r.platform)
+      if (first) cart.add({ socialAccountId: r.id, relation: 'roster', deliverableId: first.id })
+    }
+    const skipped = rows.length - priced.length
+    flash(
+      skipped === 0
+        ? `${priced.length} creator masuk keranjang`
+        : `${priced.length} masuk keranjang · ${skipped} dilewati karena belum ada harga`,
+    )
   }
 
   /**
@@ -317,11 +435,11 @@ export default function KolDirectoryPage({
 
   const cardProps = (r: KolDirectoryRow) => ({
     creator: r,
-    fav: favorites.has(r.id), inCompare: compare.has(r.id), inCart: cart.has(r.id),
+    fav: favorites.has(r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
     onOpen: () => openProfile(r),
     onFav: () => { setFavorites(s => toggle(s, r.id)); flash(favorites.has(r.id) ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
-    onCompare: () => { setCompare(s => toggle(s, r.id)); flash(compare.has(r.id) ? 'Dihapus dari compare' : 'Ditambahkan ke compare') },
-    onCart: () => { setCart(s => toggle(s, r.id)); flash(cart.has(r.id) ? 'Dihapus dari campaign' : `@${r.username} ditambahkan ke campaign`) },
+    onCompare: () => toggleCompare(r),
+    onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
   })
 
   const topCategories = (facets?.categories ?? []).slice(0, 6)
@@ -343,15 +461,15 @@ export default function KolDirectoryPage({
                 <>
                   {total.toLocaleString('id-ID')} of {rosterTotal.toLocaleString('id-ID')} creators
                   {fCount > 0 && ` · ${fCount} filter${fCount > 1 ? 's' : ''} applied`}
-                  {` · ${favorites.size} favorites · ${compare.size} in compare`}
+                  {` · ${favorites.size} favorites · ${compare.ids.size} in compare`}
                 </>
               )}
             </p>
           </div>
           <div className="flex gap-[9px]">
-            <Btn kind="ghost" icon="compare" onClick={() => flash(`${compare.size} creator dibandingkan`)}
-              title="Compare selected creators side by side">
-              Compare{compare.size > 0 && <Count n={compare.size} />}
+            <Btn kind="ghost" icon="compare" onClick={() => router.push(tabHref(orgSlug, 'compare'))}
+              title="Bandingkan creator yang dipilih berdampingan">
+              Compare{compare.ids.size > 0 && <Count n={compare.ids.size} />}
             </Btn>
             <Btn kind="primary" icon="person_add" onClick={() => flash('Form tambah KOL dibuka')}
               title="Register a new influencer">
@@ -537,7 +655,8 @@ export default function KolDirectoryPage({
                     rows={rows} cols={cols} sort={sort} onSort={sortBy}
                     selected={selected} onToggleRow={toggleRow}
                     allOnPage={pageAllSelected} onToggleAll={toggleAllOnPage}
-                    cart={cart} onCart={r => { setCart(s => toggle(s, r.id)); flash(cart.has(r.id) ? 'Dihapus dari campaign' : `@${r.username} ditambahkan ke campaign`) }}
+                    inCart={inCart}
+                    onCart={r => (inCart(r.id) ? removeFromCart(r) : addToCart(r))}
                     onOpen={openProfile}
                   />
                 )}
@@ -590,6 +709,27 @@ export default function KolDirectoryPage({
           )}
         </div>
       </div>
+
+      {pricing && (
+        <RosterRateDialog
+          orgId={orgId}
+          creator={pricing}
+          current={rosterRates[pricing.id]?.baseRate ?? 0}
+          onClose={() => setPricing(null)}
+          onSaved={(rates, creator) => {
+            setRosterRates(rates)
+            setPricing(null)
+            // Straight into the cart: setting a price was the only thing in the
+            // way, and asking the user to press Add to Cart a second time would
+            // be making them repeat themselves.
+            const first = deliverables.find(d => d.platform === creator.platform)
+            if (first) {
+              cart.add({ socialAccountId: creator.id, relation: 'roster', deliverableId: first.id })
+              flash(`@${creator.username} masuk keranjang · ${first.label}`)
+            }
+          }}
+        />
+      )}
 
       {toast && (
         <div style={{ ...PJ, background: T.t1 }}
@@ -670,6 +810,19 @@ function CreatorCard({
             <span className="material-symbols-outlined text-[12px]">{st.icon}</span>
             {c.status} · {sinceLabel(c.lastRefreshedAt)}
           </span>
+
+          {/* The source puts its brand-fit "% match" here. That score has no
+              source in this roster, but the creator's own price does, and it is
+              the number a buyer scanning the grid actually acts on. */}
+          {c.rateFrom !== null && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold whitespace-nowrap"
+              style={{ ...PJ, color: T.primaryDeep }}
+              title={`Rate card creator: mulai Rp${c.rateFrom.toLocaleString('id-ID')}`
+                + (c.rateCount > 1 ? ` · ${c.rateCount} deliverable` : '')}>
+              <span className="material-symbols-outlined text-[12px]">sell</span>
+              {idrShort(c.rateFrom)}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center justify-between mt-[13px]">
@@ -696,7 +849,7 @@ function CreatorCard({
 /* ── table ────────────────────────────────────────────────────────────────── */
 
 function DirectoryTable({
-  rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, cart, onCart, onOpen,
+  rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, onOpen,
 }: {
   rows: KolDirectoryRow[]
   cols: Record<ColKey, boolean>
@@ -706,7 +859,7 @@ function DirectoryTable({
   onToggleRow: (r: KolDirectoryRow) => void
   allOnPage: boolean
   onToggleAll: () => void
-  cart: Set<string>
+  inCart: (id: string) => boolean
   onCart: (r: KolDirectoryRow) => void
   onOpen: (r: KolDirectoryRow) => void
 }) {
@@ -786,10 +939,10 @@ function DirectoryTable({
                 </Td>
                 <Td last={i === rows.length - 1} right>
                   <span onClick={e => { e.stopPropagation(); onCart(r) }}
-                    title={cart.has(r.id) ? 'In cart' : 'Add to cart'}
+                    title={inCart(r.id) ? 'In cart' : 'Add to cart'}
                     className="material-symbols-outlined text-[18px] cursor-pointer"
-                    style={{ color: cart.has(r.id) ? T.primary : T.t4 }}>
-                    {cart.has(r.id) ? 'shopping_cart_checkout' : 'add_shopping_cart'}
+                    style={{ color: inCart(r.id) ? T.primary : T.t4 }}>
+                    {inCart(r.id) ? 'shopping_cart_checkout' : 'add_shopping_cart'}
                   </span>
                 </Td>
               </tr>
@@ -977,5 +1130,124 @@ function PgBtn({
       }`}>
       {children}
     </button>
+  )
+}
+
+/**
+ * Setting a price for a roster creator.
+ *
+ * The commercial roster carries followers, engagement rate and categories, but
+ * no rate — nobody has published one. So before a creator from here can be
+ * ordered, the org has to say what it is willing to pay, and this is where that
+ * happens: one base rate, from which every deliverable is priced by its usual
+ * multiplier. Exactly the model tracked accounts already use.
+ *
+ * It opens from Add to Cart rather than living in a settings screen, because
+ * "no price yet" is discovered at the moment of buying and sending someone
+ * elsewhere to fix it is how a cart ends up abandoned.
+ */
+function RosterRateDialog({
+  orgId, creator, current, onClose, onSaved,
+}: {
+  orgId: string
+  creator: KolDirectoryRow
+  current: number
+  onClose: () => void
+  onSaved: (rates: Record<string, RosterRateCard>, creator: KolDirectoryRow) => void
+}) {
+  const [raw, setRaw] = useState(current > 0 ? String(current) : '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const value = Number(raw.replace(/\D/g, '')) || 0
+
+  const save = async () => {
+    if (value <= 0) { setError('Masukkan tarif dasar lebih dari nol.'); return }
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/discover/rates`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterKolId: creator.id, baseRate: value }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+      onSaved(body?.rosterRates ?? {}, creator)
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Atur tarif @${creator.username}`}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(17,24,39,.45)]"
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-[420px] rounded-2xl bg-white border border-[#e5e7eb] shadow-[0_26px_56px_rgba(30,74,88,.18)]"
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#e5e7eb]">
+          <span style={PJ} className="text-[13px] font-extrabold" >
+            Atur tarif @{creator.username}
+          </span>
+          <button type="button" onClick={onClose} aria-label="Tutup"
+            className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-[#9ca3af] hover:bg-[#f3f4f6]">
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </div>
+
+        <div className="px-4 py-3.5">
+          <p className="text-[11.5px] text-[#6b7280] leading-relaxed mb-3">
+            Creator dari Directory belum punya harga di platform KOL, jadi tarifnya ditetapkan
+            oleh organisasi ini. Tiap deliverable dihitung dari tarif dasar dikali pengalinya —
+            sama seperti akun yang kamu track.
+          </p>
+
+          <span style={PJ} className="block text-[10px] font-bold uppercase tracking-widest text-[#9ca3af] mb-1.5">
+            Tarif dasar
+          </span>
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-[#9ca3af]">Rp</span>
+            <input
+              autoFocus
+              inputMode="numeric"
+              value={value ? value.toLocaleString('id-ID') : ''}
+              placeholder="0"
+              onChange={e => setRaw(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={e => { if (e.key === 'Enter') void save() }}
+              style={PJ}
+              className="w-full h-9 pl-8 pr-2.5 rounded-lg border border-[#e5e7eb] text-[12px] font-bold text-[#111827] tabular-nums focus:outline-none focus:border-[#327488]"
+            />
+          </div>
+
+          {value > 0 && (
+            <p className="text-[10.5px] text-[#9ca3af] mt-2">
+              Contoh: Reels ×1 = {'Rp' + (Math.round(value / 1000) * 1000).toLocaleString('id-ID')},
+              {' '}Feed Post ×0,5 = {'Rp' + (Math.round((value * 0.5) / 1000) * 1000).toLocaleString('id-ID')}.
+            </p>
+          )}
+
+          {error && <p className="text-[11px] text-[#c2553f] mt-2">{error}</p>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[#e5e7eb] bg-[#f9fafb] rounded-b-2xl">
+          <button type="button" onClick={onClose} style={PJ}
+            className="inline-flex items-center rounded-lg px-3 h-8 text-[12px] font-bold text-[#6b7280] hover:bg-[#f3f4f6]">
+            Batal
+          </button>
+          <button type="button" onClick={() => void save()} disabled={saving || value <= 0} style={PJ}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 h-8 text-[12px] font-bold text-white bg-[#327488] hover:bg-[#285D6E] disabled:opacity-50 disabled:cursor-not-allowed">
+            <span className="material-symbols-outlined text-[15px]">shopping_cart</span>
+            {saving ? 'Menyimpan…' : 'Simpan & masukkan keranjang'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -26,11 +26,18 @@ export interface KolFilters {
   follMin: number
   /** Percentage points. */
   erMin: number
+  /**
+   * The source panel's "Max. rate card" slider, in IDR. 0 means no ceiling.
+   * Setting one also excludes creators with no rate card at all — asking for a
+   * price under a number cannot be satisfied by the absence of a price.
+   */
+  maxRate: number
   verifiedOnly: boolean
 }
 
 export const KOL_FILTERS_DEFAULT: KolFilters = {
-  category: '', platform: '', tier: '', follMin: 0, erMin: 0, verifiedOnly: false,
+  category: '', platform: '', tier: '', follMin: 0, erMin: 0, maxRate: 0,
+  verifiedOnly: false,
 }
 
 /**
@@ -38,6 +45,24 @@ export const KOL_FILTERS_DEFAULT: KolFilters = {
  * steps through a scale instead of a linear range — a linear 0–3M slider would
  * spend its whole travel inside the smallest tier.
  */
+/**
+ * Rate-card ceilings, stepped like the follower scale and for the same reason:
+ * the roster's prices span Rp370K to Rp1 miliar, so a linear slider would spend
+ * its whole travel above where almost every creator sits.
+ */
+export const RATE_STEPS = [
+  0, 500_000, 1_000_000, 2_500_000, 5_000_000, 10_000_000, 25_000_000,
+  50_000_000, 100_000_000, 250_000_000, 500_000_000, 1_000_000_000,
+]
+
+/** Same short scale the directory table prints, kept local to avoid a cycle. */
+function idrShortFilter(n: number): string {
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(n % 1_000_000_000 ? 1 : 0)} mlr`
+  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)} jt`
+  if (n >= 1_000) return `Rp${Math.round(n / 1_000)}rb`
+  return `Rp${n}`
+}
+
 export const FOLLOWER_STEPS = [
   0, 1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000,
   1_000_000, 5_000_000, 10_000_000,
@@ -50,7 +75,8 @@ export const FOLLOWER_STEPS = [
  */
 export function activeFilterCount(f: KolFilters): number {
   return [
-    f.platform !== '', f.tier !== '', f.follMin > 0, f.erMin > 0, f.verifiedOnly,
+    f.platform !== '', f.tier !== '', f.follMin > 0, f.erMin > 0, f.maxRate > 0,
+    f.verifiedOnly,
   ].filter(Boolean).length
 }
 
@@ -61,6 +87,7 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.tier) p.tier = f.tier
   if (f.follMin > 0) p.follMin = String(f.follMin)
   if (f.erMin > 0) p.minEr = String(f.erMin)
+  if (f.maxRate > 0) p.maxRate = String(f.maxRate)
   if (f.verifiedOnly) p.verified = '1'
   return p
 }
@@ -213,7 +240,9 @@ export function KolFilterPanel({
 }) {
   const count = activeFilterCount(filters)
   const follIdx = Math.max(0, FOLLOWER_STEPS.indexOf(filters.follMin))
-  const reachActive = [filters.follMin > 0, filters.erMin > 0].filter(Boolean).length
+  const rateIdx = Math.max(0, RATE_STEPS.indexOf(filters.maxRate))
+  const reachActive = [filters.follMin > 0, filters.erMin > 0, filters.maxRate > 0]
+    .filter(Boolean).length
 
   return (
     <aside
@@ -317,9 +346,14 @@ export function KolFilterPanel({
           <Range label="Min. engagement" min={0} max={10} step={0.1} value={filters.erMin}
             display={filters.erMin ? `${filters.erMin.toFixed(1)}%` : 'Any'}
             onChange={v => onChange({ erMin: v })} />
+          <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
+            display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
+            onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
           <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
             Engagement rate hanya terukur pada sebagian roster — memasang minimum
-            akan menyembunyikan creator yang belum pernah diukur.
+            akan menyembunyikan creator yang belum pernah diukur. Rate card ada
+            untuk 7.230 dari 7.718 creator; memasang plafon harga menyembunyikan
+            sisanya.
           </p>
         </Section>
 

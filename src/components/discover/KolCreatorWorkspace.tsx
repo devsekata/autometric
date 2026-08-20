@@ -21,9 +21,15 @@
  * follower split across the creator's accounts, and every ranking the API
  * computes (roster, category, engagement inside the category).
  *
- * Reach beyond followers × ER, views, EMV, CPE, growth, audience demographics,
- * content, campaigns, brand fit and AI prose have no source, so they come from
- * `@/lib/discover/kolSample` and are marked at every figure.
+ * Part of the rest is measured too, for the creators the warehouse has actually
+ * harvested: likes, comments, views, the format mix and the content grid come
+ * from `l1_silver.unified_post`, and prices from `l1_silver.unified_rate_card`.
+ * `@/lib/discover/kolIntel` overlays those onto the sampled shape and reports,
+ * per field, which is which.
+ *
+ * What still has no source anywhere — reach, EMV, CPE, growth, audience
+ * demographics, campaigns, brand fit and AI prose — stays sampled and is marked
+ * as an estimate at every figure.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -36,8 +42,9 @@ import {
   AiSection, AudienceSection, BrandFitSection, CampaignSection, ContentSection,
   PerformanceSection, platformLabel, type SectionProps,
 } from './KolCreatorSections'
-import { sampleIntel } from '@/lib/discover/kolSample'
+import { creatorIntel, measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
+import type { KolMeasuredRate } from '@/lib/discover/kolMeasured'
 
 /**
  * The creator navigation. Report is absent on purpose — it is an action in the
@@ -100,11 +107,15 @@ export default function KolCreatorWorkspace({
   }, [toast])
 
   /**
-   * Seeded from the creator id, so the sampled figures are identical on every
+   * Measured figures where the warehouse has them, sampled everywhere else. The
+   * sampled half is seeded from the creator id, so it is identical on every
    * render and every reload — placeholder numbers that reshuffle themselves make
    * the screen obviously fake and screenshots irreproducible.
    */
-  const intel = useMemo(() => (data ? sampleIntel(data.creator) : null), [data])
+  const intel = useMemo(
+    () => (data ? creatorIntel(data.creator, data.measured) : null),
+    [data],
+  )
 
   const backToDirectory = () => router.push(`/organizations/${orgSlug}/discover/kol`)
 
@@ -165,6 +176,7 @@ export default function KolCreatorWorkspace({
             name={data.identity.displayName ?? `@${data.creator.username}`}
             username={data.creator.username}
             tier={data.creator.tier}
+            rates={data.measured?.rates ?? []}
             onAdd={campaign => {
               setAddedTo(campaign)
               setCampaignOpen(false)
@@ -210,7 +222,7 @@ function Loaded({
   data, intel, view, goTo, fav, setFav, onCompare, onAddCampaign, onReport, addedTo, setToast,
 }: {
   data: KolCreatorPayload
-  intel: NonNullable<ReturnType<typeof sampleIntel>>
+  intel: CreatorIntel
   view: NavId
   goTo: (id: string) => void
   fav: boolean
@@ -232,6 +244,18 @@ function Loaded({
   /** "Top N% in category" — the real standing, not a slogan. */
   const categoryTop = rank.categoryErPercentile === null
     ? null : Math.max(1, Math.round(100 - rank.categoryErPercentile))
+
+  /**
+   * The creator's own prices, cheapest first. `fee` is what the KOL platform
+   * records, so this KPI is a measurement and prints without a marker.
+   */
+  const rates = [...(intel.measured?.rates ?? [])]
+    .filter(r => Number.isFinite(r.fee) && r.fee > 0)
+    .sort((a, b) => a.fee - b.fee)
+  const cheapestRate = rates[0] ?? null
+  const rateCount = rates.length
+
+  const viewsBasis = measuredBasis(intel) ?? 'avg / post'
 
   return (
     <>
@@ -343,15 +367,29 @@ function Loaded({
           sub={rank.categoryErTotal > 0
             ? `dibanding ${rank.categoryErTotal.toLocaleString('id-ID')} creator kategori ini yang terukur`
             : undefined} />
-        <BigKpi label="Est. Media Value" value={`$${fmtNum(intel.kpi.emvUsd)}`}
-          note="per campaign" sample sub="belum ada rate card di database KOL" />
+        {/* A real price beats a modelled one. Where the KOL platform prices this
+            creator — 7,230 of the roster's 7,718 do — the third KPI is that
+            price and carries no marker; Est. Media Value is what stands in when
+            they have none. */}
+        {cheapestRate ? (
+          <BigKpi label="Rate Card"
+            value={`Rp${cheapestRate.fee.toLocaleString('id-ID')}`}
+            note={cheapestRate.label}
+            sub={rateCount > 1
+              ? `termurah dari ${rateCount} deliverable · rate card database KOL`
+              : 'dari rate card database KOL'} />
+        ) : (
+          <BigKpi label="Est. Media Value" value={`$${fmtNum(intel.kpi.emvUsd)}`}
+            note="per campaign" sample sub="creator ini belum punya rate card di database KOL" />
+        )}
       </div>
 
       {/* ── six secondary KPIs ── */}
       <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
         <StatTile label="Reach" value={estReach === null ? '—' : fmtNum(estReach)}
           hint="followers × ER" />
-        <StatTile label="Avg. Views" value={fmtNum(intel.kpi.avgViews)} hint="avg / post" sample />
+        <StatTile label="Avg. Views" value={fmtNum(intel.kpi.avgViews)}
+          hint={intel.real.views ? viewsBasis : 'avg / post'} sample={!intel.real.views} />
         <StatTile label="CPE" value={`$${(intel.kpi.emvUsd / Math.max(1, intel.performance.likes)).toFixed(2)}`}
           hint="per engagement" sample />
         <StatTile label="Audience Quality" value={`${intel.audience.qualityScore}`} hint="/ 100" sample />
@@ -437,16 +475,33 @@ function BigKpi({
 /* ── add to campaign ──────────────────────────────────────────────────────── */
 
 function AddToCampaign({
-  open, onClose, name, username, tier, onAdd,
+  open, onClose, name, username, tier, rates, onAdd,
 }: {
   open: boolean
   onClose: () => void
   name: string
   username: string
   tier: string | null
+  /** The creator's real prices, empty for the ~6% of the roster without any. */
+  rates: KolMeasuredRate[]
   onAdd: (campaign: string) => void
 }) {
   const [campaign, setCampaign] = useState(CAMPAIGN_OPTIONS[0])
+
+  /**
+   * The cost line used to be a hardcoded "$4,500 – $6,000" under a note saying
+   * the KOL database had no rate card. It does: `l1_silver.unified_rate_card`
+   * prices 7,230 of the 7,718 roster creators, in rupiah. So the range is the
+   * creator's own cheapest and dearest deliverable, and only falls back to a
+   * disclosure when they genuinely have no price.
+   */
+  const fees = rates.map(r => r.fee).filter(f => Number.isFinite(f) && f > 0).sort((a, b) => a - b)
+  const idr = (n: number) => `Rp${n.toLocaleString('id-ID')}`
+  const cost = fees.length === 0
+    ? null
+    : fees.length === 1 || fees[0] === fees[fees.length - 1]
+      ? idr(fees[0])
+      : `${idr(fees[0])} – ${idr(fees[fees.length - 1])}`
 
   return (
     <Overlay open={open} title="Add Creator to Campaign" side="right" onClose={onClose}
@@ -474,10 +529,27 @@ function AddToCampaign({
         </div>
       </div>
 
-      <Row label="Estimated cost" value="$4,500 – $6,000" sample />
+      <Row label="Estimated cost" value={cost ?? 'belum ada rate card'} sample={cost === null} />
+
+      {cost !== null && rates.length > 1 && (
+        <div className="mt-2 flex flex-col gap-1">
+          {rates.map(r => (
+            <div key={r.postType} className="flex items-center justify-between text-[10.5px]"
+              style={{ color: T.t3 }}>
+              <span>{r.label}</span>
+              <span style={{ ...PJ, color: T.t1 }} className="font-bold tabular-nums">
+                Rp{r.fee.toLocaleString('id-ID')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <p className="text-[10px] mt-2.5 leading-[1.5]" style={{ color: T.t4 }}>
-        Rate card belum ada di database KOL, jadi estimasi biaya di atas contoh.
-        Daftar campaign juga masih contoh — tabel campaign platform KOL masih kosong.
+        {cost === null
+          ? 'Creator ini belum punya rate card di database KOL, jadi biayanya belum bisa dihitung.'
+          : 'Harga di atas berasal dari rate card creator di database KOL.'}
+        {' '}Daftar campaign masih estimasi — tabel campaign platform KOL masih kosong.
       </p>
     </Overlay>
   )

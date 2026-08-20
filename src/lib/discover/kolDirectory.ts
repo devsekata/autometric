@@ -1,5 +1,6 @@
 import kolDb from '@/lib/kolDb'
 import { toIso } from './util'
+import { getKolMeasured, type KolMeasured } from './kolMeasured'
 
 /**
  * Query layer for the KOL Directory page.
@@ -35,6 +36,21 @@ export interface KolDirectoryRow {
   verified: boolean
   status: KolDataStatus
   lastRefreshedAt: string | null
+  /**
+   * The three columns the source platform's directory carries that this one used
+   * to leave out. They were left out because the roster row has no column for
+   * them — which was true of EMV, authenticity, growth and brand fit, and is
+   * still true. It was never true of these two: the agency tables name 7,684 of
+   * the 7,718 creators, and `l1_silver.unified_rate_card` prices 7,230 of them.
+   *
+   * Both are attached after paging rather than joined in (`attachRosterExtras`),
+   * because a LATERAL join for either runs before `LIMIT` and costs seconds.
+   */
+  agency: string | null
+  /** Cheapest priced deliverable, in IDR. Null when the creator has no rate card. */
+  rateFrom: number | null
+  /** How many distinct deliverables carry a price. */
+  rateCount: number
 }
 
 export interface KolDirectoryFacets {
@@ -55,12 +71,29 @@ export interface KolDirectoryPayload {
 }
 
 export interface KolDirectoryQuery {
+  /**
+   * Fetch exactly these creators, ignoring paging.
+   *
+   * Compare needs the handful the user picked, which may sit on any page of a
+   * 7.7k roster — filtering the list to find them again is not something the
+   * caller can do. Every other filter still applies, so this narrows rather than
+   * overrides; passing an empty array is treated as "no id filter" rather than
+   * "no results", because an absent selection is not a selection of nothing.
+   */
+  ids?: string[] | null
   q?: string | null
   platform?: string | null
   category?: string | null
   tiers?: string[]
   minFollowers?: number | null
   minErPct?: number | null
+  /**
+   * Ceiling on the creator's cheapest priced deliverable, in IDR — the source
+   * platform's "Max. rate card" slider. Creators with no rate card at all are
+   * excluded when this is set: the filter asks for a price under a number, and
+   * "no price" is not one.
+   */
+  maxRate?: number | null
   verifiedOnly?: boolean
   sort?: string | null
   dir?: string | null
@@ -146,6 +179,56 @@ const BASE = `
     ) cats ON TRUE
    WHERE ${ACTIVE}`
 
+/**
+ * Fills in `agency`, `rateFrom` and `rateCount` for one page of roster rows.
+ *
+ * Two extra round trips instead of two joins, and that is the point. Written as
+ * LATERAL joins against `kol_directory` both of these run before the `LIMIT`,
+ * so the planner evaluates them for the whole active roster: measured at 4.2s
+ * for the agency lookup and 2.7s for the rate card, against 15-23ms each when
+ * they are asked only about the twelve ids that survived paging.
+ *
+ * Mutates in place and returns nothing: the caller has already built the row
+ * objects, and rebuilding them to attach two fields would be the more confusing
+ * of the two shapes.
+ */
+async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
+  const ids = rows.map(r => r.id)
+  if (!ids.length) return
+
+  const db = kolDb()
+  const [agencies, rates] = await Promise.all([
+    db.query<{ kol_account_id: string; name: string | null }>(
+      `SELECT DISTINCT ON (a.kol_account_id) a.kol_account_id, ag.name
+         FROM public.agency_kol_accounts a
+         JOIN public.agencies ag ON ag.id = a.agency_id AND ag.deleted_at IS NULL
+        WHERE a.kol_account_id = ANY($1::uuid[])
+        ORDER BY a.kol_account_id, a.created_at DESC NULLS LAST`,
+      [ids],
+    ),
+    db.query<{ kol_id: string; min_fee: string | null; n: number }>(
+      `SELECT ksa.kol_id,
+              MIN(u.fee)::bigint             AS min_fee,
+              COUNT(DISTINCT u.post_type)::int AS n
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_rate_card u ON u.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = ANY($1::uuid[]) AND u.fee IS NOT NULL
+        GROUP BY ksa.kol_id`,
+      [ids],
+    ),
+  ])
+
+  const byAgency = new Map(agencies.rows.map(r => [r.kol_account_id, r.name]))
+  const byRate = new Map(rates.rows.map(r => [r.kol_id, r]))
+
+  for (const row of rows) {
+    row.agency = byAgency.get(row.id) ?? null
+    const rate = byRate.get(row.id)
+    row.rateFrom = rate?.min_fee ? Number(rate.min_fee) : null
+    row.rateCount = rate?.n ?? 0
+  }
+}
+
 export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDirectoryPayload> {
   const order = orderBy(query.sort ?? 'followers', query.dir ?? 'desc')
   const pageSize = Math.min(Math.max(Math.trunc(query.pageSize ?? 20), 1), MAX_PAGE_SIZE)
@@ -171,6 +254,15 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          AND ($5::float8   IS NULL OR b.er_pct >= $5)
          AND ($6::boolean  IS NOT TRUE OR b.verified)
          AND ($9::bigint   IS NULL OR b.followers >= $9)
+         AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
+         -- Rate card ceiling. EXISTS rather than a join so a creator with three
+         -- priced deliverables stays one row; measured at 19ms over the roster.
+         AND ($11::bigint IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.kol_social_account ksa
+                 JOIN l1_silver.unified_rate_card u
+                   ON u.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id AND u.fee IS NOT NULL AND u.fee <= $11))
     )
     SELECT *, COUNT(*) OVER()::int AS total_count
       FROM filtered
@@ -186,11 +278,14 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       pageSize,
       (page - 1) * pageSize,
       query.minFollowers ? Math.trunc(query.minFollowers) : null,
+      query.ids?.length ? query.ids : null,
+      query.maxRate != null && Number.isFinite(query.maxRate)
+        ? Math.trunc(query.maxRate)
+        : null,
     ],
   )
 
-  return {
-    rows: rows.map(r => ({
+  const mapped: KolDirectoryRow[] = rows.map(r => ({
       id: r.id,
       username: r.username ?? '—',
       platform: r.platform,
@@ -205,7 +300,17 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       verified: r.verified,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
-    })),
+      // Filled by attachRosterExtras below; declared here so the row is never
+      // half-built between the two statements.
+      agency: null,
+      rateFrom: null,
+      rateCount: 0,
+  }))
+
+  await attachRosterExtras(mapped)
+
+  return {
+    rows: mapped,
     // COUNT(*) OVER() gives the filtered total in the same round trip, but only
     // on rows that came back — an out-of-range page returns none.
     total: rows[0]?.total_count ?? 0,
@@ -339,6 +444,13 @@ export interface KolCreatorPayload {
   /** Always includes the creator's own row, so the caller can render one list. */
   platforms: KolCreatorPlatformRow[]
   similar: KolSimilarRow[]
+  /**
+   * What the warehouse has actually measured for this creator (see
+   * `@/lib/discover/kolMeasured`). Null when it has measured nothing, which is
+   * the common case — 23 of 7,718 roster rows have posts, though 7,230 have a
+   * price. The workspace samples whatever this leaves unfilled.
+   */
+  measured: KolMeasured | null
 }
 
 /**
@@ -381,7 +493,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
    * `>` not `>=`: a creator is not ranked ahead of themselves, so the count of
    * creators strictly above them, plus one, is their position.
    */
-  const [rank, platforms, similar] = await Promise.all([
+  const [rank, platforms, similar, measured] = await Promise.all([
     db.query<{
       roster_total: number; followers_rank: number
       er_rank: number | null; er_measured_total: number
@@ -474,6 +586,11 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
        LIMIT 4`,
       [id, r.categories?.[0] ?? null, r.followers ?? 0],
     ),
+
+    // Posts and prices ride along in the same round trip. It is three more
+    // queries against the same pool, and the workspace cannot decide what to
+    // mark as an estimate until it knows which of them came back empty.
+    getKolMeasured(id),
   ])
 
   const k = rank.rows[0]
@@ -496,6 +613,13 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       verified: r.verified,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
+      // Already in hand here: the agency comes from the join above and the
+      // prices from `measured`, so neither needs `attachRosterExtras`.
+      agency: r.agency,
+      rateFrom: measured?.rates.length
+        ? Math.min(...measured.rates.map(x => x.fee))
+        : null,
+      rateCount: measured?.rates.length ?? 0,
     },
     identity: {
       // A label that just repeats the handle is not a display name; treating it
@@ -538,5 +662,45 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       erPct: s.er_pct,
       tier: s.tier,
     })),
+    measured,
   }
+}
+
+/* ── identity, for pricing ────────────────────────────────────────────────── */
+
+export interface RosterIdentity {
+  id: string
+  username: string
+  /** Null when the roster row has no platform, which makes it un-orderable. */
+  platform: string | null
+}
+
+/**
+ * The minimum a roster creator needs to become an order line: who they are and
+ * which platform, so the deliverable can be checked against it.
+ *
+ * Exists because `buildQuotation` must not take the client's word for either.
+ * The cart posts ids; the username and platform written onto the order come from
+ * here, in one query for the whole cart rather than one per line.
+ *
+ * A creator who has left the roster simply does not come back, and the line that
+ * named them is rejected — which is the right answer for a new order. Orders
+ * already placed keep the name and platform copied onto them at the time.
+ */
+export async function getRosterIdentities(ids: string[]): Promise<Map<string, RosterIdentity>> {
+  const unique = [...new Set(ids)].filter(Boolean)
+  const out = new Map<string, RosterIdentity>()
+  if (!unique.length) return out
+
+  const { rows } = await kolDb().query<{ id: string; username: string; platform: string | null }>(
+    `SELECT kd.id, kd.username, pl.key AS platform
+       FROM public.kol_directory kd
+       LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
+      WHERE kd.id = ANY($1::uuid[])`,
+    [unique],
+  )
+  for (const r of rows) {
+    out.set(r.id, { id: r.id, username: r.username, platform: r.platform })
+  }
+  return out
 }

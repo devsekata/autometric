@@ -14,7 +14,7 @@ import { PJ, TOKENS as T, Btn } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import { Overlay, Row, SampleTag } from './kolViz'
 import { platformLabel } from './KolCreatorSections'
-import type { SampleIntel } from '@/lib/discover/kolSample'
+import type { CreatorIntel } from '@/lib/discover/kolIntel'
 import type {
   KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
@@ -24,8 +24,12 @@ const REPORT_SECTIONS = [
   'Brand Fit', 'AI Insights',
 ] as const
 
-/** Only this section has a real source; the rest would export sampled figures. */
-const REAL_SECTION = REPORT_SECTIONS[0]
+/**
+ * Profile is always real — it is the roster row itself. Performance and Content
+ * join it for creators the warehouse has harvested, which is why the set is
+ * computed per creator rather than fixed here.
+ */
+const PROFILE_SECTION = REPORT_SECTIONS[0]
 
 const DATE_RANGES = [
   '30 hari terakhir', '90 hari terakhir', '6 bulan terakhir', 'Sepanjang waktu',
@@ -39,7 +43,7 @@ export default function KolCreatorReport({
   creator: KolDirectoryRow
   rank: KolCreatorRank
   platforms: KolCreatorPlatformRow[]
-  intel: SampleIntel
+  intel: CreatorIntel
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set(REPORT_SECTIONS))
   const [format, setFormat] = useState<'PDF' | 'Excel' | 'CSV'>('CSV')
@@ -53,6 +57,8 @@ export default function KolCreatorReport({
    * spreadsheet strips the markers that qualify them here, and a number in a
    * downloaded file outlives every caveat around it.
    */
+  const m = intel.measured
+
   const rows = useMemo(() => [{
     username: creator.username,
     platform: platformLabel(creator.platform),
@@ -68,7 +74,21 @@ export default function KolCreatorReport({
     erRank: rank.erRank === null ? '—' : `#${rank.erRank} dari ${rank.erMeasuredTotal}`,
     profileUrl: creator.profileUrl ?? '',
     lastRefreshed: creator.lastRefreshedAt?.slice(0, 10) ?? '',
-  }], [creator, rank])
+    // Measured content, blank for the creators the warehouse has not harvested.
+    // Blank rather than 0: a spreadsheet cell holding 0 is a claim, an empty one
+    // is the absence of one.
+    postCount: m ? m.postCount : '',
+    postLikes: m?.totals.likes ?? '',
+    postComments: m?.totals.comments ?? '',
+    postViews: m?.totals.views ?? '',
+    topFormat: m?.formats[0] ? `${m.formats[0].label} (${m.formats[0].pct}%)` : '',
+    postWindow: m?.firstPostAt && m?.lastPostAt
+      ? `${m.firstPostAt.slice(0, 10)} — ${m.lastPostAt.slice(0, 10)}`
+      : '',
+    rateCard: m?.rates.length
+      ? m.rates.map(r => `${r.label}: Rp${r.fee.toLocaleString('id-ID')}`).join(' · ')
+      : '',
+  }], [creator, rank, m])
 
   const cols: ExportColumn<(typeof rows)[number]>[] = [
     { key: 'username', header: 'Username', value: r => r.username },
@@ -86,13 +106,45 @@ export default function KolCreatorReport({
     { key: 'lastRefreshed', header: 'Terakhir refresh', value: r => r.lastRefreshed },
   ]
 
+  /**
+   * The measured columns only join the file when they hold something. A column
+   * of blanks in every row reads as "we tried and found nothing", which is a
+   * different claim from "this creator was never harvested".
+   */
+  if (intel.real.content) {
+    cols.push(
+      { key: 'postCount', header: 'Jumlah post terukur', value: r => r.postCount },
+      { key: 'postViews', header: 'Total views', value: r => r.postViews },
+      { key: 'postLikes', header: 'Total likes', value: r => r.postLikes },
+      { key: 'postComments', header: 'Total comments', value: r => r.postComments },
+      { key: 'topFormat', header: 'Format dominan', value: r => r.topFormat },
+      { key: 'postWindow', header: 'Rentang post', value: r => r.postWindow },
+    )
+  }
+  if (intel.real.rates) {
+    cols.push({ key: 'rateCard', header: 'Rate card', value: r => r.rateCard })
+  }
+
   const toggle = (s: string) => setPicked(p => {
     const next = new Set(p)
     if (next.has(s)) next.delete(s); else next.add(s)
     return next
   })
 
-  const sampled = [...picked].filter(s => s !== REAL_SECTION)
+  /**
+   * Which of the chosen sections the file can actually carry. A section only
+   * counts as real when the figures behind it were measured for *this* creator:
+   * Content and Performance are real for the harvested ones and modelled for
+   * everyone else, so the note below has to be computed, not written once.
+   */
+  const realSections = [
+    PROFILE_SECTION,
+    ...(intel.real.content ? ['Content' as const] : []),
+    ...(intel.real.likes || intel.real.views ? ['Performance' as const] : []),
+  ] as string[]
+  const included = [...picked].filter(s => realSections.includes(s))
+  const sampled = [...picked].filter(s => !realSections.includes(s))
+  const includedLabel = included.length ? included.join(', ') : PROFILE_SECTION
 
   const generate = () => {
     const file = `kol-${creator.username}`
@@ -103,8 +155,8 @@ export default function KolCreatorReport({
     if (format === 'CSV') exportCsv(rows, cols, file)
     else exportExcel(rows, cols, file)
     setNote(sampled.length
-      ? `File berisi ${REAL_SECTION} (data asli). ${sampled.length} section lain tidak ikut karena isinya angka contoh.`
-      : `File berisi ${REAL_SECTION} (data asli).`)
+      ? `File berisi ${includedLabel} (data asli). ${sampled.length} section lain tidak ikut karena isinya angka estimasi.`
+      : `File berisi ${includedLabel} (data asli).`)
   }
 
   return (
@@ -129,7 +181,7 @@ export default function KolCreatorReport({
               {picked.has(s) ? 'check_box' : 'check_box_outline_blank'}
             </span>
             <span style={{ color: picked.has(s) ? T.t1 : T.t3 }}>{s}</span>
-            {s !== REAL_SECTION && <SampleTag compact />}
+            {!realSections.includes(s) && <SampleTag compact />}
           </button>
         ))}
       </div>
@@ -154,11 +206,15 @@ export default function KolCreatorReport({
           Yang benar-benar ikut ke file
         </div>
         <p className="text-[11px] leading-[1.55]" style={{ color: T.t2 }}>
-          {REAL_SECTION}: followers, engagement rate, tier, kategori, verified dan
+          {PROFILE_SECTION}: followers, engagement rate, tier, kategori, verified dan
           peringkat di roster — {rank.rosterTotal.toLocaleString('id-ID')} creator sebagai
           pembanding.
+          {intel.real.content && intel.measured && (
+            <> Content: {intel.measured.postCount} post asli beserta views, likes
+            dan comments-nya.</>
+          )}
           {sampled.length > 0 && (
-            <> {sampled.length} section lain tidak diekspor: isinya angka contoh, dan file
+            <> {sampled.length} section lain tidak diekspor: isinya angka estimasi, dan file
             spreadsheet melepas penanda yang ada di layar.</>
           )}
         </p>
@@ -166,7 +222,7 @@ export default function KolCreatorReport({
 
       <div className="mt-3">
         <Row label="Creator" value={`@${creator.username}`} />
-        <Row label="Campaign contoh tersedia" value={intel.campaigns.length} sample />
+        <Row label="Campaign tersedia" value={intel.campaigns.length} sample />
       </div>
 
       {note && <p className="text-[10.5px] mt-2.5" style={{ color: T.t3 }}>{note}</p>}

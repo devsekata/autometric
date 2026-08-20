@@ -20,7 +20,9 @@ import { Card } from '@/components/dashboard/ui'
 import { Btn, DiscoverHeader, PJ, Spinner } from './ui'
 import { ASSISTANT_PLATFORMS, contentTypesFor, type ContentConcept } from '@/lib/discover/assistant'
 
-export default function DiscoverAssistant({ orgId }: { orgId: string }) {
+export default function DiscoverAssistant({
+  orgId, embedded = false,
+}: { orgId: string; embedded?: boolean }) {
   const [platform, setPlatform] = useState<string | null>(null)
   const [contentType, setContentType] = useState<string | null>(null)
   const [concepts, setConcepts] = useState<ContentConcept[] | null>(null)
@@ -66,7 +68,7 @@ export default function DiscoverAssistant({ orgId }: { orgId: string }) {
   const step = !platform ? 1 : !contentType ? 2 : 3
 
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="AI Assistant"
         subtitle="Buat konsep konten on-brand — pilih platform, lalu tipe konten. Ide disusun dari data performa akun kamu sendiri."

@@ -97,3 +97,34 @@ export interface RateCard {
   note: string | null
   updatedAt: string | null
 }
+
+/**
+ * Where a cart line's creator comes from.
+ *
+ * `owned` and `competitor` are accounts this org tracks in the warehouse, and
+ * are the two values `AccountRelation` allows — those drive per-account analysis
+ * screens that only exist when there is post history behind them. `roster` is a
+ * creator from the commercial KOL platform's directory, which has no history and
+ * no price of its own until the org sets one.
+ *
+ * Deliberately a wider type than `AccountRelation` rather than a widening of it:
+ * a cart can hold a roster creator, and `getAccountDetail` must never be asked
+ * to look one up in the warehouse.
+ */
+export type CartRelation = 'owned' | 'competitor' | 'roster'
+
+/**
+ * A price the org stated for a roster creator.
+ *
+ * The roster carries followers, engagement rate and categories but no rate, so
+ * this is the only place a price for one exists. Same base-rate × multiplier
+ * model as `RateCard`, so a roster line and an account line are priced by the
+ * same function.
+ */
+export interface RosterRateCard {
+  rosterKolId: string
+  baseRate: number
+  currency: string
+  note: string | null
+  updatedAt: string | null
+}

@@ -1,8 +1,9 @@
 import pool from '@/lib/db'
 import { toIso } from './util'
-import { findDeliverable, listRateCards, unitPrice } from './rates'
+import { findDeliverable, listRateCards, listRosterRateCards, unitPrice } from './rates'
 import { listDirectory } from './directory'
-import type { AccountRelation } from './account'
+import { getRosterIdentities } from './kolDirectory'
+import type { CartRelation } from './vocab'
 
 /**
  * Quotations and orders for the Discover cart.
@@ -30,7 +31,7 @@ export type OrderStatus = 'draft' | 'pending_payment' | 'paid' | 'cancelled' | '
 
 export interface CartLineInput {
   socialAccountId: string
-  relation: AccountRelation
+  relation: CartRelation
   deliverableId: string
   qty: number
   /**
@@ -55,7 +56,7 @@ export interface CreatorTargetInput {
 
 export interface QuotationLine {
   socialAccountId: string
-  relation: AccountRelation
+  relation: CartRelation
   accountUsername: string
   platform: string
   deliverableId: string
@@ -98,17 +99,48 @@ function normaliseTarget(t: CreatorTargetInput | null | undefined): CreatorTarge
 }
 
 /**
- * Prices a cart against the org's current rate cards and account list.
+ * Prices a cart against the org's current rate cards, account list and roster
+ * prices.
  *
- * Everything is validated server-side against what the org can actually see:
- * an account outside the org, a deliverable that does not belong to that
- * account's platform, or an account with no rate card is rejected rather than
+ * Everything is validated server-side against what the org can actually see: a
+ * creator the org cannot reach, a deliverable that does not belong to that
+ * creator's platform, or a creator with no rate card is rejected rather than
  * priced at zero. A client that posts a hand-made payload cannot invent a line.
+ *
+ * Two populations can be priced, and the difference is only where the identity
+ * and the price come from:
+ *
+ *   * `owned` / `competitor` — accounts tracked in the warehouse, priced from
+ *     `discover_rate_cards`;
+ *   * `roster` — creators from the commercial KOL platform's directory, whose
+ *     name and platform are read from that database and whose price is whatever
+ *     the org stated in `discover_roster_rate_cards`. The roster itself carries
+ *     no price, so a creator nobody has priced is rejected the same way an
+ *     account without a rate card is.
+ *
+ * Both end up as the same line: base rate × the deliverable's multiplier.
  */
 export async function buildQuotation(
   orgId: string, lines: CartLineInput[], promoCode?: string | null,
 ): Promise<Quotation> {
-  const [dir, rates] = await Promise.all([listDirectory(orgId), listRateCards(orgId)])
+  const rosterIds = lines.filter(l => l.relation === 'roster').map(l => l.socialAccountId)
+
+  const [dir, rates, rosterRates, rosterIdentities] = await Promise.all([
+    listDirectory(orgId),
+    listRateCards(orgId),
+    rosterIds.length
+      ? listRosterRateCards(orgId)
+      : Promise.resolve({} as Record<string, import('./vocab').RosterRateCard>),
+    // The roster lives on another server. If it is unreachable, roster lines are
+    // rejected with a reason and the rest of the cart still prices — one
+    // unavailable database should not cost the customer their whole quotation.
+    rosterIds.length
+      ? getRosterIdentities(rosterIds).catch(e => {
+          console.error('[buildQuotation] roster lookup failed:', e)
+          return new Map<string, { id: string; username: string; platform: string | null }>()
+        })
+      : Promise.resolve(new Map<string, { id: string; username: string; platform: string | null }>()),
+  ])
 
   const accounts = new Map(dir.accounts.map(a => [`${a.relation}:${a.id}`, a]))
   const out: QuotationLine[] = []
@@ -116,15 +148,25 @@ export async function buildQuotation(
 
   for (const l of lines) {
     const qty = Math.floor(Number(l.qty))
-    const account = accounts.get(`${l.relation}:${l.socialAccountId}`)
+    const isRoster = l.relation === 'roster'
+    const account = isRoster ? undefined : accounts.get(`${l.relation}:${l.socialAccountId}`)
+    const roster = isRoster ? rosterIdentities.get(l.socialAccountId) : undefined
     const deliverable = findDeliverable(l.deliverableId)
-    const rate = rates[l.socialAccountId]
+
+    const username = isRoster ? roster?.username : account?.username
+    const platform = isRoster ? roster?.platform : account?.platform
+    const baseRate = isRoster
+      ? rosterRates[l.socialAccountId]?.baseRate
+      : rates[l.socialAccountId]?.baseRate
 
     const reason =
-      !account ? 'account not in this organization'
+      isRoster && !roster ? 'creator not found in the KOL roster'
+      : !isRoster && !account ? 'account not in this organization'
+      : !platform ? 'creator has no platform'
       : !deliverable ? 'unknown deliverable'
-      : deliverable.platform !== account.platform ? 'deliverable does not apply to this platform'
-      : !rate || rate.baseRate <= 0 ? 'no rate card set for this account'
+      : deliverable.platform !== platform ? 'deliverable does not apply to this platform'
+      : !baseRate || baseRate <= 0
+        ? (isRoster ? 'no rate card set for this roster creator' : 'no rate card set for this account')
       : !Number.isFinite(qty) || qty <= 0 ? 'quantity must be at least 1'
       : null
 
@@ -133,7 +175,7 @@ export async function buildQuotation(
       continue
     }
 
-    const listPrice = unitPrice(rate!.baseRate, deliverable!.mult)
+    const listPrice = unitPrice(baseRate!, deliverable!.mult)
     // An override is accepted only as a whole, non-negative rupiah amount. It is
     // still rounded and clamped here rather than trusted: this is the number the
     // customer will be charged.
@@ -145,8 +187,8 @@ export async function buildQuotation(
     out.push({
       socialAccountId: l.socialAccountId,
       relation: l.relation,
-      accountUsername: account!.username,
-      platform: account!.platform,
+      accountUsername: username!,
+      platform: platform!,
       deliverableId: deliverable!.id,
       deliverableLabel: deliverable!.label,
       qty,
@@ -417,7 +459,7 @@ export async function getOrder(orgId: string, orderId: number): Promise<OrderDet
       return {
         id: Number(i.id),
         socialAccountId: String(i.social_account_id),
-        relation: (text(i.relation) ?? 'owned') as AccountRelation,
+        relation: (text(i.relation) ?? 'owned') as CartRelation,
         accountUsername: text(i.account_username) ?? '—',
         platform: text(i.platform) ?? '',
         deliverableId: text(i.deliverable_id) ?? '',

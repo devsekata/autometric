@@ -1,15 +1,10 @@
-import { notFound } from 'next/navigation'
-import { auth } from '@/auth'
-import { getOrgBySlugForUser } from '@/lib/organizations/queries'
-import DiscoverAssistant from '@/components/discover/DiscoverAssistant'
+import { redirect } from 'next/navigation'
+import { tabHref } from '@/lib/discover/tabs'
 
 interface Props { params: Promise<{ orgSlug: string }> }
 
-export default async function DiscoverAssistantPage({ params }: Props) {
+/** AI Assistant is a tab of /discover. */
+export default async function Redirect({ params }: Props) {
   const { orgSlug } = await params
-  const session = await auth()
-  const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
-  if (!org) notFound()
-
-  return <DiscoverAssistant orgId={org.id} />
+  redirect(tabHref(orgSlug, 'assistant'))
 }

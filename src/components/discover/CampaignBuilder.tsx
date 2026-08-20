@@ -32,6 +32,7 @@ import { Card, CardHead } from '@/components/dashboard/ui'
 import { Btn, Chip, EmptyState, PJ, PLATFORM_ICON, Spinner, fmtNum, gradientFor } from './ui'
 import { ConfidenceBadge } from './credibility'
 import { useDiscoverSelection } from './useDiscoverSelection'
+import type { KolDirectoryRow } from '@/lib/discover/kolDirectory'
 import { useDiscoverCart } from './useDiscoverCart'
 import { AGE_BANDS } from '@/lib/discover/vocab'
 import type { KolProfile } from '@/lib/discover/profile'
@@ -204,6 +205,41 @@ export default function CampaignBuilder({
    * own button recommends — landed on "shortlist a KOL first" with an empty
    * plan and no way to see why.
    */
+  /**
+   * Roster creators sitting in the cart.
+   *
+   * They cannot join `pool`: that is `KolProfile[]`, built from collected posts,
+   * and a roster creator has none — inventing one to fit the type is exactly the
+   * fabrication this codebase refuses. So they travel alongside it, priced by
+   * the server like every other line, shown read-only here and edited back in
+   * the Cart tab where their quantities came from.
+   *
+   * Without this they were priced in the cart, previewed in the cart, and then
+   * silently dropped from the order the flow actually creates.
+   */
+  const rosterCartIds = useMemo(
+    () => [...new Set(Object.values(cart.items)
+      .filter(l => l.relation === 'roster')
+      .map(l => l.socialAccountId))].sort().join(','),
+    [cart.items])
+
+  const [rosterPool, setRosterPool] = useState<KolDirectoryRow[]>([])
+
+  useEffect(() => {
+    if (!rosterCartIds) { setRosterPool([]); return }
+    let cancelled = false
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${rosterCartIds}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { rows: KolDirectoryRow[] }) => { if (!cancelled) setRosterPool(d.rows) })
+      .catch(() => { /* the order still carries them; only the preview row is lost */ })
+    return () => { cancelled = true }
+  }, [orgId, rosterCartIds])
+
+  /** Cart lines for roster creators, exactly as they will be ordered. */
+  const rosterLines = useMemo(
+    () => Object.values(cart.items).filter(l => l.relation === 'roster'),
+    [cart.items])
+
   const pool = useMemo(() => {
     // `cart.items` rather than `cart.accountIds`: the latter is rebuilt on every
     // render, which would defeat this memo and every one downstream of it.
@@ -325,11 +361,26 @@ export default function CampaignBuilder({
           }]
         })
 
+      // Roster lines go in untouched: quantity comes from the cart, and the
+      // server prices them from the roster rate card the same way it prices an
+      // account from its rate card.
+      const allLines = [
+        ...lines,
+        ...rosterLines.map(l => ({
+          socialAccountId: l.socialAccountId,
+          relation: l.relation,
+          deliverableId: l.deliverableId,
+          qty: l.qty,
+          unitPriceOverride: null,
+          target: null,
+        })),
+      ]
+
       const res = await fetch(`/api/organizations/${orgId}/discover/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: draft.name, lines,
+          name: draft.name, lines: allLines,
           promoCode: draft.promoCode.trim() || null,
         }),
       })
@@ -423,9 +474,15 @@ export default function CampaignBuilder({
       <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,1fr) 300px' }}>
         <div className="min-w-0 flex flex-col gap-3.5">
           {step === 1 && (
-            <CreatorSelectionStep draft={draft} update={update} pool={pool} selected={selected}
-              estimate={estimate} unitPriceOf={unitPriceOf} listPriceOf={listPriceOf}
-              onOptimise={runOptimiser} onGoToRates={onGoToRates} />
+            <>
+              <CreatorSelectionStep draft={draft} update={update} pool={pool} selected={selected}
+                estimate={estimate} unitPriceOf={unitPriceOf} listPriceOf={listPriceOf}
+                onOptimise={runOptimiser} onGoToRates={onGoToRates} />
+              <RosterFromCart rows={rosterPool} lines={rosterLines} onGoToCart={onGoToCart} />
+            </>
+          )}
+          {step === 3 && draft.orderId === null && (
+            <RosterFromCart rows={rosterPool} lines={rosterLines} onGoToCart={onGoToCart} />
           )}
           {step === 2 && (
             <CampaignInfoStep orgId={orgId} draft={draft} update={update} selected={selected} />
@@ -1227,5 +1284,77 @@ function Step({ icon, onClick }: { icon: string; onClick: () => void }) {
       className="w-6 h-6 rounded-md border border-[#e5e7eb] text-[#6b7280] hover:border-[#327488] hover:text-[#285D6E] flex items-center justify-center">
       <span className="material-symbols-outlined text-[13px]">{icon}</span>
     </button>
+  )
+}
+
+/**
+ * Roster creators carried in from the Cart.
+ *
+ * Read-only on purpose. Everything in the step above is driven by a `KolProfile`
+ * — reach model, optimiser, per-creator targets — and a roster creator has none
+ * of that behind them, so offering the same controls would promise numbers that
+ * do not exist. Their quantities are set in the Cart, which is where they were
+ * chosen; this block exists so the flow *shows* them before it orders them.
+ */
+function RosterFromCart({
+  rows, lines, onGoToCart,
+}: {
+  rows: KolDirectoryRow[]
+  lines: { socialAccountId: string; deliverableId: string; qty: number }[]
+  onGoToCart?: () => void
+}) {
+  if (!lines.length) return null
+
+  const byCreator = new Map<string, { qty: number; labels: string[] }>()
+  for (const l of lines) {
+    const d = DELIVERABLES.find(x => x.id === l.deliverableId)
+    const cur = byCreator.get(l.socialAccountId) ?? { qty: 0, labels: [] }
+    cur.qty += l.qty
+    if (d) cur.labels.push(`${l.qty}× ${d.label}`)
+    byCreator.set(l.socialAccountId, cur)
+  }
+
+  return (
+    <Card>
+      <CardHead
+        title="Dari Directory"
+        sub={`${byCreator.size} creator roster · ikut dipesan, diatur di tab Cart`}
+        action={onGoToCart && (
+          <Btn size="sm" variant="secondary" onClick={onGoToCart}>
+            <span className="material-symbols-outlined text-[15px]">shopping_cart</span>
+            Ubah di Cart
+          </Btn>
+        )}
+      />
+      <div className="px-4 pb-4 flex flex-col gap-1.5">
+        {[...byCreator.entries()].map(([id, info]) => {
+          const row = rows.find(r => r.id === id)
+          return (
+            <div key={id} className="flex items-center gap-2.5 rounded-lg border border-[#e5e7eb] px-3 py-2">
+              <div style={{ ...PJ, background: gradientFor(id) }}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[9px] font-extrabold">
+                {(row?.username ?? '?').replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || '??'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <span style={PJ} className="block text-[12px] font-bold text-[#111827] truncate">
+                  {row?.username ?? 'Creator roster'}
+                </span>
+                <span className="block text-[10px] text-[#9ca3af] truncate">
+                  {info.labels.join(' · ')}
+                </span>
+              </div>
+              <span style={PJ} className="text-[11.5px] font-extrabold tabular-nums text-[#285D6E]">
+                {info.qty} item
+              </span>
+            </div>
+          )
+        })}
+        <p className="text-[10px] text-[#9ca3af] leading-relaxed mt-1">
+          Estimasi reach dan prediksi di panel kanan tidak mencakup creator ini — platform KOL
+          tidak menyimpan post mereka, jadi tidak ada yang bisa dihitung. Harga dan totalnya tetap
+          dihitung server bersama baris lain.
+        </p>
+      </div>
+    </Card>
   )
 }

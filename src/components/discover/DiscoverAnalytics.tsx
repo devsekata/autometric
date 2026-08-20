@@ -64,15 +64,17 @@ const toBars = (items: NamedCount[], metric: (n: NamedCount) => number, fmt: (n:
 
 /* ── Audience ─────────────────────────────────────────────────────────────── */
 
-export function DiscoverAudience({ orgId }: { orgId: string }) {
+export function DiscoverAudience({
+  orgId, embedded = false,
+}: { orgId: string; embedded?: boolean }) {
   const { data, error } = useSummary(orgId)
-  if (error) return <div className="p-5"><ErrorState message={error} /></div>
-  if (!data) return <div className="p-5"><Spinner /></div>
+  if (error) return <div className={embedded ? '' : 'p-5'}><ErrorState message={error} /></div>
+  if (!data) return <div className={embedded ? '' : 'p-5'}><Spinner /></div>
 
   const engagementOf = (n: NamedCount) => n.likes + n.comments
 
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Audience Insights"
         subtitle="Di mana audiens Discover kamu berada dan konten seperti apa yang mereka respons — dari post brand dan kompetitor."
@@ -139,15 +141,17 @@ export function DiscoverAudience({ orgId }: { orgId: string }) {
 
 /* ── Reports ──────────────────────────────────────────────────────────────── */
 
-export function DiscoverReports({ orgId }: { orgId: string }) {
+export function DiscoverReports({
+  orgId, embedded = false,
+}: { orgId: string; embedded?: boolean }) {
   const { data, error } = useSummary(orgId)
-  if (error) return <div className="p-5"><ErrorState message={error} /></div>
-  if (!data) return <div className="p-5"><Spinner /></div>
+  if (error) return <div className={embedded ? '' : 'p-5'}><ErrorState message={error} /></div>
+  if (!data) return <div className={embedded ? '' : 'p-5'}><Spinner /></div>
 
   const labels = data.timeline.map(t => t.month.slice(5))
 
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Discover Reports"
         subtitle={`Ringkasan performa ${data.totals.posts} konten brand dan kompetitor.`}

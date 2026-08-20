@@ -112,7 +112,9 @@ function useReportHistory(orgId: string) {
 
 /* ── page ─────────────────────────────────────────────────────────────────── */
 
-export default function WorkspaceReports({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+export default function WorkspaceReports({
+  orgId, orgSlug, embedded = false,
+}: { orgId: string; orgSlug: string; embedded?: boolean }) {
   const [tab, setTab] = useState<TabId>('creator')
   const [profiles, setProfiles] = useState<KolProfile[] | null>(null)
   const [orders, setOrders] = useState<OrderSummary[] | null>(null)
@@ -140,11 +142,11 @@ export default function WorkspaceReports({ orgId, orgSlug }: { orgId: string; or
     return () => { cancelled = true }
   }, [orgId])
 
-  if (error) return <div className="p-5 max-w-[1500px] mx-auto"><Shell><ErrorState message={error} /></Shell></div>
-  if (!profiles || !orders || !posts) return <Shell><Spinner /></Shell>
+  if (error) return <Shell embedded={embedded}><ErrorState message={error} /></Shell>
+  if (!profiles || !orders || !posts) return <Shell embedded={embedded}><Spinner /></Shell>
 
   return (
-    <Shell>
+    <Shell embedded={embedded}>
       <TabStrip tabs={TABS} value={tab} onChange={setTab} />
       <div className="mt-4">
         {tab === 'creator' && (
@@ -163,9 +165,11 @@ export default function WorkspaceReports({ orgId, orgSlug }: { orgId: string; or
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children, embedded,
+}: { children: React.ReactNode; embedded?: boolean }) {
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Reports"
         subtitle="Laporan tingkat creator, campaign dan workspace — lengkap dengan preview dan ekspor."

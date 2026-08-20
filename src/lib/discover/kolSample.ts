@@ -3,19 +3,26 @@
  *
  * ⚠ EVERYTHING THIS MODULE RETURNS IS DEMO DATA. ⚠
  *
- * The commercial KOL database holds identity only — username, platform,
- * follower count, engagement rate, category, tier, verified flag. It has no
- * posts, no reach/impressions/views, no audience demographics, no campaign
- * history and no time series of any kind (the campaign tables exist but are
- * empty). The Creator Intelligence Workspace was specified around all of that,
- * so the missing numbers are generated here to give the screens their real
- * shape ahead of the data.
+ * The commercial KOL database is mostly identity — username, platform, follower
+ * count, engagement rate, category, tier, verified flag. It has no audience
+ * demographics, no campaign history (those tables exist but are empty) and no
+ * time series of any kind. The Creator Intelligence Workspace was specified
+ * around all of that, so the missing numbers are generated here to give the
+ * screens their real shape ahead of the data.
+ *
+ * Two things it *does* have are no longer this module's job: posts, in
+ * `l1_silver.unified_post`, and prices, in `l1_silver.unified_rate_card`. Those
+ * are read by `@/lib/discover/kolMeasured` and overlaid on top of what this
+ * module returns by `@/lib/discover/kolIntel`, which is also what decides — per
+ * field, per creator — whether the UI marks a figure as an estimate. The values
+ * generated here for likes, comments, views, formats and content are the
+ * fallback for creators the warehouse has not harvested.
  *
  * Three rules keep this safe to ship:
  *
  * 1. Every value is marked in the UI. The workspace paints a banner and each
- *    sampled figure carries a "contoh" marker, so nothing here can be mistaken
- *    for a measurement.
+ *    sampled figure carries an "estimasi" marker, so nothing here can be
+ *    mistaken for a measurement.
  * 2. It is deterministic. The generator is seeded from the creator's id, so a
  *    creator shows the same numbers on every render, every reload and for every
  *    user — sample data that reshuffles itself is obviously fake in a demo, and
@@ -26,8 +33,11 @@
  *    3K-follower creator therefore get plausibly different numbers rather than
  *    the same invented ones.
  *
- * Replacing this module is the whole migration: once real tables land, delete
- * the call sites' `sample` prefix and the marker components fall away with it.
+ * Retiring this module is the whole migration, and it is now partial rather than
+ * all-or-nothing: as each table fills, `kolMeasured` starts returning that field
+ * and `kolIntel` flips its flag, so the marker falls away on its own for the
+ * creators it covers. What is left here is whatever still has no table behind
+ * it.
  */
 
 import type { KolDirectoryRow } from './kolDirectory'
@@ -83,6 +93,17 @@ export interface SampleContentItem {
   hashtags: string[]
   postedAt: string
   platform: string
+  /**
+   * Set when this item is a real harvested post rather than a generated one
+   * (see `@/lib/discover/kolIntel`). The post still carries sampled values for
+   * whatever the warehouse did not measure, so the flag alone is not a licence
+   * to drop every marker on the card — `measuredFields` says which numbers are
+   * real, and the rest stay marked as estimates.
+   */
+  measured?: boolean
+  measuredFields?: string[]
+  permalink?: string | null
+  coverImage?: string | null
 }
 
 export interface SampleCampaign {

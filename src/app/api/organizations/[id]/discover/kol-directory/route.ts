@@ -6,7 +6,7 @@ type Params = { params: Promise<{ id: string }> }
 
 /**
  * GET /api/organizations/[id]/discover/kol-directory
- *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&verified=1&sort=&page=&pageSize=&facets=1
+ *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&verified=1&sort=&page=&pageSize=&facets=1
  *
  * The roster itself is global — it is the commercial KOL platform's directory,
  * not org-scoped data — but the endpoint still requires org membership so the
@@ -31,18 +31,29 @@ export async function GET(req: NextRequest, { params }: Params) {
       return Number.isFinite(v) ? v : null
     }
 
+    // `?ids=` fetches an explicit set — what Compare asks for. Shape-checked
+    // because the column is UUID and a malformed value would fail the statement
+    // rather than return nothing, and capped so a hand-made query cannot ask for
+    // the whole roster at once.
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const ids = (sp.get('ids') || '')
+      .split(',').map(v => v.trim()).filter(v => UUID.test(v)).slice(0, 50)
+
     const data = await listKolDirectory({
+      ids,
       q: sp.get('q'),
       platform: sp.get('platform'),
       category: sp.get('category'),
       tiers: (sp.get('tier') || '').split(',').filter(Boolean),
       minFollowers: num('follMin'),
       minErPct: num('minEr'),
+      maxRate: num('maxRate'),
       verifiedOnly: sp.get('verified') === '1',
       sort: sp.get('sort'),
       dir: sp.get('dir'),
       page: num('page') ?? 1,
-      pageSize: num('pageSize') ?? 20,
+      // An explicit id list is the page: paging it would drop selections.
+      pageSize: ids.length ? ids.length : (num('pageSize') ?? 20),
     })
 
     // Only the first load asks for facets; later filter changes reuse them.

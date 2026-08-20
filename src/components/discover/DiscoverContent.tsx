@@ -55,7 +55,9 @@ const DATE_OPTS: { label: string; value: number | 'all' }[] = [
   { label: 'Last 90 days', value: 90 }, { label: 'Last 180 days', value: 180 },
 ]
 
-export default function DiscoverContent({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+export default function DiscoverContent({
+  orgId, orgSlug, embedded = false,
+}: { orgId: string; orgSlug: string; embedded?: boolean }) {
   const [filters, setFilters] = useState<DiscoverFilters>(DEFAULT_DISCOVER_FILTERS)
   const [panelOpen, setPanelOpen] = useState(true)
   const [data, setData] = useState<DiscoverContentPayload | null>(null)
@@ -150,7 +152,7 @@ export default function DiscoverContent({ orgId, orgSlug }: { orgId: string; org
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
 
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Discovery Content"
         subtitle={

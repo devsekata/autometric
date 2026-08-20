@@ -1,41 +1,25 @@
-import { Suspense } from 'react'
-import { notFound } from 'next/navigation'
-import { auth } from '@/auth'
-import { getOrgBySlugForUser } from '@/lib/organizations/queries'
-import DiscoverKolWorkspace from '@/components/discover/DiscoverKolWorkspace'
+import { redirect } from 'next/navigation'
+import { resolveTabParams, tabHref } from '@/lib/discover/tabs'
 
-interface Props { params: Promise<{ orgSlug: string }> }
-
-export default async function DiscoverKolPage({ params }: Props) {
-  const { orgSlug } = await params
-  const session = await auth()
-  const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
-  if (!org) notFound()
-
-  // The workspace reads the active tab from useSearchParams, which Next requires
-  // to sit under a Suspense boundary — and which makes this subtree render on
-  // the client only. An empty fallback would flash a blank page before hydration,
-  // so the fallback carries the title and a spinner.
-  return (
-    <Suspense fallback={<WorkspaceFallback />}>
-      <DiscoverKolWorkspace orgId={org.id} orgSlug={orgSlug} />
-    </Suspense>
-  )
+interface Props {
+  params: Promise<{ orgSlug: string }>
+  searchParams: Promise<{ tab?: string; view?: string }>
 }
 
-function WorkspaceFallback() {
-  return (
-    <div className="p-5 max-w-[1500px] mx-auto">
-      <h1
-        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-        className="text-[19px] font-extrabold text-[#111827] tracking-[-0.02em]"
-      >
-        KOL Intelligence
-      </h1>
-      <div className="flex flex-col items-center justify-center py-20 gap-2">
-        <span className="material-symbols-outlined text-[26px] text-[#A7C8D4] animate-spin">progress_activity</span>
-        <span className="text-[12px] text-[#9ca3af]">Memuat…</span>
-      </div>
-    </div>
-  )
+/**
+ * The old KOL Intelligence workspace route.
+ *
+ * Its contents are tabs of `/discover` now. Every `?tab=` value it ever answered
+ * to still resolves — `resolveTabParams` maps the old flat values onto the
+ * tab/view pair they became — so bookmarks and links saved from any earlier
+ * shape of this module land on the same screen rather than on a 404.
+ *
+ * The child routes under this path (`[accountId]`, `orders/[orderId]`,
+ * `campaigns/[orderId]`) are unaffected: they are detail pages, not tabs.
+ */
+export default async function DiscoverKolRedirect({ params, searchParams }: Props) {
+  const { orgSlug } = await params
+  const { tab: rawTab, view: rawView } = await searchParams
+  const { tab, view } = resolveTabParams(rawTab ?? 'directory', rawView)
+  redirect(tabHref(orgSlug, tab, view))
 }

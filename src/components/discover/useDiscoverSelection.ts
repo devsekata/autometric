@@ -3,15 +3,45 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
- * Selection shared between Directory and Compare.
+ * Selection shared between Directory's two rosters and Compare.
  *
  * In the source platform these were fields on one global `state` object that
  * every page mutated, because the whole app was a single re-rendered document.
- * Here Directory and Compare are separate routes with separate React trees, so
- * the set is persisted to localStorage (scoped per org) and re-read on mount —
- * picking creators in Directory and then navigating to Compare carries over,
- * which is the behaviour the original had for free.
+ * Here they are separate React trees, so the set is persisted to localStorage
+ * (scoped per org) and re-read on mount — picking creators in one and then
+ * switching to Compare carries over, which the original had for free.
+ *
+ * The set holds two populations. A bare id is an account this org tracks in the
+ * warehouse; a roster creator from the commercial KOL directory is stored as
+ * `roster:<id>`. Both id spaces are UUIDs from different databases, so the
+ * prefix is what tells them apart — and a plain id keeps meaning what it always
+ * did, so selections saved before roster creators existed still load.
  */
+
+export type SelectionSource = 'account' | 'roster'
+
+const ROSTER_PREFIX = 'roster:'
+
+/** The key an id is stored under. */
+export const selectionKey = (source: SelectionSource, id: string) =>
+  source === 'roster' ? ROSTER_PREFIX + id : id
+
+/** Splits a stored key back into what it names. */
+export function parseSelectionKey(key: string): { source: SelectionSource; id: string } {
+  return key.startsWith(ROSTER_PREFIX)
+    ? { source: 'roster', id: key.slice(ROSTER_PREFIX.length) }
+    : { source: 'account', id: key }
+}
+
+/** Just the ids of one population, in stored order. */
+export function idsOf(keys: Iterable<string>, source: SelectionSource): string[] {
+  const out: string[] = []
+  for (const k of keys) {
+    const parsed = parseSelectionKey(k)
+    if (parsed.source === source) out.push(parsed.id)
+  }
+  return out
+}
 function readSet(key: string): Set<string> {
   if (typeof window === 'undefined') return new Set()
   try {

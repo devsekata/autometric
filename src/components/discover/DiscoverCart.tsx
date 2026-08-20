@@ -21,7 +21,7 @@ import { Card, CardHead } from '@/components/dashboard/ui'
 import { Btn, EmptyState, PJ, PLATFORM_ICON, Spinner, gradientFor } from './ui'
 import { useDiscoverCart } from './useDiscoverCart'
 import type { DirectoryAccount } from '@/lib/discover/types'
-import type { Deliverable, RateCard } from '@/lib/discover/vocab'
+import type { CartRelation, Deliverable, RateCard, RosterRateCard } from '@/lib/discover/vocab'
 import type { Quotation } from '@/lib/discover/orders'
 import type { KolProfile } from '@/lib/discover/profile'
 import { estimateCampaign, type SelectedKol } from '@/lib/discover/campaign'
@@ -46,6 +46,9 @@ export default function DiscoverCart({
 }) {
   const [accounts, setAccounts] = useState<DirectoryAccount[]>([])
   const [rates, setRates] = useState<Record<string, RateCard>>({})
+  const [rosterRates, setRosterRates] = useState<Record<string, RosterRateCard>>({})
+  const [rosterCreators, setRosterCreators] =
+    useState<{ id: string; username: string; platform: string | null }[]>([])
   const [deliverables, setDeliverables] = useState<Deliverable[]>([])
   const [promo, setPromo] = useState('')
   const [name, setName] = useState('Campaign baru')
@@ -61,9 +64,16 @@ export default function DiscoverCart({
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: { rates: Record<string, RateCard>; deliverables: Deliverable[]; accounts: DirectoryAccount[] }) => {
+      .then((d: {
+        rates: Record<string, RateCard>
+        rosterRates?: Record<string, RosterRateCard>
+        rosterCreators?: { id: string; username: string; platform: string | null }[]
+        deliverables: Deliverable[]
+        accounts: DirectoryAccount[]
+      }) => {
         if (cancelled) return
         setRates(d.rates); setDeliverables(d.deliverables); setAccounts(d.accounts)
+        setRosterRates(d.rosterRates ?? {}); setRosterCreators(d.rosterCreators ?? [])
       })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -79,10 +89,39 @@ export default function DiscoverCart({
     return () => { cancelled = true }
   }, [orgId])
 
+  /**
+   * Everything in the cart, from either population, in one shape.
+   *
+   * A cart line names a creator by id and relation, and `roster` lines point at
+   * the commercial KOL directory rather than at a tracked account. Both are
+   * priced the same way — base rate × the deliverable's multiplier — so all the
+   * cart needs is a common identity to render and the base rate to price with.
+   * Keyed by relation as well as id, because the same id can appear as both an
+   * owned account and a tracked competitor.
+   */
   const chosen = useMemo(() => {
-    const ids = new Set(cart.accountIds)
-    return accounts.filter(a => ids.has(a.id))
-  }, [accounts, cart.accountIds])
+    const wanted = new Set(cart.lines.map(l => `${l.relation}:${l.socialAccountId}`))
+    const out: {
+      id: string; relation: CartRelation; username: string; platform: string
+      baseRate: number; fromRoster: boolean
+    }[] = []
+
+    for (const a of accounts) {
+      if (!wanted.has(`${a.relation}:${a.id}`)) continue
+      out.push({
+        id: a.id, relation: a.relation, username: a.username, platform: a.platform,
+        baseRate: rates[a.id]?.baseRate ?? 0, fromRoster: false,
+      })
+    }
+    for (const c of rosterCreators) {
+      if (!wanted.has(`roster:${c.id}`) || !c.platform) continue
+      out.push({
+        id: c.id, relation: 'roster', username: c.username, platform: c.platform,
+        baseRate: rosterRates[c.id]?.baseRate ?? 0, fromRoster: true,
+      })
+    }
+    return out
+  }, [accounts, rosterCreators, rates, rosterRates, cart.lines])
 
   const lines = useMemo(
     () => cart.lines.map(l => ({
@@ -125,7 +164,7 @@ export default function DiscoverCart({
 
   if (loading || !cart.ready) return <Spinner />
 
-  const unpriced = chosen.filter(a => !rates[a.id] || rates[a.id].baseRate <= 0)
+  const unpriced = chosen.filter(a => a.baseRate <= 0)
 
   return (
     <div>
@@ -140,7 +179,7 @@ export default function DiscoverCart({
         <EmptyState
           icon="shopping_cart"
           title="Keranjang masih kosong"
-          body="Buka salah satu akun di tab Directory, lalu tekan Add to Cart. Deliverable yang dipilih akan muncul di sini."
+          body="Tekan Add to Cart di tab Directory, atau atur tarif sebuah akun di Ordering → Rate Cards. Deliverable yang dipilih akan muncul di sini."
         />
       ) : (
         <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'minmax(0,1fr) 300px' }}>
@@ -160,7 +199,6 @@ export default function DiscoverCart({
               <AccountPackage
                 key={`${a.relation}:${a.id}`}
                 account={a}
-                rate={rates[a.id]}
                 deliverables={deliverables.filter(d => d.platform === a.platform)}
                 qtyOf={did => cart.qtyOf({ socialAccountId: a.id, relation: a.relation, deliverableId: did })}
                 onQty={(did, qty) => cart.setQty(
@@ -201,6 +239,15 @@ export default function DiscoverCart({
                 <div className="border-t border-[#e5e7eb] mt-2 pt-2 flex flex-col gap-1">
                   <SumRow label="Est. reach" value={fmtNum(estimate.reach)} />
                   <SumRow label="Est. engagement" value={fmtNum(estimate.engagement)} />
+                  {chosen.some(a => a.fromRoster) && (
+                    // The reach model runs on measured post history, which only
+                    // tracked accounts have. Saying so beats quietly reporting a
+                    // number that leaves some of the cart out.
+                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">
+                      Estimasi ini hanya mencakup akun yang di-track — creator dari Directory
+                      belum punya riwayat post untuk dihitung.
+                    </p>
+                  )}
                 </div>
 
                 <div className="mt-3 flex flex-col gap-2">
@@ -250,14 +297,16 @@ function SumRow({ label, value, bold, good }: { label: string; value: string; bo
 }
 
 function AccountPackage({
-  account: a, rate, deliverables, qtyOf, onQty, onRemove,
+  account: a, deliverables, qtyOf, onQty, onRemove,
 }: {
-  account: DirectoryAccount; rate: RateCard | undefined; deliverables: Deliverable[]
+  /** Either population — a tracked account or a roster creator. */
+  account: { username: string; platform: string; baseRate: number; fromRoster: boolean }
+  deliverables: Deliverable[]
   qtyOf: (deliverableId: string) => number
   onQty: (deliverableId: string, qty: number) => void
   onRemove: () => void
 }) {
-  const base = rate?.baseRate ?? 0
+  const base = a.baseRate
   const price = (mult: number) => (base > 0 ? Math.round((base * mult) / 1000) * 1000 : 0)
   const subtotal = deliverables.reduce((n, d) => n + price(d.mult) * qtyOf(d.id), 0)
 
@@ -275,6 +324,12 @@ function AccountPackage({
             <span className="capitalize">{a.platform}</span>
             <span className="text-[#d1d5db]">·</span>
             <span>base {base > 0 ? idr(base) : 'belum diatur'}</span>
+            {a.fromRoster && (
+              <>
+                <span className="text-[#d1d5db]">·</span>
+                <span className="text-[#285D6E] font-bold">Directory</span>
+              </>
+            )}
           </div>
         </div>
         <div style={PJ} className="text-[13px] font-extrabold text-[#285D6E] tabular-nums">
@@ -288,7 +343,11 @@ function AccountPackage({
 
       <div className="px-4 pb-4">
         {base <= 0 ? (
-          <p className="text-[11.5px] text-[#b5761f]">Rate card belum diatur — isi dulu di tab Rate Cards.</p>
+          <p className="text-[11.5px] text-[#b5761f]">
+            {a.fromRoster
+              ? 'Harga belum diatur — set dari tab Directory sebelum bisa dipesan.'
+              : 'Rate card belum diatur — isi dulu di Ordering → Rate Cards.'}
+          </p>
         ) : deliverables.length === 0 ? (
           <p className="text-[11.5px] text-[#9ca3af]">Tidak ada deliverable untuk platform ini.</p>
         ) : (

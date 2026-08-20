@@ -1,13 +1,19 @@
 'use client'
 
 /**
- * Rate cards — one base rate per account, the number every deliverable price is
- * derived from.
+ * Rate Cards — the first segment of Ordering, and the hinge of the buying flow.
  *
- * The source had no equivalent screen: its rates were literals in the creator
- * array. Since the whole cart is unusable without them, they need somewhere to
- * be entered, and the multiplier preview is shown inline so it is obvious what
- * a base rate turns into before it is saved.
+ * The source puts this screen in the same place (`rateCardsView` in its
+ * `pages/negotiation.js`, rendered by the Ordering tab): one card per creator,
+ * every deliverable priced, and from each card the two ways forward — open an
+ * offer, or add to the cart. Its header says the rate card is "the starting
+ * point, never automatically the final price", which is the whole reason
+ * Negotiation sits between here and checkout.
+ *
+ * One thing is ours. The source's rates were literals in its creator array, so
+ * it had nowhere to enter them; here the base rate is a real per-account value
+ * the cart prices against, so it is editable inline and the multiplier preview
+ * shows what it turns into before it is saved.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -20,7 +26,15 @@ import type { Deliverable, RateCard } from '@/lib/discover/vocab'
 
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
-export default function DiscoverRates({ orgId }: { orgId: string }) {
+export default function DiscoverRates({
+  orgId, onOpenCreator, onNegotiate,
+}: {
+  orgId: string
+  /** Into that creator's own rate card — packages, terms and Add to Cart. */
+  onOpenCreator?: (account: DirectoryAccount) => void
+  /** The source offers `Make Offer` from every card; this is that door. */
+  onNegotiate?: () => void
+}) {
   const [accounts, setAccounts] = useState<DirectoryAccount[]>([])
   const [rates, setRates] = useState<Record<string, RateCard>>({})
   const [deliverables, setDeliverables] = useState<Deliverable[]>([])
@@ -81,7 +95,8 @@ export default function DiscoverRates({ orgId }: { orgId: string }) {
     <div>
       <p className="text-[11.5px] text-[#6b7280] mb-3">
         {priced} dari {accounts.length} akun sudah punya tarif. Harga tiap deliverable dihitung
-        dari base rate x pengali, dan ikut terpakai di tab Cart.
+        dari base rate × pengali. Angka ini titik awal, bukan harga final — Negotiation yang
+        menentukan angka yang dipakai saat checkout.
       </p>
 
       {error && (
@@ -156,6 +171,23 @@ export default function DiscoverRates({ orgId }: { orgId: string }) {
                           <span className="text-[9.5px] text-[#b6bcc4]">×{d.mult}</span>
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {(onOpenCreator || onNegotiate) && (
+                    <div className="flex gap-1.5 flex-wrap mt-2.5">
+                      {onNegotiate && (
+                        <Btn size="sm" variant="primary" onClick={onNegotiate}>
+                          <span className="material-symbols-outlined text-[14px]">handshake</span>
+                          Buat Penawaran
+                        </Btn>
+                      )}
+                      {onOpenCreator && (
+                        <Btn size="sm" variant="secondary" onClick={() => onOpenCreator(a)}>
+                          <span className="material-symbols-outlined text-[14px]">person</span>
+                          Buka Rate Card
+                        </Btn>
+                      )}
                     </div>
                   )}
                 </div>

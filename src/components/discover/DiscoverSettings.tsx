@@ -34,7 +34,9 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'platforms', label: 'Platform', icon: 'hub' },
 ]
 
-export default function DiscoverSettings({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+export default function DiscoverSettings({
+  orgId, orgSlug, embedded = false,
+}: { orgId: string; orgSlug: string; embedded?: boolean }) {
   const [tab, setTab] = useState<Tab>('accounts')
   const [dir, setDir] = useState<DirectoryPayload | null>(null)
   const [summary, setSummary] = useState<DiscoverSummaryPayload | null>(null)
@@ -51,14 +53,14 @@ export default function DiscoverSettings({ orgId, orgSlug }: { orgId: string; or
     return () => { cancelled = true }
   }, [orgId])
 
-  if (error) return <div className="p-5"><ErrorState message={error} /></div>
-  if (!dir || !summary) return <div className="p-5"><Spinner /></div>
+  if (error) return <div className={embedded ? '' : 'p-5'}><ErrorState message={error} /></div>
+  if (!dir || !summary) return <div className={embedded ? '' : 'p-5'}><Spinner /></div>
 
   const owned = dir.accounts.filter(a => a.relation === 'owned')
   const competitors = dir.accounts.filter(a => a.relation === 'competitor')
 
   return (
-    <div className="p-5 max-w-[1200px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1200px] mx-auto'}>
       <DiscoverHeader
         title="Discover Settings"
         subtitle="Sumber data yang dipakai modul Discover. Hanya-baca — setiap bagian menautkan ke halaman yang mengatur setelan itu."

@@ -271,7 +271,9 @@ export function InsightsSection({ creator, rank, platforms, similar, intel }: Se
     tone: VIZ.warning,
     title: `Format ${intel.content.formats[0]?.label ?? 'video'} paling kuat`,
     body: <>Menyumbang <b>{intel.content.formats[0]?.pct ?? 0}%</b> performa kontennya.</>,
-    sample: true,
+    // Real once the warehouse holds this creator's posts: the mix is counted
+    // from them rather than modelled.
+    sample: !intel.real.formats,
   })
 
   return (

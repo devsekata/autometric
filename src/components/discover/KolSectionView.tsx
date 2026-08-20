@@ -3,11 +3,17 @@
 /**
  * Renders one per-KOL section for the active creator, inside the workspace.
  *
- * Profile / Content Analytics / Analytics / Audience / Campaign History /
- * Brand Fit / AI Insights / Rate Card are children of the selected-creator node,
- * so each resolves "which creator?" from the active-KOL context rather than from
- * a route param. This component owns that fetch once, so the eight sections do
- * not each re-implement loading, error and empty-selection states.
+ * Profile / Content Analytics / Analytics / Audience Insights / Brand & Campaign
+ * History / AI Insights / Individual Report / Rate Card are children of the
+ * selected-creator node, so each resolves "which creator?" from the active-KOL
+ * context rather than from a route param. This component owns that fetch once,
+ * so the sections do not each re-implement loading, error and empty-selection
+ * states.
+ *
+ * `brandcamp` renders Brand Fit and Campaign History one after the other under
+ * their own headings, which is what the source's `brandSection` does: the two
+ * were asked the same question — is this creator right for us, and what have
+ * they actually run — and answering it took two clicks.
  *
  * It also carries the flow forward: the action bar offers Compare, Add to
  * Campaign (which routes to the creator's Rate Card) and a shortcut into the
@@ -35,7 +41,7 @@ import type { KolProfile } from '@/lib/discover/profile'
 
 export type KolSection =
   | 'profile' | 'content' | 'analytics' | 'audience'
-  | 'campaignHistory' | 'brandfit' | 'ai' | 'kolreport' | 'ratecard'
+  | 'brandcamp' | 'ai' | 'kolreport' | 'ratecard'
 
 export default function KolSectionView({
   orgId, orgSlug, kol, section, onGoToDirectory, onGoToCart, onGoToRateCard, onGoToCompare,
@@ -151,8 +157,14 @@ export default function KolSectionView({
       {section === 'content' && <ContentAnalytics data={data} />}
       {section === 'analytics' && <PerformanceSection data={data} />}
       {section === 'audience' && <AudienceSection data={data} />}
-      {section === 'campaignHistory' && <CampaignSection data={data} />}
-      {section === 'brandfit' && (profile ? <BrandFitSection profile={profile} /> : <Spinner />)}
+      {section === 'brandcamp' && (profile
+        ? (
+          <div className="flex flex-col gap-4">
+            <BrandFitSection profile={profile} />
+            <CampaignSection data={data} />
+          </div>
+        )
+        : <Spinner />)}
       {section === 'ai' && (profile ? <AiInsightsSection profile={profile} data={data} /> : <Spinner />)}
       {section === 'kolreport' && (profile ? <KolReportSection profile={profile} data={data} /> : <Spinner />)}
       {section === 'ratecard' && (profile

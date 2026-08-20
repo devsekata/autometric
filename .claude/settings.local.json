@@ -283,7 +283,9 @@
       "Bash(powershell -NoProfile -Command \"Stop-Process -Id 14608,23704 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; 'killed'\")",
       "Bash(rm -rf .next)",
       "Bash(grep -n \"^/\\\\* ── Audience Insights\" src/components/discover/KolCreatorSections.tsx)",
-      "Bash(grep -n \"Split$\\\\|<Split\" src/components/discover/KolCreatorOverview.tsx)"
+      "Bash(grep -n \"Split$\\\\|<Split\" src/components/discover/KolCreatorOverview.tsx)",
+      "PowerShell(Get-Content C:\\\\Users\\\\Lenovo\\\\autometric\\\\src\\\\instrumentation.ts; \"---\"; \\(Get-Command vercel -ErrorAction SilentlyContinue\\).Source; \"---GITIGNORE---\"; Get-Content C:\\\\Users\\\\Lenovo\\\\autometric\\\\.gitignore)",
+      "PowerShell(npm run *.)"
     ]
   }
 }

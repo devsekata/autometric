@@ -1,75 +1,56 @@
+import { DISCOVER_TABS, GROUP_LABEL, visibleViews } from '@/lib/discover/tabs'
+
 export interface OrgNavItem {
   label: string
   path: string
   icon: string
   adminOnly?: boolean
   /**
-   * Workspace tab this item selects. Several nav entries share one route and
-   * differ only by `?tab=`, so the href is path + tab and "is this active"
-   * has to compare both.
+   * Discover selects its panel with `?tab=`, so its entries share one route and
+   * differ only by the query. `tab` is what "is this the active entry" compares;
+   * `view` only seeds the link, because which section of a tab you are on is the
+   * in-page strip's business, not the sidebar's.
    */
   tab?: string
+  view?: string | null
+  /**
+   * Small-caps separator printed above this entry. Set on the first entry of each
+   * group; the sidebar renders it as a label row, not as something clickable.
+   */
+  groupLabel?: string
   children?: OrgNavItem[]
 }
 
 /**
- * KOL Detail — the sections of the selected creator. Injected under Discovery
- * at render time rather than declared here, because they only exist once a
- * creator is selected; a static list would show eight dead links on first visit.
+ * Discover's children, derived from the tab registry rather than restated here.
+ *
+ * The module's list of destinations, their labels and their icons already live in
+ * `@/lib/discover/tabs` — the workspace needs them to render headings and
+ * breadcrumbs. Deriving the sidebar from the same array means adding a tab puts it
+ * in the sidebar automatically, and the two can never disagree about what Discover
+ * contains.
+ *
+ * One level deep, like Dashboard, but grouped the way the source platform groups
+ * it: the six entries of its `KOL Intelligence` branch first, then the entries
+ * that sit beside that branch under the same Discover heading. The registry marks
+ * each entry with its half and the first of each carries the label that prints
+ * above it.
+ *
+ * The sub-sections a few tabs have (Directory's two rosters, Ordering's
+ * `[ Rate Cards | Cart | Orders ]` segments, Discover/Workspace for Reports and
+ * Settings, the seven per-creator views reached by opening a tracked account)
+ * stay as strips inside the page: they are steps within a screen, and hanging
+ * them off the sidebar is what made this module three levels deep before.
  */
-export const KOL_CREATOR_SECTIONS: OrgNavItem[] = [
-  { label: 'Profile',           path: 'discover/kol', tab: 'profile',          icon: 'person' },
-  { label: 'Performance',       path: 'discover/kol', tab: 'analytics',        icon: 'insights' },
-  { label: 'Content Analytics', path: 'discover/kol', tab: 'content',          icon: 'summarize' },
-  { label: 'Audience Insights', path: 'discover/kol', tab: 'audience',         icon: 'group' },
-  { label: 'Campaign History',  path: 'discover/kol', tab: 'campaignHistory',  icon: 'campaign' },
-  { label: 'Brand Fit',         path: 'discover/kol', tab: 'brandfit',         icon: 'handshake' },
-  { label: 'AI Insights',       path: 'discover/kol', tab: 'ai',               icon: 'auto_awesome' },
-  { label: 'Individual Report', path: 'discover/kol', tab: 'kolreport',        icon: 'lab_profile' },
-  { label: 'Rate Card',         path: 'discover/kol', tab: 'ratecard',         icon: 'payments' },
-]
-
-/**
- * KOL Intelligence — the end-to-end selection and ordering module.
- *
- * Lives inside the Discover group, as a sibling of Discovery Content rather than
- * a child of it — the same shape the source platform uses, where the "Discover"
- * nav group holds KOL Intelligence and Discovery Content side by side.
- *
- * What matters structurally is one level down: its stages are siblings of
- * Discovery, not children of it. An earlier shape nested Compare, Ordering and
- * everything downstream *inside* Directory, which read as though the whole
- * commercial flow were a detail view of a list. It isn't — Discovery is the
- * first stage of the journey, not its container.
- *
- * The stages mirror the flow exactly — find, analyse, compare, select, order,
- * run, measure — so the sidebar doubles as a map of where you are in it.
- */
-export const KOL_INTELLIGENCE: OrgNavItem = {
-  label: 'KOL Intelligence', path: 'discover/kol', icon: 'badge',
-  children: [
-    // Directory · Compare · Reports · Settings — the source platform's own
-    // submenu for this module, in its order. KOL_CREATOR_SECTIONS are spliced
-    // under Directory by OrgNav once a creator is active; that is the KOL Detail
-    // node, and it belongs to Directory because that is where you found them.
-    { label: 'Directory', path: 'discover/kol', tab: 'directory', icon: 'grid_view' },
-    // Two rosters, two entries. Directory browses the commercial KOL platform's
-    // creators; this one lists the accounts the org already tracks in the
-    // warehouse, which is where the per-creator analysis views come from.
-    { label: 'Akun Saya', path: 'discover/kol', tab: 'accounts', icon: 'inventory_2' },
-    { label: 'Compare',   path: 'discover/kol', tab: 'compare',   icon: 'compare' },
-    // Cart, Ordering Flow and Purchase History are deliberately NOT nav entries.
-    // They are steps you fall into from a creator — add to cart, check out, look
-    // up what you bought — not places you navigate to cold. Listing them in the
-    // sidebar advertised an empty cart as a destination; they are reached from
-    // the cart bar inside the workspace instead.
-    // Discover Reports sits in the module's Reports slot. It summarises brand and
-    // competitor content performance; per-campaign reporting is the Campaign
-    // Dashboard, reached from Campaign Management.
-    { label: 'Discover Reports', path: 'discover/reports',  icon: 'summarize' },
-    { label: 'Settings',         path: 'discover/settings', icon: 'tune' },
-  ],
-}
+const DISCOVER_CHILDREN: OrgNavItem[] = DISCOVER_TABS.map((t, i, all) => ({
+  label: t.label,
+  path: 'discover',
+  icon: t.icon,
+  tab: t.id,
+  // Land on the tab's first section when it has an always-visible strip.
+  view: visibleViews(t)[0]?.id ?? null,
+  groupLabel: all[i - 1]?.group === t.group ? undefined : GROUP_LABEL[t.group],
+}))
 
 export const ORG_NAV_ITEMS: OrgNavItem[] = [
   {
@@ -85,44 +66,18 @@ export const ORG_NAV_ITEMS: OrgNavItem[] = [
       { label: 'Content Pillars',    path: 'dashboard/pillars',   icon: 'dashboard_customize' },
     ],
   },
-  // Discover — content research, the KOL module, and the analytics beside them,
-  // all at one level. Discovery Content feeds KOL Intelligence (campaign briefs
-  // attach posts saved there) but browsing content is not a step inside the
-  // ordering flow, so the two are siblings.
+  // Discover — one branch of ten, the same shape as Dashboard above it.
+  //
+  // It is still one route (`discover`, with `?tab=`); only the navigation moved.
+  // An in-page strip of eleven pills competed with the sidebar for the same job
+  // and scrolled sideways on a laptop, so the sidebar does the navigating and the
+  // page keeps only its heading and whatever sub-strip that tab needs.
+  // No `tab` on the branch itself: like Dashboard, it prefix-matches the route so
+  // it reads as on-path for every tab and for the detail pages underneath, and
+  // yields the highlight to whichever child is actually active.
   {
-    label: 'Discover', path: 'discover/kol', icon: 'travel_explore',
-    children: [
-      KOL_INTELLIGENCE,
-      // Below KOL Intelligence and at the same level. Content research feeds a
-      // brief — the campaign brief attaches posts saved here — but browsing what
-      // is being posted is not a step inside the ordering flow, so it is a
-      // sibling rather than a child.
-      { label: 'Discovery Content', path: 'discover/content', icon: 'grid_view' },
-      // Sibling of KOL Intelligence, not a child of it: selecting creators and
-      // running the campaigns you already bought are two different jobs, done on
-      // different days, usually by different people. It has its own route rather
-      // than a ?tab= inside the KOL workspace so the sidebar highlight and the
-      // URL agree about which of the two you are in.
-      { label: 'Campaign Management', path: 'discover/campaign-management', icon: 'campaign' },
-      { label: 'Audience',          path: 'discover/audience',  icon: 'group' },
-      // Last of the Discover pages, as in the source platform's nav.
-      { label: 'AI Assistant',      path: 'discover/assistant', icon: 'auto_awesome' },
-      // Workspace — the source platform's third nav group, which held exactly
-      // Reports and Settings, and these are ports of those two pages.
-      //
-      // They are not the same thing as the org-level /reports and /settings.
-      // Org Reports builds slide decks from dashboard data; this one reports on
-      // the KOL side — creators, campaigns bought through Ordering Flow, and
-      // purchase history. Org Settings owns members and brands; this one is the
-      // workspace's configuration read-out, and links to the pages that write it.
-      {
-        label: 'Workspace', path: 'discover/workspace/reports', icon: 'workspaces',
-        children: [
-          { label: 'Reports',  path: 'discover/workspace/reports',  icon: 'summarize' },
-          { label: 'Settings', path: 'discover/workspace/settings', icon: 'settings' },
-        ],
-      },
-    ],
+    label: 'Discover', path: 'discover', icon: 'travel_explore',
+    children: DISCOVER_CHILDREN,
   },
   { label: 'Brands',     path: 'brands',     icon: 'store' },
   { label: 'Reports',    path: 'reports',    icon: 'bar_chart' },

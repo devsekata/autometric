@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import type { AccountRelation } from '@/lib/discover/account'
+import type { CartRelation } from '@/lib/discover/vocab'
 
 /**
  * The Discover cart, shared across the KOL workspace.
@@ -20,7 +20,7 @@ import type { AccountRelation } from '@/lib/discover/account'
 
 export interface CartEntry {
   socialAccountId: string
-  relation: AccountRelation
+  relation: CartRelation
   deliverableId: string
   qty: number
 }
@@ -43,7 +43,7 @@ function read(key: string): CartMap {
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
       const e = v as Partial<CartEntry>
       if (typeof e?.socialAccountId === 'string' && typeof e?.deliverableId === 'string'
-          && (e.relation === 'owned' || e.relation === 'competitor')
+          && (e.relation === 'owned' || e.relation === 'competitor' || e.relation === 'roster')
           && Number.isFinite(e.qty) && (e.qty as number) > 0) {
         out[k] = { socialAccountId: e.socialAccountId, relation: e.relation, deliverableId: e.deliverableId, qty: Math.min(999, Math.floor(e.qty as number)) }
       }

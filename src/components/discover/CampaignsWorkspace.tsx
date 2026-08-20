@@ -68,10 +68,11 @@ const IN_TAB: Record<(typeof TABS)[number]['id'], StageId[]> = {
 }
 
 export default function CampaignsWorkspace({
-  orgId, orgSlug,
+  orgId, orgSlug, embedded = false,
 }: {
   orgId: string
   orgSlug: string
+  embedded?: boolean
 }) {
   const router = useRouter()
   /** No campaigns yet means "go order one" — back into the KOL workspace. */
@@ -128,12 +129,12 @@ export default function CampaignsWorkspace({
     }
   }
 
-  if (error && !orders) return <Shell><ErrorState message={error} /></Shell>
-  if (!orders) return <Shell><Spinner /></Shell>
+  if (error && !orders) return <Shell embedded={embedded}><ErrorState message={error} /></Shell>
+  if (!orders) return <Shell embedded={embedded}><Spinner /></Shell>
 
   if (orders.length === 0) {
     return (
-      <Shell>
+      <Shell embedded={embedded}>
         <EmptyState
           icon="campaign"
           title="Belum ada campaign"
@@ -149,7 +150,7 @@ export default function CampaignsWorkspace({
   const rows = orders.filter(o => IN_TAB[tab].includes(stageOf(o)))
 
   return (
-    <Shell>
+    <Shell embedded={embedded}>
       {error && (
         <div className="flex items-start gap-2 bg-[#fcefec] border border-[#f0c8bf] rounded-xl px-3.5 py-2.5 mb-3.5">
           <span className="material-symbols-outlined text-[16px] text-[#c2553f] mt-0.5">error</span>
@@ -198,9 +199,11 @@ export default function CampaignsWorkspace({
 }
 
 /** Page chrome. Campaign Management is its own route now, so it owns its header. */
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children, embedded,
+}: { children: React.ReactNode; embedded?: boolean }) {
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Campaign Management"
         subtitle="Campaign yang sudah dipesan: status dari Draft sampai Completed, progres tiap creator dan performanya."

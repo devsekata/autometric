@@ -49,13 +49,13 @@ export interface WorkspaceSettingsData {
 }
 
 export default function WorkspaceSettings({
-  data, orgSlug,
-}: { data: WorkspaceSettingsData; orgSlug: string }) {
+  data, orgSlug, embedded = false,
+}: { data: WorkspaceSettingsData; orgSlug: string; embedded?: boolean }) {
   const [tab, setTab] = useState<TabId>('account')
   const base = `/organizations/${orgSlug}`
 
   return (
-    <div className="p-5 max-w-[1500px] mx-auto">
+    <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Settings"
         subtitle="Konfigurasi workspace ini. Yang bisa diubah ditautkan ke halaman yang benar-benar menyimpannya."

@@ -6,19 +6,12 @@
  * Renders the nav tree recursively so hierarchy is expressed by nesting rather
  * than by a flat list plus a horizontal strip elsewhere on the page:
  *
- *   Discover
- *     ├ KOL Intelligence
- *     │   ├ Directory
- *     │   │   └ Profile · Performance · … · Rate Card  (only with a creator active)
- *     │   ├ Compare
- *     │   ├ Discover Reports
- *     │   └ Settings
- *     ├ Discovery Content
- *     ├ Campaign Management
- *     ├ Audience
- *     ├ AI Assistant
- *     └ Workspace
- *         └ Reports · Settings
+ *   Dashboard            Discover
+ *     ├ Overview           │  KOL INTELLIGENCE
+ *     ├ Content Overview   ├ Directory · Compare · Reports
+ *     └ …                  ├ Negotiation · Ordering · Settings
+ *                          │  DISCOVER
+ *                          └ Campaign · Content · Audience · AI Assistant
  *
  * Two behaviours make deep trees usable:
  *   * a branch containing the current page auto-expands, so a reload or a deep
@@ -26,25 +19,32 @@
  *   * manual toggles are remembered per branch for the session, so opening a
  *     sibling does not fight the user's own expansions.
  *
- * The per-creator sections are injected at render time from the active-KOL
- * selection, because a static list would render seven dead links before any
- * creator has been chosen.
+ * Both branches are one level deep. Discover's are grouped the way the source
+ * platform groups them — the six entries of its `KOL Intelligence` branch, then
+ * the entries its sidebar hangs beside that branch — as a label row above the
+ * first of each, printed from `groupLabel`. The labels are not links; the depth
+ * is still one.
+ *
+ * Discover's children differ from Dashboard's only in how they address their page:
+ * they share one route and select their panel with `?tab=`, so matching the current
+ * entry means reading the query as well as the path. The sections a few tabs hold —
+ * Directory's two rosters, Ordering's Rate Cards / Cart / Orders segments, Reports
+ * and Settings' two halves, the seven per-creator views reached by opening a
+ * tracked account — stay as strips inside the page. Hanging them here is what made
+ * this module three levels deep before.
  */
 
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useParams, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { ORG_NAV_ITEMS, KOL_CREATOR_SECTIONS, type OrgNavItem } from '@/lib/organizations/nav'
-import { useActiveKol } from '@/components/discover/useActiveKol'
+import { ORG_NAV_ITEMS, type OrgNavItem } from '@/lib/organizations/nav'
+import { resolveTabParams, tabHref } from '@/lib/discover/tabs'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
 /** Indent per level; deep enough to read, tight enough for a 280px sidebar. */
 const INDENT = 12
-
-/** Where the creator's own sections begin, so the name chip can precede them. */
-const FIRST_CREATOR_TAB = KOL_CREATOR_SECTIONS[0].tab
 
 export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string }) {
   const pathname = usePathname()
@@ -52,11 +52,16 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
   const searchParams = useSearchParams()
   const orgSlug = (params?.orgSlug as string | undefined) ?? fallbackOrgSlug
   const { data: session } = useSession()
-  const activeKol = useActiveKol(orgSlug)
 
   const base = `/organizations/${orgSlug}`
   const isAppAdmin = session?.user?.role === 'ADMIN'
-  const currentTab = searchParams.get('tab')
+  /**
+   * The tab the URL currently resolves to, through the same function the page
+   * uses. Going through the resolver rather than reading `?tab=` raw is what makes
+   * a bare `/discover` highlight Directory, and an old alias like `?tab=cart`
+   * highlight Cart & Order instead of nothing.
+   */
+  const currentTab = resolveTabParams(searchParams.get('tab'), searchParams.get('view')).tab
 
   /** Manual expand/collapse, keyed by the branch's href. */
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
@@ -64,47 +69,31 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
     setOverrides(o => ({ ...o, [key]: !open }))
   }, [])
 
+  const items = useMemo(
+    () => ORG_NAV_ITEMS.filter(i => !i.adminOnly || isAppAdmin),
+    [isAppAdmin],
+  )
+
   /**
-   * Inject the KOL Detail sections under Akun Saya once a creator is selected.
-   *
-   * They hang off Akun Saya because that is where the creator was found —
-   * opening one is a drill-down from that list, not a sibling of it. Directory
-   * browses the commercial roster, which has no post history behind it and so
-   * opens no detail sections. Matched on `tab` rather than on the label, so
-   * renaming the entry cannot silently detach the creator's sections.
+   * A `tab` means the entry is one of Discover's, so its URL comes from Discover's
+   * own `tabHref` — the same function the workspace navigates with, so the link in
+   * the sidebar and the link the page pushes are byte for byte the same.
    */
-  const items = useMemo(() => {
-    const withCreator = (item: OrgNavItem): OrgNavItem => {
-      if (item.tab === 'accounts') {
-        return activeKol.kol
-          ? { ...item, children: [...KOL_CREATOR_SECTIONS, ...(item.children ?? [])] }
-          : item
-      }
-      return item.children ? { ...item, children: item.children.map(withCreator) } : item
-    }
-    return ORG_NAV_ITEMS
-      .filter(i => !i.adminOnly || isAppAdmin)
-      .map(withCreator)
-  }, [isAppAdmin, activeKol.kol])
-
   const hrefOf = (item: OrgNavItem) =>
-    `${base}/${item.path}${item.tab && item.tab !== 'directory' ? `?tab=${item.tab}` : ''}`
+    item.tab ? tabHref(orgSlug, item.tab, item.view) : `${base}/${item.path}`
 
   /**
-   * Exact match for tabbed items (they share one route), prefix match for
-   * ordinary ones so a detail page keeps its parent highlighted.
+   * Tabbed entries share a route, so they match on the resolved tab; ordinary
+   * entries prefix-match the path, which keeps a section highlighted on its detail
+   * pages — a creator under Discover, an order, a campaign dashboard.
+   *
+   * Deliberately matched on the tab alone and not on the view: which section of
+   * Cart & Order you are in is the in-page strip's business, and comparing it here
+   * would leave the sidebar entry unlit on two of its own three steps.
    */
   const isActive = useCallback((item: OrgNavItem): boolean => {
     const route = `${base}/${item.path}`
-    if (item.tab) {
-      if (pathname !== route) return false
-      // Directory is the default tab, so it owns both the bare route and an
-      // explicit ?tab=directory. Matching only the bare form left that valid
-      // deep link with nothing highlighted and its branch collapsed.
-      return item.tab === 'directory'
-        ? !currentTab || currentTab === 'directory'
-        : currentTab === item.tab
-    }
+    if (item.tab) return pathname === route && currentTab === item.tab
     return pathname === route || pathname.startsWith(`${route}/`)
   }, [base, pathname, currentTab])
 
@@ -126,7 +115,6 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
           containsActive={containsActive}
           overrides={overrides}
           onToggle={toggle}
-          creatorName={activeKol.kol?.username}
         />
       ))}
     </nav>
@@ -134,7 +122,7 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
 }
 
 function NavNode({
-  item, depth, hrefOf, isActive, containsActive, overrides, onToggle, creatorName,
+  item, depth, hrefOf, isActive, containsActive, overrides, onToggle,
 }: {
   item: OrgNavItem
   depth: number
@@ -143,7 +131,6 @@ function NavNode({
   containsActive: (i: OrgNavItem) => boolean
   overrides: Record<string, boolean>
   onToggle: (key: string, open: boolean) => void
-  creatorName?: string
 }) {
   const href = hrefOf(item)
   const key = `${item.path}:${item.tab ?? ''}:${item.label}`
@@ -222,17 +209,18 @@ function NavNode({
         <div className="mt-0.5 mb-0.5 flex flex-col gap-0.5">
           {item.children!.map(child => (
             <Fragment key={child.path + (child.tab ?? '') + child.label}>
-              {/* Name the creator whose sections these are, so a run of nine
-                  analysis views in the middle of the list is not ambiguous.
-                  Rendered inline, immediately before the first of them, because
-                  they no longer sit at the top of their parent's children. */}
-              {creatorName && child.tab === FIRST_CREATOR_TAB && (
-                <div className="flex items-center gap-1.5 pr-2 py-0.5"
-                  style={{ paddingLeft: (depth + 1) * INDENT + 26 }}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#4E96AC] flex-shrink-0" />
-                  <span style={PJ} className="text-[10px] font-bold uppercase tracking-wider text-[#9ca3af] truncate">
-                    {creatorName}
+              {/* Stage label above the first entry of each group, so a long branch
+                  reads as a few short lists instead of one column to scan. Not a
+                  link and not focusable — it names the rows below it. */}
+              {child.groupLabel && (
+                <div
+                  className="flex items-center gap-1.5 pr-2 pt-2 pb-0.5"
+                  style={{ paddingLeft: (depth + 1) * INDENT + 26 }}
+                >
+                  <span style={PJ} className="text-[9.5px] font-bold uppercase tracking-widest text-[#b6bcc6]">
+                    {child.groupLabel}
                   </span>
+                  <span className="flex-1 h-px bg-[#f3f4f6]" />
                 </div>
               )}
               <NavNode
@@ -243,7 +231,6 @@ function NavNode({
                 containsActive={containsActive}
                 overrides={overrides}
                 onToggle={onToggle}
-                creatorName={creatorName}
               />
             </Fragment>
           ))}

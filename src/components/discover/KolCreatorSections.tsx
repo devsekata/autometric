@@ -7,13 +7,20 @@
  * owns the header, the KPI bar, the tab state and Overview; everything a tab
  * needs arrives through `SectionProps`.
  *
- * Provenance is the rule that shapes every section here: the roster backs
- * username, platform, followers, engagement rate, category, tier and verified —
- * and nothing else. Anything beyond that is sampled (see `@/lib/discover/kolSample`)
- * and is stamped with `<SampleTag />` at the figure, not just in a footnote. Where
- * a section can mix the two — Platform Comparison, whose follower counts and rates
- * are real for the 277 creators holding accounts on both platforms — the real
- * columns are left unstamped so the difference is visible in the same table.
+ * Provenance is the rule that shapes every section here. The roster backs
+ * username, platform, followers, engagement rate, category, tier and verified.
+ * For the creators the warehouse has harvested, `l1_silver.unified_post` also
+ * backs likes, comments, views, the format mix and the content grid, and
+ * `l1_silver.unified_rate_card` backs the price. Everything else is sampled
+ * (see `@/lib/discover/kolSample`) and is stamped with `<SampleTag />` at the
+ * figure, not just in a footnote.
+ *
+ * Which of the two a given figure is depends on the creator, not on the tile, so
+ * sections read the per-field flags in `intel.real` rather than hardcoding
+ * `sample` — `@/lib/discover/kolIntel` is what sets them. Where a section can mix
+ * the two — Platform Comparison, whose follower counts and rates are real for the
+ * 277 creators holding accounts on both platforms — the real columns are left
+ * unstamped so the difference is visible in the same table.
  */
 
 import { useMemo, useState } from 'react'
@@ -24,8 +31,9 @@ import {
   VIZ, VizCard, StatTile,
 } from './kolViz'
 import {
-  CAMPAIGN_STAGES, type SampleContentItem, type SampleIntel,
+  CAMPAIGN_STAGES, type SampleContentItem,
 } from '@/lib/discover/kolSample'
+import { measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import type {
   KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
@@ -36,7 +44,13 @@ export interface SectionProps {
   rank: KolCreatorRank
   platforms: KolCreatorPlatformRow[]
   similar: KolSimilarRow[]
-  intel: SampleIntel
+  /**
+   * Measured where the warehouse has a source, sampled elsewhere. Sections read
+   * `intel.real` to decide which figures carry the estimate marker rather than
+   * hardcoding `sample` — the same tile is real for a harvested creator and an
+   * estimate for the other 7,695.
+   */
+  intel: CreatorIntel
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -65,6 +79,7 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
   const [platform, setPlatform] = useState('all')
   const [period, setPeriod] = useState<string>(PERIODS[2])
   const m = METRICS.find(x => x.key === metric) ?? METRICS[0]
+  const basis = measuredBasis(intel)
 
   /**
    * The period control trims the series rather than refetching: there is only
@@ -95,17 +110,22 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
 
       <VizCard title="Performance Overview" subtitle="Rata-rata per konten">
         <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
-          {/* The only measured figure in this card carries no marker. */}
+          {/* Each tile decides for itself: a harvested creator has real likes,
+              comments and views here, while reach and impressions are modelled
+              for everyone because no post carries them. */}
           <StatTile label="Engagement Rate"
             value={creator.erPct === null ? 'belum diukur' : pctLabel(creator.erPct)}
             hint={creator.erPct === null ? undefined : 'dari roster KOL'} />
-          <StatTile label="Reach" value={fmtNum(intel.kpi.avgReach)} sample />
+          <StatTile label="Reach" value={fmtNum(intel.kpi.avgReach)} sample={!intel.real.reach} />
           <StatTile label="Impressions" value={fmtNum(intel.performance.impressions)} sample />
-          <StatTile label="Views" value={fmtNum(intel.kpi.avgViews)} sample />
-          <StatTile label="Likes" value={fmtNum(intel.performance.likes)} sample />
-          <StatTile label="Comments" value={fmtNum(intel.performance.comments)} sample />
-          <StatTile label="Shares" value={fmtNum(intel.performance.shares)} sample />
-          <StatTile label="Saves" value={fmtNum(intel.performance.saves)} sample />
+          <StatTile label="Views" value={fmtNum(intel.kpi.avgViews)}
+            sample={!intel.real.views} hint={intel.real.views ? basis : undefined} />
+          <StatTile label="Likes" value={fmtNum(intel.performance.likes)}
+            sample={!intel.real.likes} hint={intel.real.likes ? basis : undefined} />
+          <StatTile label="Comments" value={fmtNum(intel.performance.comments)}
+            sample={!intel.real.comments} hint={intel.real.comments ? basis : undefined} />
+          <StatTile label="Shares" value={fmtNum(intel.performance.shares)} sample={!intel.real.shares} />
+          <StatTile label="Saves" value={fmtNum(intel.performance.saves)} sample={!intel.real.saves} />
         </div>
       </VizCard>
 
@@ -117,7 +137,7 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
             <TrendChart points={points} format={m.format} label={m.label} />
             <p className="text-[9.5px] mt-1.5" style={{ color: T.t4 }}>
               Titik terakhir menempel pada engagement rate asli creator ini; lima bulan
-              sebelumnya adalah contoh.
+              sebelumnya adalah estimasi.
             </p>
           </VizCard>
         }
@@ -210,7 +230,7 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
  * same hue: the bar length is the value, and colouring them differently would
  * claim an identity the four do not have.
  */
-function EngagementBreakdown({ intel }: { intel: SampleIntel }) {
+function EngagementBreakdown({ intel }: { intel: CreatorIntel }) {
   const p = intel.performance
   const total = p.likes + p.comments + p.shares + p.saves || 1
   const parts = [
@@ -274,8 +294,10 @@ export function ContentSection({ creator, intel }: SectionProps) {
     <div className="flex flex-col gap-4">
       <Split
         main={
-          <VizCard title="Content Performance" sample
-            subtitle="Roster tidak menyimpan satu pun post — seluruh konten di bawah contoh"
+          <VizCard title="Content Performance" sample={!intel.real.content}
+            subtitle={intel.real.content
+              ? `${intel.measured?.postCount ?? 0} post asli dari warehouse — views, likes dan comments terukur; ER dan sentimen masih estimasi`
+              : 'Roster tidak menyimpan satu pun post untuk creator ini — seluruh konten di bawah estimasi'}
             action={
               <div className="flex gap-1.5 flex-wrap">
                 <Select value={format} onChange={setFormat}
@@ -297,9 +319,19 @@ export function ContentSection({ creator, intel }: SectionProps) {
                   <button key={`${c.title}-${i}`} type="button" onClick={() => setOpenItem(c)}
                     className="rounded-[12px] border overflow-hidden text-left hover:brightness-[.99] transition"
                     style={{ borderColor: T.outline }}>
-                    <div className="h-[96px] flex items-center justify-center"
+                    {/* A harvested post brings its own cover. The gradient stays
+                        underneath as the backdrop, so a CDN image that 403s (the
+                        usual fate of an Instagram cover fetched cross-origin)
+                        degrades to the generated tile instead of a broken icon. */}
+                    <div className="h-[96px] flex items-center justify-center relative"
                       style={{ background: `linear-gradient(135deg,${VIZ.ordinal[i % VIZ.ordinal.length]},${VIZ.ordinal[(i + 2) % VIZ.ordinal.length]})` }}>
-                      <span className="material-symbols-outlined text-white text-[22px] opacity-90">
+                      {c.coverImage && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={c.coverImage} alt="" referrerPolicy="no-referrer"
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onError={e => { e.currentTarget.style.display = 'none' }} />
+                      )}
+                      <span className="material-symbols-outlined text-white text-[22px] opacity-90 relative">
                         {c.format === 'Reels' || c.format === 'Video' ? 'play_circle' : 'image'}
                       </span>
                     </div>
@@ -320,9 +352,34 @@ export function ContentSection({ creator, intel }: SectionProps) {
         }
         aside={
           <>
-            <VizCard title="Content Format" sample>
+            <VizCard title="Content Format" sample={!intel.real.formats}
+              subtitle={intel.real.formats ? measuredBasis(intel) : undefined}>
               <Bars parts={intel.content.formats} />
             </VizCard>
+            {/* The source's "Top hashtags & keywords" panel, which it filled from
+                a written-in list. Counted here across every harvested post, so it
+                only appears for a creator whose posts carry tags. */}
+            {intel.real.hashtags && intel.measured && (
+              <VizCard title="Top Hashtags"
+                subtitle={`dihitung dari ${intel.measured.postCount} post`}>
+                <div className="flex flex-wrap gap-1.5">
+                  {intel.measured.hashtags.map(h => (
+                    <span key={h.tag} style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                      className="h-6 px-2 rounded-md text-[10.5px] font-bold inline-flex items-center gap-1"
+                      title={`dipakai di ${h.n} post`}>
+                      #{h.tag}
+                      <span style={{ color: T.t4 }} className="font-semibold">{h.n}</span>
+                    </span>
+                  ))}
+                </div>
+                {intel.measured.sponsoredCount > 0 && (
+                  <p className="text-[10px] mt-2.5 leading-[1.5]" style={{ color: T.t3 }}>
+                    <b>{intel.measured.sponsoredCount}</b> dari {intel.measured.postCount} post
+                    ditandai paid partnership oleh platform.
+                  </p>
+                )}
+              </VizCard>
+            )}
             <VizCard title="Content Topic" sample>
               <Bars parts={intel.content.topics} />
             </VizCard>
@@ -341,14 +398,23 @@ export function ContentSection({ creator, intel }: SectionProps) {
 function ContentDetail({
   item, creator, onClose,
 }: { item: SampleContentItem | null; creator: KolDirectoryRow; onClose: () => void }) {
+  /** True only for a figure this post actually carries; see `SampleContentItem`. */
+  const isReal = (field: string) => item?.measuredFields?.includes(field) ?? false
+
   return (
     <Overlay open={item !== null} title="Content Detail" onClose={onClose}>
       {item && (
         <div className="flex gap-4 flex-wrap">
           <div className="w-[200px] flex-shrink-0">
-            <div className="h-[200px] rounded-[14px] flex items-center justify-center"
+            <div className="h-[200px] rounded-[14px] flex items-center justify-center relative overflow-hidden"
               style={{ background: `linear-gradient(135deg,${VIZ.ordinal[1]},${VIZ.ordinal[3]})` }}>
-              <span className="material-symbols-outlined text-white text-[30px] opacity-90">
+              {item.coverImage && (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={item.coverImage} alt="" referrerPolicy="no-referrer"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={e => { e.currentTarget.style.display = 'none' }} />
+              )}
+              <span className="material-symbols-outlined text-white text-[30px] opacity-90 relative">
                 {item.format === 'Reels' || item.format === 'Video' ? 'play_circle' : 'image'}
               </span>
             </div>
@@ -360,17 +426,20 @@ function ContentDetail({
           <div className="flex-1 min-w-[240px]">
             <div className="flex items-center gap-1.5 mb-1.5">
               <span style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold">{item.title}</span>
-              <SampleTag compact />
+              {!item.measured && <SampleTag compact />}
             </div>
             <p className="text-[11.5px] leading-[1.6] mb-3" style={{ color: T.t2 }}>{item.caption}</p>
 
-            <Row label="Views" value={fmtNum(item.views)} />
-            <Row label="Likes" value={fmtNum(item.likes)} />
-            <Row label="Comments" value={fmtNum(item.comments)} />
-            <Row label="Shares" value={fmtNum(item.shares)} />
-            <Row label="Saves" value={fmtNum(item.saves)} />
-            <Row label="Engagement rate" value={`${item.erPct}%`} />
-            <Row label="Sentiment" value={
+            {/* A harvested post is real on the numbers Instagram/TikTok actually
+                report and modelled on the rest, so each row asks `measuredFields`
+                rather than inheriting one verdict from the card. */}
+            <Row label="Views" value={fmtNum(item.views)} sample={!isReal('views')} />
+            <Row label="Likes" value={fmtNum(item.likes)} sample={!isReal('likes')} />
+            <Row label="Comments" value={fmtNum(item.comments)} sample={!isReal('comments')} />
+            <Row label="Shares" value={fmtNum(item.shares)} sample />
+            <Row label="Saves" value={fmtNum(item.saves)} sample />
+            <Row label="Engagement rate" value={`${item.erPct}%`} sample />
+            <Row label="Sentiment" sample value={
               <span className="inline-flex items-center gap-1">
                 <span className="material-symbols-outlined text-[14px]"
                   style={{ color: item.sentiment === 'Positif' ? VIZ.good : T.t4 }}>
@@ -392,14 +461,23 @@ function ContentDetail({
               </div>
             </div>
 
-            {creator.profileUrl && (
+            {/* A harvested post links to itself; a generated one can only offer
+                the creator's profile, which is the nearest real thing. */}
+            {item.permalink ? (
+              <a href={item.permalink} target="_blank" rel="noopener noreferrer"
+                style={{ ...PJ, color: T.primary }}
+                className="inline-flex items-center gap-1 text-[11px] font-bold mt-3.5 hover:underline">
+                Buka post asli
+                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              </a>
+            ) : creator.profileUrl ? (
               <a href={creator.profileUrl} target="_blank" rel="noopener noreferrer"
                 style={{ ...PJ, color: T.primary }}
                 className="inline-flex items-center gap-1 text-[11px] font-bold mt-3.5 hover:underline">
                 Buka profil asli
                 <span className="material-symbols-outlined text-[14px]">open_in_new</span>
               </a>
-            )}
+            ) : null}
           </div>
         </div>
       )}
@@ -546,7 +624,7 @@ export function CampaignSection({ intel }: SectionProps) {
       <Split
         main={
       <VizCard title="Campaign History" sample
-        subtitle="Tabel campaign platform KOL masih kosong — seluruh baris di bawah contoh">
+        subtitle="Tabel campaign platform KOL masih kosong — seluruh baris di bawah estimasi">
         <div className="overflow-x-auto">
           <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
             <thead>
