@@ -18,8 +18,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Btn, Chip, DiscoverHeader, EmptyState, ErrorState, FilterGroup, FORMAT_ICON,
   PLATFORM_ICON, PJ, SelectPill, SourceTag, Spinner, TabStrip,
-  fmtAge, fmtNum, gradientFor,
+  fmtAge, fmtDate, fmtNum, gradientFor,
 } from './ui'
+import { PostAnalyticsModal } from './PostAnalyticsPanel'
 import type {
   DiscoverContentPayload, DiscoverFilters, DiscoverFormat, DiscoverPost,
 } from '@/lib/discover/types'
@@ -36,7 +37,11 @@ const FORMAT_TABS: { id: DiscoverFormat | 'All'; label: string; icon: string }[]
 
 const SORT_LABEL: Record<DiscoverFilters['sort'], string> = {
   views: 'Most viewed', likes: 'Most liked', er: 'Highest ER', new: 'Newest', old: 'Oldest',
+  best: 'Best performing', worst: 'Least performing',
 }
+
+/** Sorts that rank against the account's median rather than by a raw figure. */
+const RELATIVE_SORTS: DiscoverFilters['sort'][] = ['best', 'worst']
 
 const ER_OPTS = [
   { label: 'Any engagement', value: 0 }, { label: '≥ 1% ER', value: 1 },
@@ -64,6 +69,8 @@ export default function DiscoverContent({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [savedCount, setSavedCount] = useState(0)
+  /** `source:rowId` of the card whose analytics are open, or null. */
+  const [openPost, setOpenPost] = useState<string | null>(null)
 
   // Debounced so typing in the search box doesn't fire a query per keystroke.
   const [queryInput, setQueryInput] = useState('')
@@ -212,10 +219,11 @@ export default function DiscoverContent({
           {error ? <ErrorState message={error} />
             : loading && !data ? <Spinner />
             : !data || data.posts.length === 0 ? (
-              <EmptyState
-                title="Tidak ada konten yang cocok"
-                body="Coba kata kunci lain, ganti tab format, atau hapus filternya."
-                action={<Btn variant="secondary" size="sm" onClick={clearAll}>Clear all filters</Btn>}
+              <ContentEmpty
+                grandTotal={data?.grandTotal ?? 0}
+                savedOnly={filters.savedOnly === true}
+                orgSlug={orgSlug}
+                onClear={clearAll}
               />
             ) : (
               <>
@@ -224,7 +232,9 @@ export default function DiscoverContent({
                   style={{ gridTemplateColumns: `repeat(${panelOpen ? 3 : 4}, minmax(0,1fr))` }}
                 >
                   {data.posts.map(p => (
-                    <PostCard key={p.key} post={p} onToggleSave={() => toggleSave(p)} />
+                    <PostCard key={p.key} post={p}
+                      onToggleSave={() => toggleSave(p)}
+                      onOpen={() => setOpenPost(p.key)} />
                   ))}
                 </div>
 
@@ -252,20 +262,34 @@ export default function DiscoverContent({
               onClear={clearAll} onCollapse={() => setPanelOpen(false)} />
           : <CollapsedTab active={activeCount} onOpen={() => setPanelOpen(true)} />}
       </div>
+
+      {/* Opened from a card. The analytics are fetched on demand rather than
+          shipped with all 24 rows of the grid — the detail costs three queries
+          per post, and most cards are never opened. */}
+      <PostAnalyticsModal orgId={orgId} postKey={openPost} onClose={() => setOpenPost(null)} />
     </div>
   )
 }
 
 /* ── grid card ────────────────────────────────────────────────────────────── */
 
-function PostCard({ post, onToggleSave }: { post: DiscoverPost; onToggleSave: () => void }) {
+function PostCard({
+  post, onToggleSave, onOpen,
+}: { post: DiscoverPost; onToggleSave: () => void; onOpen: () => void }) {
   // Brand cover URLs point at an external CDN that may 404; fall back to the
   // deterministic gradient rather than showing a broken image box.
   const [imgOk, setImgOk] = useState(true)
   const showImg = !!post.coverImage && imgOk
 
   return (
-    <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden hover:shadow-md hover:border-[#A7C8D4] transition-all">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+      aria-label={`Lihat analytics post @${post.author}`}
+      className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden cursor-pointer text-left hover:shadow-md hover:border-[#A7C8D4] focus:outline-none focus:ring-2 focus:ring-[#A7C8D4] transition-all"
+    >
       <div className="relative h-[118px]" style={{ background: gradientFor(post.key) }}>
         {showImg && (
           // eslint-disable-next-line @next/next/no-img-element -- external CDN host is not in next.config remotePatterns
@@ -289,7 +313,7 @@ function PostCard({ post, onToggleSave }: { post: DiscoverPost; onToggleSave: ()
         </span>
         <button
           type="button"
-          onClick={onToggleSave}
+          onClick={e => { e.stopPropagation(); onToggleSave() }}
           title={post.saved ? 'Tersimpan di Inspirations' : 'Simpan ke Inspirations'}
           className={`absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
             post.saved ? 'bg-[#327488] text-white' : 'bg-white/90 text-[#6b7280] hover:text-[#285D6E]'
@@ -316,7 +340,9 @@ function PostCard({ post, onToggleSave }: { post: DiscoverPost; onToggleSave: ()
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <span className="text-[10px] text-[#9ca3af]">{post.format}</span>
           <span className="text-[10px] text-[#d1d5db]">·</span>
-          <span className="text-[10px] text-[#9ca3af]">{fmtAge(post.ageDays)}</span>
+          <span className="text-[10px] text-[#9ca3af]" title={fmtAge(post.ageDays)}>
+            {post.postDate ? fmtDate(post.postDate) : '—'}
+          </span>
           {post.pillar && (
             <>
               <span className="text-[10px] text-[#d1d5db]">·</span>
@@ -330,19 +356,58 @@ function PostCard({ post, onToggleSave }: { post: DiscoverPost; onToggleSave: ()
           )}
         </div>
 
-        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-[#f3f4f6]">
-          <Metric icon="favorite" value={fmtNum(post.likes)} />
-          <Metric icon="chat_bubble" value={fmtNum(post.comments)} />
-          <Metric icon="bolt" value={`${post.erPct.toFixed(1)}%`} />
+        <div className="flex items-center gap-2.5 mt-2 pt-2 border-t border-[#f3f4f6] flex-wrap">
+          <Metric icon="visibility" value={fmtNum(post.views)} title="Views" />
+          <Metric icon="favorite" value={fmtNum(post.likes)} title="Likes" />
+          <Metric icon="chat_bubble" value={fmtNum(post.comments)} title="Comments" />
+          <Metric icon="bolt" value={`${post.erPct.toFixed(1)}%`} title="Engagement rate" />
+        </div>
+
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          <PerfChip ratio={post.perfRatio} />
+          {post.isCampaign && (
+            <span style={{ ...PJ, background: '#e8f1f4', color: '#285D6E' }}
+              className="rounded px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide">
+              Campaign
+            </span>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function Metric({ icon, value }: { icon: string; value: string }) {
+/**
+ * How this post did against the account's own median engagement rate.
+ *
+ * A percentage on a card is unreadable on its own — 3.1% is excellent for one
+ * account and poor for another. The multiple is the part a reader can act on, so
+ * that is what the chip states; the exact figures are one click away in the
+ * detail. Silent when either side is unmeasured, rather than guessing a verdict.
+ */
+function PerfChip({ ratio }: { ratio: number | null }) {
+  if (ratio === null) return null
+
+  const tone = ratio >= 1.2
+    ? { bg: '#eaf5ef', fg: '#3d8a5f', icon: 'trending_up' }
+    : ratio >= 0.8
+      ? { bg: '#f3f4f6', fg: '#6b7280', icon: 'trending_flat' }
+      : { bg: '#fdf3e7', fg: '#b5761f', icon: 'trending_down' }
+
   return (
-    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[#6b7280]">
+    <span style={{ ...PJ, background: tone.bg, color: tone.fg }}
+      title="Engagement rate post ini dibanding median akunnya"
+      className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9.5px] font-extrabold">
+      <span className="material-symbols-outlined text-[12px]">{tone.icon}</span>
+      {ratio.toFixed(1)}× median
+    </span>
+  )
+}
+
+function Metric({ icon, value, title }: { icon: string; value: string; title?: string }) {
+  return (
+    <span title={title}
+      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[#6b7280]">
       <span className="material-symbols-outlined text-[13px] text-[#9ca3af]">{icon}</span>
       {value}
     </span>
@@ -372,9 +437,16 @@ function FilterPanel({
 
       <div className="max-h-[640px] overflow-y-auto pr-1">
         <FilterGroup icon="sort" title="Sort by">
-          {(['new', 'old', 'views', 'likes', 'er'] as const).map(s => (
+          {(['best', 'worst', 'new', 'old', 'views', 'likes', 'er'] as const).map(s => (
             <Chip key={s} label={SORT_LABEL[s]} on={filters.sort === s} onClick={() => set({ sort: s })} />
           ))}
+          {RELATIVE_SORTS.includes(filters.sort) && (
+            <p className="text-[10px] text-[#9ca3af] leading-relaxed mt-1.5">
+              Diurutkan menurut engagement rate dibanding median akunnya masing-masing —
+              angka yang sama dengan chip &ldquo;× median&rdquo; di kartu. Post yang engagement
+              rate-nya belum terukur ditaruh paling akhir, bukan dianggap terburuk.
+            </p>
+          )}
         </FilterGroup>
 
         <FilterGroup icon="inventory_2" title="Source">
@@ -391,7 +463,10 @@ function FilterPanel({
         </FilterGroup>
 
         <FilterGroup icon="sell" title="Type">
-          {([['all', 'Organic + Sponsored'], ['organic', 'Organic'], ['sponsored', 'Sponsored']] as const).map(([v, l]) => (
+          {([
+            ['all', 'Semua'], ['campaign', 'Campaign'], ['boosted', 'Boosted'],
+            ['sponsored', 'Campaign + Boosted'], ['organic', 'Organic'],
+          ] as const).map(([v, l]) => (
             <Chip key={v} label={l} on={filters.type === v} onClick={() => set({ type: v })} />
           ))}
         </FilterGroup>
@@ -449,5 +524,58 @@ function CollapsedTab({ active, onOpen }: { active: number; onOpen: () => void }
         )}
       </button>
     </div>
+  )
+}
+
+/**
+ * Why the grid is empty, which is three different situations wearing one face.
+ *
+ * The old copy said "coba kata kunci lain, ganti tab format, atau hapus
+ * filternya" for all of them. That is sound advice for a filter that matched
+ * nothing, and actively misleading for an org whose corpus is empty — there is
+ * no filter to relax, the posts were never synced, and the reader is sent
+ * hunting through a filter panel that cannot help. `grandTotal` is the corpus
+ * size before any filter runs, so it separates the two without another query.
+ */
+function ContentEmpty({
+  grandTotal, savedOnly, orgSlug, onClear,
+}: { grandTotal: number; savedOnly: boolean; orgSlug: string; onClear: () => void }) {
+  if (grandTotal === 0) {
+    return (
+      <EmptyState
+        icon="cloud_off"
+        title="Belum ada konten untuk organisasi ini"
+        body={'Halaman ini menampilkan post dari akun brand kamu dan kompetitor yang ' +
+          'dilacak. Belum ada satu pun post yang tersinkron — hubungkan akun sosialnya ' +
+          'dulu di halaman Brands, lalu jalankan sync.'}
+        action={
+          <Btn variant="primary" size="sm"
+            onClick={() => { window.location.href = `/organizations/${orgSlug}/brands` }}>
+            Buka halaman Brands
+          </Btn>
+        }
+      />
+    )
+  }
+
+  if (savedOnly) {
+    return (
+      <EmptyState
+        icon="bookmark_border"
+        title="Belum ada inspirasi yang disimpan"
+        body={`Ada ${grandTotal.toLocaleString('id-ID')} post yang bisa dijelajahi. Klik ikon ` +
+          'bookmark di kartu mana pun untuk menyimpannya ke Inspirations.'}
+        action={<Btn variant="secondary" size="sm" onClick={onClear}>Tampilkan semua konten</Btn>}
+      />
+    )
+  }
+
+  return (
+    <EmptyState
+      title="Tidak ada konten yang cocok"
+      body={`Tidak satu pun dari ${grandTotal.toLocaleString('id-ID')} post cocok dengan filter ini. ` +
+        'Coba kata kunci lain, ganti tab format, atau hapus filternya.'}
+      action={<Btn variant="secondary" size="sm" onClick={onClear}>Clear all filters</Btn>}
+    />
   )
 }

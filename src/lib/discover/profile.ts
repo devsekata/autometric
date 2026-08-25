@@ -90,6 +90,21 @@ export interface KolProfile {
   organicRatio: Metric<number>
   paidErPct: Metric<number>
   organicErPct: Metric<number>
+  /** How many of this account's posts are tagged as campaign deliverables. */
+  campaignPosts: Metric<number>
+  /** Average ER across those posts. Null when the account has run none. */
+  campaignErPct: Metric<number | null>
+  /**
+   * Campaign ER divided by the account's own non-campaign ER — how much better
+   * (or worse) this profile does when it is running a brief.
+   *
+   * Ranking profiles by raw campaign ER would just rank accounts, the same trap
+   * the post-level sort avoids: 4% is strong for one handle and weak for
+   * another. The lift asks the only question a brief cares about — does paying
+   * this account to post actually move its numbers — and it is null when the
+   * account has no campaign posts, or nothing to compare them against.
+   */
+  campaignLift: Metric<number | null>
   topFormat: Metric<string>
   postFrequency: Metric<number>
   growthPct: Metric<number>
@@ -116,6 +131,10 @@ interface Aggregates {
   paidPosts: number
   paidEr: number
   organicEr: number
+  campaignPosts: number
+  /** Null, not zero: an account with no campaign posts has no campaign rate. */
+  campaignEr: number | null
+  nonCampaignEr: number | null
   topFormat: string
   spanDays: number
   lastPostAt: string | null
@@ -135,6 +154,7 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
              COALESCE(p.comments,0)::bigint AS comments, COALESCE(p.shares,0)::bigint AS shares,
              (COALESCE(p.er_reach,p.er_views,p.er_followers,0)*100)::float AS er_pct,
              (COALESCE(p.is_boosted,false) OR COALESCE(p.is_campaign,false)) AS sponsored,
+             COALESCE(p.is_campaign,false) AS is_campaign,
              COALESCE(NULLIF(p.format,''), NULLIF(p.post_type,''), 'Post') AS fmt,
              p.post_date::timestamptz AS post_date
         FROM l1_silver.unified_post p
@@ -148,6 +168,8 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
              CASE WHEN COALESCE(cp.view_count,0)>0
                   THEN ((COALESCE(cp.like_count,0)+COALESCE(cp.comment_count,0)+COALESCE(cp.share_count,0))::numeric/cp.view_count*100)::float
                   ELSE 0 END,
+             false,
+             -- A scraped competitor post carries no campaign tag and never can.
              false,
              COALESCE(NULLIF(cp.post_type,''),'Post'),
              cp.post_date
@@ -166,6 +188,13 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
            COUNT(*) FILTER (WHERE sponsored)::text                               AS paid_posts,
            COALESCE(AVG(er_pct) FILTER (WHERE sponsored),0)::text                AS paid_er,
            COALESCE(AVG(er_pct) FILTER (WHERE NOT sponsored),0)::text            AS organic_er,
+           COUNT(*) FILTER (WHERE is_campaign)::text                             AS campaign_posts,
+           -- Not COALESCEd: null here means "ran no campaign", which the lift
+           -- has to be able to tell apart from "ran one and it scored zero".
+           -- A rate of zero means never measured, so both averages skip those
+           -- rows and the two halves stay like for like.
+           (AVG(er_pct) FILTER (WHERE is_campaign AND er_pct > 0))::text          AS campaign_er,
+           (AVG(er_pct) FILTER (WHERE NOT is_campaign AND er_pct > 0))::text      AS non_campaign_er,
            (SELECT fmt FROM base b2 WHERE b2.account_id=base.account_id
              GROUP BY fmt ORDER BY COUNT(*) DESC LIMIT 1)                        AS top_format,
            MIN(post_date)::text                                                  AS first_post,
@@ -192,6 +221,10 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
       paidPosts: Number(r.paid_posts ?? 0),
       paidEr: Number(r.paid_er ?? 0),
       organicEr: Number(r.organic_er ?? 0),
+      campaignPosts: Number(r.campaign_posts ?? 0),
+      campaignEr: r.campaign_er === null || r.campaign_er === undefined ? null : Number(r.campaign_er),
+      nonCampaignEr: r.non_campaign_er === null || r.non_campaign_er === undefined
+        ? null : Number(r.non_campaign_er),
       topFormat: r.top_format ?? 'Post',
       spanDays,
       firstPostAt: toIso(r.first_post),
@@ -237,6 +270,12 @@ export async function listKolProfiles(orgId: string): Promise<KolProfile[]> {
 
     const paidPosts = a?.paidPosts ?? 0
     const paidRatio = posts > 0 ? (paidPosts / posts) * 100 : 0
+
+    // Null unless both halves exist: an account with no campaign posts, or one
+    // whose every non-campaign post went unmeasured, has nothing to divide.
+    const campaignLift = a?.campaignEr != null && a?.nonCampaignEr != null && a.nonCampaignEr > 0
+      ? a.campaignEr / a.nonCampaignEr
+      : null
 
     // Estimated reach: average views discounted by a per-account factor.
     const estimatedReach = Math.round(avgViews * between(seed, 'reach', 0.55, 0.85))
@@ -292,6 +331,14 @@ export async function listKolProfiles(orgId: string): Promise<KolProfile[]> {
       organicRatio: live(100 - paidRatio, 'Sisa dari post berbayar'),
       paidErPct: live(a?.paidEr ?? 0, 'Rata-rata ER pada post berbayar'),
       organicErPct: live(a?.organicEr ?? 0, 'Rata-rata ER pada post organik'),
+      campaignPosts: live(a?.campaignPosts ?? 0, 'Jumlah post bertanda campaign'),
+      campaignErPct: live(a?.campaignEr ?? null, 'Rata-rata ER pada post campaign'),
+      campaignLift: calc(
+        campaignLift,
+        campaignLift === null
+          ? 'Belum ada post campaign yang terukur untuk dibandingkan'
+          : 'ER post campaign dibagi ER post non-campaign akun ini sendiri',
+      ),
       topFormat: live(a?.topFormat ?? 'Post', 'Format yang paling sering dipakai'),
       postFrequency: live(postFrequency, 'Post per 30 hari pada rentang data'),
       growthPct: est(Number(between(seed, 'growth', -2, 12).toFixed(1)), 'Riwayat follower belum tersedia — dimodelkan'),

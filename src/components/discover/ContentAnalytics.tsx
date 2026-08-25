@@ -18,6 +18,7 @@ import { Card, CardHead } from '@/components/dashboard/ui'
 import { BarChart, Donut, HBars } from '@/components/dashboard/charts'
 import { EmptyState, PJ, fmtDate, fmtNum } from './ui'
 import { ConfidenceBadge } from './credibility'
+import { PostAnalyticsPanel, usePostAnalytics } from './PostAnalyticsPanel'
 import type { AccountDetailPayload, AccountPost } from '@/lib/discover/account'
 
 const PALETTE = ['#285D6E', '#4E96AC', '#e0a458', '#5fa783', '#8b7fc7', '#d97a7a', '#7DB4C6']
@@ -74,9 +75,20 @@ const SENTIMENT_STYLE: Record<Sentiment, { label: string; bg: string; fg: string
   negative: { label: 'Negatif', bg: '#fcefec', fg: '#c2553f' },
 }
 
-export default function ContentAnalytics({ data }: { data: AccountDetailPayload }) {
+export default function ContentAnalytics({
+  orgId, data,
+}: { orgId: string; data: AccountDetailPayload }) {
   const posts = data.latestPosts
   const [openPost, setOpenPost] = useState<string | null>(null)
+
+  /**
+   * The open row's full analytics, fetched on demand from the same endpoint the
+   * Discover grid uses. The row used to restate what the table already showed
+   * plus a caption-lexicon guess; this is the post's measured record — reach,
+   * saves, follows, link clicks, and the real comment sentiment where the
+   * warehouse has classified it.
+   */
+  const detail = usePostAnalytics(orgId, openPost)
 
   const analysis = useMemo(() => posts.map(p => ({
     post: p,
@@ -228,7 +240,7 @@ export default function ContentAnalytics({ data }: { data: AccountDetailPayload 
               </tr>
             </thead>
             <tbody>
-              {analysis.map(({ post: p, sentiment, hashtags }) => {
+              {analysis.map(({ post: p, sentiment }) => {
                 const open = openPost === p.key
                 const st = SENTIMENT_STYLE[sentiment.label]
                 return (
@@ -264,38 +276,8 @@ export default function ContentAnalytics({ data }: { data: AccountDetailPayload 
                     {open && (
                       <tr key={`${p.key}-detail`} className="bg-[#f9fafb] border-b border-[#f3f4f6]">
                         <td colSpan={9} className="px-4 py-3">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <Label>Analisis komentar</Label>
-                              <p className="text-[11px] text-[#6b7280] leading-relaxed">
-                                {fmtNum(p.comments)} komentar tercatat.
-                                Rasio komentar terhadap views {p.views > 0 ? ((p.comments / p.views) * 100).toFixed(3) : '0'}%.
-                              </p>
-                              <p className="text-[10px] text-[#b5761f] mt-1.5 leading-relaxed">
-                                Isi komentar belum disinkronkan, jadi breakdown sentimen per komentar
-                                belum bisa ditampilkan — yang ada baru jumlah dan rasionya.
-                              </p>
-                            </div>
-                            <div>
-                              <Label>Sentimen caption</Label>
-                              <p className="text-[11px] text-[#6b7280]">
-                                {st.label} (skor leksikon {sentiment.score >= 0 ? '+' : ''}{sentiment.score})
-                              </p>
-                              <Label className="mt-2">Hashtag</Label>
-                              <p className="text-[11px] text-[#285D6E]">
-                                {hashtags.length ? hashtags.join(' ') : 'tidak ada'}
-                              </p>
-                            </div>
-                            <div>
-                              <Label>Performa</Label>
-                              <div className="text-[11px] text-[#6b7280] leading-relaxed">
-                                <div>Views: {fmtNum(p.views)}</div>
-                                <div>Likes: {fmtNum(p.likes)}</div>
-                                <div>Engagement rate: {p.erPct.toFixed(2)}%</div>
-                                <div>Tipe: {p.sponsored ? 'Berbayar / boosted' : 'Organik'}</div>
-                              </div>
-                            </div>
-                          </div>
+                          <PostAnalyticsPanel
+                            data={detail.data} loading={detail.loading} error={detail.error} />
                         </td>
                       </tr>
                     )}

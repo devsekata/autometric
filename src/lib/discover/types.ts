@@ -16,7 +16,14 @@ export type DiscoverFormat = 'Reel' | 'Carousel' | 'Image' | 'Video' | 'Post'
 
 export const DISCOVER_FORMATS: DiscoverFormat[] = ['Reel', 'Carousel', 'Image', 'Video', 'Post']
 
-export type DiscoverSort = 'new' | 'old' | 'views' | 'likes' | 'er'
+/**
+ * `best` / `worst` rank by engagement rate *relative to the account's own
+ * median*, not by the raw rate. Sorting by raw ER just ranks accounts — a 3% post
+ * is strong on one handle and weak on another — so the absolute ordering would
+ * put every post from the liveliest account on page one and answer a different
+ * question than "which of these worked".
+ */
+export type DiscoverSort = 'new' | 'old' | 'views' | 'likes' | 'er' | 'best' | 'worst'
 
 export interface DiscoverPost {
   /** `${source}:${rowId}` — stable across the two id spaces, used as the React key. */
@@ -44,6 +51,19 @@ export interface DiscoverPost {
   /** Boosted or campaign-tagged posts read as "Sponsored" in the UI. */
   sponsored: boolean
   saved: boolean
+  /** Null for competitor rows, which are scraped and carry no reach of record. */
+  reach: number | null
+  saves: number | null
+  /** Interactions of record; derived from the raw counts for competitor rows. */
+  engagement: number
+  isCampaign: boolean
+  isBoosted: boolean
+  /**
+   * This post's engagement rate as a multiple of the median of its own account
+   * — 2.1 means twice the account's typical post. Null when either side is
+   * unmeasured, which is what the card checks before printing a verdict.
+   */
+  perfRatio: number | null
 }
 
 export interface DiscoverFilters {
@@ -51,8 +71,12 @@ export interface DiscoverFilters {
   format: DiscoverFormat | 'All'
   platform: DiscoverPlatform | 'all'
   pillar: string | 'all'
-  /** Organic vs Sponsored, mapped from is_boosted / is_campaign. */
-  type: 'all' | 'organic' | 'sponsored'
+  /**
+   * `sponsored` is the union of the two paid flags; `campaign` and `boosted`
+   * split it, because they are different questions — a campaign post is a
+   * deliverable of a brief, a boosted one is any post with spend behind it.
+   */
+  type: 'all' | 'organic' | 'sponsored' | 'campaign' | 'boosted'
   source: DiscoverSource | 'all'
   erMin: number
   likesMin: number

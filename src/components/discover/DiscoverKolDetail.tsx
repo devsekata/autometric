@@ -181,7 +181,7 @@ export default function DiscoverKolDetail({
           {section === 'performance' && <PerformanceSection data={data} />}
           {section === 'audience' && <AudienceSection data={data} />}
           {section === 'campaigns' && <CampaignSection data={data} />}
-          {section === 'content' && <ContentAnalytics data={data} />}
+          {section === 'content' && <ContentAnalytics orgId={orgId} data={data} />}
           {section === 'brandfit' && (profile
             ? <BrandFitSection profile={profile} />
             : <Spinner />)}

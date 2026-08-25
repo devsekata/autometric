@@ -9,8 +9,8 @@ import {
 type Params = { params: Promise<{ id: string }> }
 
 const PLATFORMS: DiscoverPlatform[] = ['instagram', 'facebook', 'tiktok']
-const SORTS: DiscoverSort[] = ['new', 'old', 'views', 'likes', 'er']
-const TYPES = ['all', 'organic', 'sponsored'] as const
+const SORTS: DiscoverSort[] = ['new', 'old', 'views', 'likes', 'er', 'best', 'worst']
+const TYPES = ['all', 'organic', 'sponsored', 'campaign', 'boosted'] as const
 const SOURCES = ['all', 'brand', 'competitor'] as const
 
 /** Clamp a numeric query param; anything unparseable falls back to `dflt`. */

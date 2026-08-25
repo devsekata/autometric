@@ -83,6 +83,10 @@ const TABLE_COLUMNS: {
   // Off by default — useful, but only to some of the jobs above.
   { id: 'quality',   label: 'Aud. quality', right: true, defaultOff: true, cell: p => String(p.audienceQuality.value) },
   { id: 'posts',     label: 'Posts',     right: true, defaultOff: true, cell: p => fmtNum(p.posts.value) },
+  { id: 'campaign',  label: 'Campaign',  right: true, defaultOff: true,
+    cell: p => (p.campaignPosts.value === 0 ? '—' : `${p.campaignPosts.value} post`) },
+  { id: 'lift',      label: 'Lift',      right: true, defaultOff: true,
+    cell: p => (p.campaignLift.value === null ? '—' : `${p.campaignLift.value.toFixed(2)}×`) },
   { id: 'rate',      label: 'Rate',      right: true, defaultOff: true, cell: p => (p.hasRate ? idr(p.baseRate) : '—') },
 ]
 
@@ -90,8 +94,11 @@ const DEFAULT_HIDDEN = TABLE_COLUMNS.filter(c => c.defaultOff).map(c => c.id)
 
 type SortKey =
   | 'brandFit' | 'followers' | 'er' | 'reach' | 'auth' | 'emv' | 'posts' | 'name'
+  | 'campaignBest' | 'campaignWorst'
 
 const SORTS: { id: SortKey; label: string }[] = [
+  { id: 'campaignBest', label: 'Best in campaign' },
+  { id: 'campaignWorst', label: 'Least in campaign' },
   { id: 'brandFit', label: 'Best brand fit' },
   { id: 'followers', label: 'Most followers' },
   { id: 'reach', label: 'Highest reach' },
@@ -302,7 +309,24 @@ export default function DiscoverDirectoryView({
       return true
     })
 
+    /**
+     * Campaign lift, with profiles that have never run one sorted last in *both*
+     * directions. An account with no campaign posts is not the worst performer;
+     * it is an unknown, and burying it under "Least in campaign" would read as a
+     * verdict the data never gave.
+     */
+    const byLift = (x: KolProfile, y: KolProfile, dir: 1 | -1) => {
+      const a = x.campaignLift.value
+      const b = y.campaignLift.value
+      if (a === null && b === null) return 0
+      if (a === null) return 1
+      if (b === null) return -1
+      return dir * (b - a)
+    }
+
     const cmp: Record<SortKey, (x: KolProfile, y: KolProfile) => number> = {
+      campaignBest: (x, y) => byLift(x, y, 1),
+      campaignWorst: (x, y) => byLift(x, y, -1),
       brandFit: (x, y) => y.brandFit.value - x.brandFit.value,
       followers: (x, y) => y.followers.value - x.followers.value,
       er: (x, y) => y.erPct.value - x.erPct.value,
@@ -359,6 +383,9 @@ export default function DiscoverDirectoryView({
     { key: 'quality', header: 'Audience quality (calc)', value: p => p.audienceQuality.value },
     { key: 'fit', header: 'Brand fit (calc)', value: p => p.brandFit.value },
     { key: 'paid', header: 'Paid ratio % (live)', value: p => p.paidRatio.value.toFixed(1) },
+    { key: 'campaignPosts', header: 'Post campaign (live)', value: p => String(p.campaignPosts.value) },
+    { key: 'campaignEr', header: 'ER campaign % (live)', value: p => (p.campaignErPct.value === null ? '' : p.campaignErPct.value.toFixed(2)) },
+    { key: 'campaignLift', header: 'Campaign lift x baseline', value: p => (p.campaignLift.value === null ? '' : p.campaignLift.value.toFixed(2)) },
     { key: 'paidEr', header: 'Paid ER % (live)', value: p => p.paidErPct.value.toFixed(2) },
     { key: 'organicEr', header: 'Organic ER % (live)', value: p => p.organicErPct.value.toFixed(2) },
     { key: 'format', header: 'Top format (live)', value: p => p.topFormat.value },
@@ -419,6 +446,12 @@ export default function DiscoverDirectoryView({
           className="h-8 px-2 rounded-lg border border-[#e5e7eb] text-[11.5px] font-semibold text-[#6b7280] focus:outline-none focus:border-[#327488]">
           {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
+        {(filters.sort === 'campaignBest' || filters.sort === 'campaignWorst') && (
+          <span className="text-[10.5px] text-[#9ca3af] max-w-[290px] leading-snug">
+            Diurutkan menurut ER post campaign dibanding ER post non-campaign akun itu sendiri.
+            Profil yang belum pernah menjalankan campaign ada di urutan paling akhir.
+          </span>
+        )}
         {filters.view === 'table' && (
           <div className="relative">
             <Btn variant="secondary" size="sm" onClick={() => setColsOpen(o => !o)}>
@@ -786,6 +819,17 @@ function KolCard({
           </span>
         </div>
 
+        {p.campaignPosts.value > 0 && (
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="inline-flex items-center gap-1 text-[10.5px] text-[#9ca3af]">
+              <span className="material-symbols-outlined text-[13px]">campaign</span>
+              Campaign
+              <b style={PJ} className="text-[11px] text-[#374151]">{p.campaignPosts.value} post</b>
+            </span>
+            <CampaignLift lift={p.campaignLift.value} />
+          </div>
+        )}
+
         <div className="mt-2 flex items-center gap-1.5">
           {onOrder && (
             <Btn size="sm" variant={inCart ? 'secondary' : 'primary'} onClick={onOrder}>
@@ -809,6 +853,32 @@ function KolCard({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Campaign lift as a chip: how this profile's campaign posts did against its own
+ * ordinary ones. Above 1× means paying it to post moved its numbers; below means
+ * its campaign work underperforms what it does unpaid, which is the thing worth
+ * knowing before booking it again.
+ */
+function CampaignLift({ lift }: { lift: number | null }) {
+  if (lift === null) {
+    return <span className="text-[10.5px] text-[#9ca3af]">belum terukur</span>
+  }
+  const tone = lift >= 1.2
+    ? { bg: '#eaf5ef', fg: '#3d8a5f', icon: 'trending_up' }
+    : lift >= 0.8
+      ? { bg: '#f3f4f6', fg: '#6b7280', icon: 'trending_flat' }
+      : { bg: '#fdf3e7', fg: '#b5761f', icon: 'trending_down' }
+
+  return (
+    <span style={{ ...PJ, background: tone.bg, color: tone.fg }}
+      title="ER post campaign dibanding ER post non-campaign akun ini"
+      className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9.5px] font-extrabold">
+      <span className="material-symbols-outlined text-[12px]">{tone.icon}</span>
+      {lift.toFixed(2)}× baseline
+    </span>
   )
 }
 

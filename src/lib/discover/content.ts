@@ -51,6 +51,12 @@ const SORT_SQL: Record<DiscoverFilters['sort'], string> = {
   views: 'views DESC, post_date DESC',
   likes: 'likes DESC, post_date DESC',
   er:    'er_pct DESC, post_date DESC',
+  // Against the account's own median — the same ratio the card prints as
+  // "1.6× median", so the ordering matches what the reader sees on it.
+  // A post with no measurable rate sorts last in *both* directions: it is not
+  // known to be good, and it is not known to be bad either.
+  best:  '(b.er_pct / NULLIF(m.median_er, 0)) DESC NULLS LAST, b.er_pct DESC',
+  worst: '(b.er_pct / NULLIF(m.median_er, 0)) ASC NULLS LAST, b.er_pct ASC',
 }
 
 /**
@@ -78,6 +84,11 @@ export const BASE_CTE = `
       -- er_* columns are ratios (0.024 = 2.4%); the UI wants percent.
       (COALESCE(p.er_reach, p.er_views, p.er_followers, 0) * 100)::float AS er_pct,
       (COALESCE(p.is_boosted, false) OR COALESCE(p.is_campaign, false))  AS sponsored,
+      p.reach                               AS reach,
+      p.saves                               AS saves,
+      COALESCE(p.engagement, p.total_interactions, 0)::bigint AS engagement,
+      COALESCE(p.is_campaign, false)        AS is_campaign,
+      COALESCE(p.is_boosted, false)         AS is_boosted,
       COALESCE(array_to_string(p.hashtag_list, ' '), '') AS hashtags
     FROM l1_silver.unified_post p
     JOIN public.social_accounts sa ON sa.id = p.brand_id
@@ -114,6 +125,12 @@ export const BASE_CTE = `
                  / cp.view_count * 100)::float
            ELSE 0 END,
       false,
+      -- Scraped rows carry no reach or saves of record; null, never zero.
+      NULL::bigint,
+      cp.save_count::bigint,
+      (COALESCE(cp.like_count,0) + COALESCE(cp.comment_count,0) + COALESCE(cp.share_count,0))::bigint,
+      false,
+      false,
       ''
     FROM l1_silver.unified_competitor_post cp
     JOIN public.social_accounts sa ON sa.id = cp.social_account_id
@@ -135,7 +152,11 @@ const FILTER_SQL = `
     AND ($4::text  IS NULL OR b.format   = $4)
     AND ($5::text  IS NULL OR b.platform = $5)
     AND ($6::text  IS NULL OR b.pillar   = $6)
-    AND ($7::text  IS NULL OR (CASE WHEN b.sponsored THEN 'sponsored' ELSE 'organic' END) = $7)
+    AND ($7::text  IS NULL OR
+         ($7 = 'organic'   AND NOT b.sponsored) OR
+         ($7 = 'sponsored' AND b.sponsored) OR
+         ($7 = 'campaign'  AND b.is_campaign) OR
+         ($7 = 'boosted'   AND b.is_boosted))
     AND ($8::text  IS NULL OR b.source   = $8)
     AND b.er_pct >= $9
     AND b.likes  >= $10
@@ -171,7 +192,13 @@ interface Row {
   shares: string
   er_pct: number
   sponsored: boolean
+  reach: string | null
+  saves: string | null
+  engagement: string | null
+  is_campaign: boolean
+  is_boosted: boolean
   saved: boolean
+  median_er: string | null
 }
 
 export async function listDiscoverContent(
@@ -200,12 +227,21 @@ export async function listDiscoverContent(
   ]
 
   const [pageRes, countRes, metaRes] = await Promise.all([
+    // `bench` is the median engagement rate of each account's own posts, which
+    // is what turns a bare percentage on the card into a judgement. It is an
+    // ordered-set aggregate, so it cannot be a window function over `base` —
+    // hence a second CTE grouped by author, joined back on.
     pool.query<Row>(
-      `${BASE_CTE}
-       SELECT b.*, (i.id IS NOT NULL) AS saved
+      `${BASE_CTE}, bench AS (
+         SELECT author, source,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY er_pct) AS median_er
+           FROM base WHERE er_pct > 0 GROUP BY author, source
+       )
+       SELECT b.*, (i.id IS NOT NULL) AS saved, m.median_er
          FROM base b
          LEFT JOIN public.discover_inspirations i
            ON i.organization_id = $1 AND i.source = b.source AND i.post_row_id = b.row_id
+         LEFT JOIN bench m ON m.author = b.author AND m.source = b.source
        ${FILTER_SQL}
         ORDER BY ${SORT_SQL[filters.sort] ?? SORT_SQL.views}
         LIMIT $14 OFFSET $15`,
@@ -241,6 +277,8 @@ export async function listDiscoverContent(
 }
 
 function toPost(r: Row): DiscoverPost {
+  const erPct = Number(r.er_pct ?? 0)
+  const medianEr = r.median_er === null || r.median_er === undefined ? null : Number(r.median_er)
   return {
     key: `${r.source}:${r.row_id}`,
     source: r.source,
@@ -258,8 +296,14 @@ function toPost(r: Row): DiscoverPost {
     likes: Number(r.likes ?? 0),
     comments: Number(r.comments ?? 0),
     shares: Number(r.shares ?? 0),
-    erPct: Number(r.er_pct ?? 0),
+    erPct,
     sponsored: !!r.sponsored,
     saved: !!r.saved,
+    reach: r.reach === null || r.reach === undefined ? null : Number(r.reach),
+    saves: r.saves === null || r.saves === undefined ? null : Number(r.saves),
+    engagement: Number(r.engagement ?? 0),
+    isCampaign: !!r.is_campaign,
+    isBoosted: !!r.is_boosted,
+    perfRatio: medianEr !== null && medianEr > 0 && erPct > 0 ? erPct / medianEr : null,
   }
 }

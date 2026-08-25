@@ -154,7 +154,7 @@ export default function KolSectionView({
       </div>
 
       {section === 'profile' && <ProfileSection data={data} />}
-      {section === 'content' && <ContentAnalytics data={data} />}
+      {section === 'content' && <ContentAnalytics orgId={orgId} data={data} />}
       {section === 'analytics' && <PerformanceSection data={data} />}
       {section === 'audience' && <AudienceSection data={data} />}
       {section === 'brandcamp' && (profile
