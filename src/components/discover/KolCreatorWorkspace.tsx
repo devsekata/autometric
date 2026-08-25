@@ -34,7 +34,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PJ, TOKENS as T, PLATFORM_ICON, Btn, fmtNum } from './ui'
+import { PJ, TOKENS as T, PLATFORM_ICON, Btn, fmtNum, RosterAvatar } from './ui'
 import { ErrorBlock, Overlay, Row, SampleTag, Skeleton, StatTile, VIZ } from './kolViz'
 import { ProfileSection, InsightsSection } from './KolCreatorProfile'
 import KolCreatorReport from './KolCreatorReport'
@@ -63,8 +63,6 @@ const NAV = [
 type NavId = (typeof NAV)[number]['id']
 
 const CAMPAIGN_OPTIONS = ['Summer Beauty Campaign', 'Ramadan 2026', 'Product Launch Q3']
-
-const initialsOf = (u: string) => (u.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toUpperCase()
 
 export default function KolCreatorWorkspace({
   orgId, orgSlug, kolId,
@@ -267,12 +265,7 @@ function Loaded({
           <div className="flex items-end gap-3.5 flex-wrap">
             <div className="w-20 h-20 rounded-[20px] border-[3px] flex-shrink-0 overflow-hidden flex items-center justify-center"
               style={{ borderColor: VIZ.surface, background: T.gradient }}>
-              {creator.avatarUrl
-                // eslint-disable-next-line @next/next/no-img-element -- roster avatars come from CDNs not in next.config
-                ? <img src={creator.avatarUrl} alt="" className="w-full h-full object-cover" />
-                : <span style={PJ} className="text-white text-[24px] font-extrabold">
-                    {initialsOf(creator.username)}
-                  </span>}
+              <RosterAvatar src={creator.avatarUrl} username={creator.username} textClass="text-[24px]" />
             </div>
 
             <div className="flex-1 min-w-[240px] pb-0.5">

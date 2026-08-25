@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PJ, TOKENS as T, fmtNum } from './ui'
+import { PJ, TOKENS as T, fmtNum, initialsOf, RosterAvatar } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import {
   KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, filtersToParams,
@@ -97,9 +97,6 @@ function bannerFor(id: string): string {
   return BANNERS[h % BANNERS.length]
 }
 const gradOf = (c: string) => `linear-gradient(135deg,${c},${c}bb)`
-
-const initialsOf = (username: string) =>
-  (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toUpperCase()
 
 /** "2h ago" / "3mo ago" from the last refresh the KOL platform recorded. */
 function sinceLabel(iso: string | null): string {
@@ -775,10 +772,7 @@ function CreatorCard({
 
       <div className="w-[60px] h-[60px] rounded-[17px] border-4 border-white -mt-[34px] ml-4 flex items-center justify-center relative overflow-hidden"
         style={{ background: banner, boxShadow: T.shadow }}>
-        {c.avatarUrl
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={c.avatarUrl} alt={c.username} className="w-full h-full object-cover" />
-          : <span style={PJ} className="text-white text-[22px] font-extrabold">{initialsOf(c.username)}</span>}
+        <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[22px]" />
         {c.verified && (
           <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-[2.5px] border-white flex items-center justify-center"
             style={{ background: T.primary }}>

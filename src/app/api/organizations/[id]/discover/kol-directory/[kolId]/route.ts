@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import { getKolCreator } from '@/lib/discover/kolDirectory'
+import { withProxiedCovers } from '@/lib/discover/kolPostCover'
 
 type Params = { params: Promise<{ id: string; kolId: string }> }
 
@@ -21,7 +22,10 @@ export async function GET(_req: Request, { params }: Params) {
     const data = await getKolCreator(kolId)
     if (!data) return NextResponse.json({ error: 'Creator tidak ditemukan di roster.' }, { status: 404 })
 
-    return NextResponse.json(data)
+    // A harvested post's cover is served through this org's own cover route
+    // rather than linked to directly — the CDN link the warehouse stores has
+    // expired for every post harvested so far. See `@/lib/discover/kolPostCover`.
+    return NextResponse.json(withProxiedCovers(data, orgId, kolId))
   } catch (err) {
     console.error('[GET /api/organizations/[id]/discover/kol-directory/[kolId]]', err)
     return NextResponse.json({

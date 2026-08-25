@@ -23,7 +23,7 @@
  * unstamped so the difference is visible in the same table.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, Btn } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import {
@@ -270,6 +270,84 @@ const CONTENT_SORTS = [
   ['top', 'Top performing'], ['recent', 'Terbaru'], ['views', 'Views terbanyak'],
 ] as const
 
+/** `media_type` as an icon, so a cover that never loads still says what it was. */
+const POST_ICON: Record<string, string> = {
+  Reels: 'play_circle', Video: 'play_circle', 'Feed Video': 'play_circle',
+  Carousel: 'collections', Foto: 'image', Feed: 'image', Story: 'auto_stories',
+}
+
+const POSTED_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+
+/**
+ * A sampled item's `postedAt` is already a label ("Jan 2026"); a harvested one
+ * carries the post's ISO timestamp, which was reaching the overlay raw. Only the
+ * timestamp is reformatted — `new Date('Jan 2026')` parses, so handing the label
+ * to the same path would silently rewrite it as "1 Jan 2026".
+ */
+function postedLabel(v: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(v)) return v
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return v
+  return `${d.getDate()} ${POSTED_MONTHS[d.getMonth()]} ${d.getFullYear()}`
+}
+
+/**
+ * A post's cover, and what stands in when even the recovery fails.
+ *
+ * `src` is not the platform's own CDN link any more. Those are signed and every
+ * one harvested so far has passed its expiry, which is why this grid used to
+ * render as rows of blank tiles; the API now points each cover at
+ * `…/kol-directory/[kolId]/cover/[postId]`, which re-mints the picture from the
+ * post's permalink (see `@/lib/discover/kolPostCover`). That recovers 209 of the
+ * 221 harvested posts — every Instagram one, and most TikTok ones.
+ *
+ * The rest need a fallback that still reads as a post, so it names the format
+ * rather than showing a bare gradient. The caption and the numbers under it were
+ * real all along. The failure is reported up rather than swallowed, so the
+ * section can explain a wholly coverless grid once instead of per tile.
+ */
+function PostCover({
+  src, format, height, background, iconSize = 22, onFail,
+}: {
+  src?: string | null
+  format: string
+  height: number
+  background: string
+  iconSize?: number
+  onFail?: (src: string) => void
+}) {
+  const [broken, setBroken] = useState<string | null>(null)
+  const icon = POST_ICON[format] ?? 'image'
+  const showImage = !!src && broken !== src
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-0.5 relative overflow-hidden"
+      style={{ height, background }}>
+      {showImage ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- post covers come from CDNs not in next.config */}
+          <img src={src as string} alt="" referrerPolicy="no-referrer"
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={() => { setBroken(src as string); onFail?.(src as string) }} />
+          {icon === 'play_circle' && (
+            <span className="material-symbols-outlined text-white absolute bottom-1 left-1.5 text-[16px]"
+              style={{ textShadow: '0 1px 3px rgba(0,0,0,.55)' }}>play_circle</span>
+          )}
+        </>
+      ) : (
+        <>
+          <span className="material-symbols-outlined text-white opacity-90"
+            style={{ fontSize: iconSize }}>{icon}</span>
+          <span style={PJ}
+            className="text-white text-[8.5px] font-extrabold uppercase tracking-widest opacity-75">
+            {format}
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
 /**
  * Content gets its own tab rather than living under Performance: "konten apa
  * yang berhasil" is the question a brief is written from, and it is asked on
@@ -279,6 +357,9 @@ export function ContentSection({ creator, intel }: SectionProps) {
   const [format, setFormat] = useState('all')
   const [sort, setSort] = useState<string>('top')
   const [openItem, setOpenItem] = useState<SampleContentItem | null>(null)
+  const [failedCovers, setFailedCovers] = useState<string[]>([])
+  const noteCoverFail = useCallback(
+    (src: string) => setFailedCovers(f => (f.includes(src) ? f : [...f, src])), [])
 
   const formats = useMemo(
     () => [...new Set(intel.content.recent.map(c => c.format))], [intel.content.recent])
@@ -289,6 +370,11 @@ export function ContentSection({ creator, intel }: SectionProps) {
     if (sort === 'top') return [...out].sort((a, b) => b.erPct - a.erPct)
     return out
   }, [intel.content.recent, format, sort])
+
+  /** True once every cover in the current view has 403'd — see `PostCover`. */
+  const coversDown = failedCovers.length > 0
+    && items.some(c => c.coverImage)
+    && items.every(c => !c.coverImage || failedCovers.includes(c.coverImage))
 
   return (
     <div className="flex flex-col gap-4">
@@ -319,22 +405,9 @@ export function ContentSection({ creator, intel }: SectionProps) {
                   <button key={`${c.title}-${i}`} type="button" onClick={() => setOpenItem(c)}
                     className="rounded-[12px] border overflow-hidden text-left hover:brightness-[.99] transition"
                     style={{ borderColor: T.outline }}>
-                    {/* A harvested post brings its own cover. The gradient stays
-                        underneath as the backdrop, so a CDN image that 403s (the
-                        usual fate of an Instagram cover fetched cross-origin)
-                        degrades to the generated tile instead of a broken icon. */}
-                    <div className="h-[96px] flex items-center justify-center relative"
-                      style={{ background: `linear-gradient(135deg,${VIZ.ordinal[i % VIZ.ordinal.length]},${VIZ.ordinal[(i + 2) % VIZ.ordinal.length]})` }}>
-                      {c.coverImage && (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={c.coverImage} alt="" referrerPolicy="no-referrer"
-                          className="absolute inset-0 w-full h-full object-cover"
-                          onError={e => { e.currentTarget.style.display = 'none' }} />
-                      )}
-                      <span className="material-symbols-outlined text-white text-[22px] opacity-90 relative">
-                        {c.format === 'Reels' || c.format === 'Video' ? 'play_circle' : 'image'}
-                      </span>
-                    </div>
+                    <PostCover src={c.coverImage} format={c.format} height={96}
+                      background={`linear-gradient(135deg,${VIZ.ordinal[i % VIZ.ordinal.length]},${VIZ.ordinal[(i + 2) % VIZ.ordinal.length]})`}
+                      onFail={noteCoverFail} />
                     <div className="p-2">
                       <div style={{ ...PJ, color: T.t1 }} className="text-[11px] font-bold truncate">{c.title}</div>
                       <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold mt-0.5">
@@ -343,10 +416,22 @@ export function ContentSection({ creator, intel }: SectionProps) {
                       <div className="text-[10px]" style={{ color: T.t4 }}>
                         views · ER {c.erPct}% · {fmtNum(c.likes)} likes
                       </div>
+                      <div className="text-[9.5px] mt-0.5" style={{ color: T.t4 }}>
+                        {c.format} · {postedLabel(c.postedAt)}
+                      </div>
                     </div>
                   </button>
                 ))}
               </div>
+            )}
+
+            {coversDown && (
+              <p className="text-[10px] leading-[1.55] mt-3" style={{ color: T.t3 }}>
+                Gambar cover-nya sedang tidak bisa diambil dari Instagram/TikTok — biasanya
+                karena post-nya sudah dihapus atau akunnya dikunci. Caption dan angka di tiap
+                kartu tetap dari post aslinya; klik kartunya lalu <b>Buka post asli</b> untuk
+                melihat kontennya di platform.
+              </p>
             )}
           </VizCard>
         }
@@ -406,20 +491,12 @@ function ContentDetail({
       {item && (
         <div className="flex gap-4 flex-wrap">
           <div className="w-[200px] flex-shrink-0">
-            <div className="h-[200px] rounded-[14px] flex items-center justify-center relative overflow-hidden"
-              style={{ background: `linear-gradient(135deg,${VIZ.ordinal[1]},${VIZ.ordinal[3]})` }}>
-              {item.coverImage && (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={item.coverImage} alt="" referrerPolicy="no-referrer"
-                  className="absolute inset-0 w-full h-full object-cover"
-                  onError={e => { e.currentTarget.style.display = 'none' }} />
-              )}
-              <span className="material-symbols-outlined text-white text-[30px] opacity-90 relative">
-                {item.format === 'Reels' || item.format === 'Video' ? 'play_circle' : 'image'}
-              </span>
+            <div className="rounded-[14px] overflow-hidden">
+              <PostCover src={item.coverImage} format={item.format} height={200} iconSize={34}
+                background={`linear-gradient(135deg,${VIZ.ordinal[1]},${VIZ.ordinal[3]})`} />
             </div>
             <div className="text-[10.5px] mt-2 text-center" style={{ color: T.t4 }}>
-              {item.platform} · {item.format} · {item.postedAt}
+              {item.platform} · {item.format} · {postedLabel(item.postedAt)}
             </div>
           </div>
 

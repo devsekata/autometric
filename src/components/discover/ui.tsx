@@ -50,6 +50,10 @@ export const TOKENS = {
 
 /* ── formatting ───────────────────────────────────────────────────────────── */
 
+/** Two-letter placeholder drawn when a creator has no usable avatar. */
+export const initialsOf = (username: string) =>
+  (username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toUpperCase()
+
 export function fmtNum(n: number): string {
   const a = Math.abs(n)
   if (a >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
@@ -283,6 +287,39 @@ export function ErrorState({ message }: { message: string }) {
       <span className="material-symbols-outlined text-[40px] text-[#d1d5db]">error</span>
       <p className="text-[13px] text-[#6b7280] mt-2">Gagal memuat data: {message}</p>
     </div>
+  )
+}
+
+/**
+ * Roster avatar with an initials fallback.
+ *
+ * The KOL platform stores the creator's Instagram CDN link, and those URLs are
+ * signed: they answer 403 once the signature expires, a few days after the row
+ * was last refreshed. A broken `<img>` leaves an empty box rather than falling
+ * through to the placeholder beside it, so a failed load is recorded here and
+ * the initials are drawn instead. What is tracked is the failed URL, not a
+ * boolean, so the state stays correct when a list re-renders this slot with a
+ * different creator.
+ *
+ * The caller owns the frame — size, radius, gradient, verified badge — and this
+ * only fills it; `textClass` sizes the initials to that frame.
+ */
+export function RosterAvatar({
+  src, username, textClass,
+}: { src: string | null; username: string; textClass: string }) {
+  const [broken, setBroken] = useState<string | null>(null)
+
+  if (src && broken !== src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- roster avatars come from CDNs not in next.config
+      <img src={src} alt="" className="w-full h-full object-cover"
+        referrerPolicy="no-referrer" onError={() => setBroken(src)} />
+    )
+  }
+  return (
+    <span style={PJ} className={`text-white font-extrabold ${textClass}`}>
+      {initialsOf(username)}
+    </span>
   )
 }
 

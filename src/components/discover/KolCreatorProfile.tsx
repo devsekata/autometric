@@ -14,7 +14,7 @@
  * only sampled fields, and they are marked.
  */
 
-import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum } from './ui'
+import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, RosterAvatar } from './ui'
 import { SampleTag, Split, VIZ, VizCard } from './kolViz'
 import { platformLabel, type SectionProps } from './KolCreatorSections'
 
@@ -166,12 +166,7 @@ function SimilarRow({
           <div className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0 overflow-hidden"
               style={{ background: T.gradient }}>
-              {s.avatarUrl
-                // eslint-disable-next-line @next/next/no-img-element -- roster avatars come from CDNs not in next.config
-                ? <img src={s.avatarUrl} alt="" className="w-full h-full object-cover" />
-                : <span style={PJ} className="text-white text-[11px] font-extrabold">
-                    {(s.username.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toUpperCase()}
-                  </span>}
+              <RosterAvatar src={s.avatarUrl} username={s.username} textClass="text-[11px]" />
             </span>
             <div className="min-w-0">
               <div style={{ ...PJ, color: T.t1 }} className="text-[11.5px] font-bold truncate">@{s.username}</div>
