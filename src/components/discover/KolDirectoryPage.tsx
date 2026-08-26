@@ -178,8 +178,20 @@ interface SavedList { name: string; filters: KolFilters }
  * the actions beside it stay: they describe the result set, not the page.
  */
 export default function KolDirectoryPage({
-  orgId, orgSlug, embedded = false,
-}: { orgId: string; orgSlug: string; embedded?: boolean }) {
+  orgId, orgSlug, embedded = false, onAddCreator,
+}: {
+  orgId: string
+  orgSlug: string
+  embedded?: boolean
+  /**
+   * Where `Add KOL` goes. The source platform's button opened a registration
+   * form; here it hands over to the Creator Database segment, which owns the
+   * whole intake flow — validation, the duplicate check and profiling. Optional
+   * so the page still renders on its own route, where there is nothing to hand
+   * over to.
+   */
+  onAddCreator?: () => void
+}) {
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
@@ -468,8 +480,13 @@ export default function KolDirectoryPage({
               title="Bandingkan creator yang dipilih berdampingan">
               Compare{compare.ids.size > 0 && <Count n={compare.ids.size} />}
             </Btn>
-            <Btn kind="primary" icon="person_add" onClick={() => flash('Form tambah KOL dibuka')}
-              title="Register a new influencer">
+            <Btn
+              kind="primary"
+              icon="person_add"
+              onClick={() => (onAddCreator
+                ? onAddCreator()
+                : flash('Tambah creator tersedia di segmen Creator Database'))}
+              title="Tambahkan creator baru ke database organisasi ini">
               Add KOL
             </Btn>
           </div>

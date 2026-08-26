@@ -107,16 +107,21 @@ export const DISCOVER_TABS: DiscoverTab[] = [
     // `NAVK[0]` — the source's `KOL`, its creator list, and the only place its
     // per-creator drill-down is entered from.
     id: 'directory',
-    label: 'Directory',
-    icon: 'grid_view',
+    label: 'Discovery',
+    icon: 'travel_explore',
     group: 'kol',
-    subtitle: 'Roster KOL komersial dan akun yang di-track organisasi ini, dalam satu daftar.',
+    subtitle: 'Find, manage, monitor, and discover the right creators for your campaign.',
     views: [
+      /**
+       * The creators this org added by hand — the working list. It is named
+       * `mine` rather than `roster` because "roster" is the word the commercial
+       * directory carries in this product, and the two must not be one id.
+       */
       {
-        id: 'roster',
+        id: 'mine',
         label: 'Roster KOL',
-        icon: 'grid_view',
-        subtitle: 'Roster KOL platform komersial: cari dengan keyword, lalu saring per platform, tier, followers, engagement rate dan kategori.',
+        icon: 'folder_shared',
+        subtitle: 'Kelola KOL dan creator yang sedang kamu kerjakan: tambah akun baru, cek status profiling, lalu saring dengan filter dasar.',
       },
       {
         // The warehouse side. It is the roster with post-level history, so the
@@ -124,9 +129,28 @@ export const DISCOVER_TABS: DiscoverTab[] = [
         // commercial roster, whose creators have no collected posts.
         id: 'tracked',
         label: 'Akun Ter-track',
-        icon: 'inventory_2',
-        subtitle: 'Akun brand dan kompetitor yang di-track organisasi ini, lengkap dengan metrik dari post yang sudah terkumpul.',
+        icon: 'monitor_heart',
+        subtitle: 'Pantau akun media sosial yang di-track organisasi ini — akun brand sendiri dan kompetitornya — beserta aktivitas terbarunya. Di-track bukan berarti sudah dipesan.',
       },
+      {
+        // The commercial platform's ~7.7k creators: the big searchable list.
+        id: 'database',
+        label: 'Creator Database',
+        icon: 'travel_explore',
+        subtitle: 'Jelajahi dan cari creator dari database lengkap: keyword, platform, kategori, tier, followers, engagement rate dan rate card.',
+      },
+      {
+        id: 'smart',
+        label: 'Smart Discovery',
+        icon: 'hub',
+        subtitle: 'Mulai dari satu creator yang kamu suka, sebutkan kebutuhanmu — misalnya budget lebih rendah — lalu lihat alternatif serupa beserta alasannya.',
+      },
+      // Two screens you are sent to, not screens you switch to: one run's
+      // progress, and one creator's full profile. Both need `&creator=`, so a
+      // strip entry with no id would be a dead link — the same reason the
+      // per-creator analysis views below are hidden until a creator is active.
+      { id: 'profiling', label: 'Profiling', icon: 'timeline', hidden: true, subtitle: 'Enam langkah profiling satu creator, seperti yang dicatat server.' },
+      { id: 'creator', label: 'Creator Profile', icon: 'person', hidden: true, subtitle: 'Profil lengkap creator yang ditambahkan organisasi ini, beserta riwayat monitoring-nya.' },
     ],
     creatorViews: [
       { id: 'profile', label: 'Profile', icon: 'person', subtitle: 'Identitas dan KPI utama KOL aktif.' },
@@ -286,7 +310,10 @@ const ALIASES: Record<string, TabParams> = {
   // per-creator Content Analytics view — so it is resolved by `resolveTabParams`
   // against the `view` param rather than listed here.
   discoveryContent: { tab: 'discovery', view: null },
-  kol: { tab: 'directory', view: 'roster' },
+  kol: { tab: 'directory', view: 'database' },
+  // The org's own creators spent a version as a tab of their own. Their views
+  // are Directory's now, and `resolveTabParams` maps them by name below.
+  creators: { tab: 'directory', view: 'mine' },
 }
 
 /**
@@ -314,6 +341,22 @@ export function resolveTabParams(
   // links never carried one.
   if (rawTab === 'content' && !rawView) return { tab: 'directory', view: 'content' }
 
+  /**
+   * Two `view` ids changed meaning when Discovery was renamed around what a
+   * first-time reader calls these screens, and both need mapping by hand
+   * because the generic alias below would carry the id across unchanged.
+   *
+   *   * `?tab=creators&view=roster|database` was the org's own creator list,
+   *     which is `mine` now.
+   *   * `?tab=directory&view=roster` was the commercial directory, which is
+   *     `database` now — the id `database` briefly meant the org's own list, so
+   *     a link carrying it under `directory` is read the way it was written.
+   */
+  if (rawTab === 'creators' && (rawView === 'roster' || rawView === 'database')) {
+    return { tab: 'directory', view: 'mine' }
+  }
+  if (rawTab === 'directory' && rawView === 'roster') return { tab: 'directory', view: 'database' }
+
   const alias = ALIASES[rawTab]
   if (alias) {
     // `?tab=accounts&view=analytics` is a real saved link: the second roster was
@@ -338,12 +381,27 @@ export function resolveTabParams(
   return { tab: tab.id, view: view ? view.id : (visibleViews(tab)[0]?.id ?? null) }
 }
 
-/** The canonical URL for a tab/view pair, relative to the org. */
-export function tabHref(orgSlug: string, tab: string, view?: string | null): string {
+/**
+ * The canonical URL for a tab/view pair, relative to the org.
+ *
+ * `extra` carries the one thing a view can need beyond the pair: which creator
+ * it is about. The profiling screen and a creator's profile are both `creators`
+ * views that mean nothing without an id, and holding that id in component state
+ * instead would lose it on reload and make the screen unshareable.
+ */
+export function tabHref(
+  orgSlug: string,
+  tab: string,
+  view?: string | null,
+  extra?: Record<string, string | null | undefined>,
+): string {
   const base = `/organizations/${orgSlug}/discover`
   const qs = new URLSearchParams()
   if (tab !== DEFAULT_TAB) qs.set('tab', tab)
   if (view) qs.set('view', view)
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (value) qs.set(key, value)
+  }
   const s = qs.toString()
   return s ? `${base}?${s}` : base
 }

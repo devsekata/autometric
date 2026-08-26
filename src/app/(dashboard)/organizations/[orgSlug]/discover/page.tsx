@@ -8,7 +8,7 @@ import type { WorkspaceSettingsData } from '@/components/discover/WorkspaceSetti
 
 interface Props {
   params: Promise<{ orgSlug: string }>
-  searchParams: Promise<{ tab?: string; view?: string }>
+  searchParams: Promise<{ tab?: string; view?: string; creator?: string; add?: string }>
 }
 
 /**
@@ -23,13 +23,19 @@ interface Props {
  */
 export default async function DiscoverPage({ params, searchParams }: Props) {
   const { orgSlug } = await params
-  const { tab: rawTab, view: rawView } = await searchParams
+  const { tab: rawTab, view: rawView, creator: rawCreator, add } = await searchParams
 
   const session = await auth()
   const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
   if (!org) notFound()
 
   const { tab, view } = resolveTabParams(rawTab, rawView)
+
+  // Shape-checked here rather than in the client: the id goes straight into an
+  // API path, and a malformed one should resolve to the roster, not to a 404
+  // rendered inside the profiling screen.
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const creatorId = rawCreator && UUID.test(rawCreator) ? rawCreator : null
 
   let workspaceSettings: WorkspaceSettingsData | null = null
   if (tab === 'settings' && view === 'workspace') {
@@ -45,6 +51,8 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
       orgSlug={orgSlug}
       tab={tab}
       view={view}
+      creatorId={creatorId}
+      openAddCreator={add === '1'}
       workspaceSettings={workspaceSettings}
     />
   )

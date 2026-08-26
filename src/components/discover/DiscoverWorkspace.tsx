@@ -16,9 +16,13 @@
  * competed for the same job and the horizontal one scrolled sideways on a laptop.
  *
  *   Discover  ?tab=…                       ← sidebar branch
- *   ├─ Directory        &view=roster | tracked — the commercial roster and the
- *   │    └─ &view=…       accounts this org tracks; then the seven per-creator
- *   │                     views, once a tracked account is opened
+ *   ├─ Discovery        four segments, `mine` first and therefore the module's
+ *   │    │                landing view
+ *   │    ├─ mine          creators this org added, and the intake flow
+ *   │    ├─ tracked       accounts this org monitors, and the seven per-creator
+ *   │    │                analysis views reached from them
+ *   │    ├─ database      the commercial roster, searchable
+ *   │    └─ smart         reference-based recommendations
  *   ├─ Compare
  *   ├─ Reports          &view=discover | workspace
  *   ├─ Negotiation      offers, chat, agreement terms
@@ -50,6 +54,10 @@ import { useDiscoverCart } from './useDiscoverCart'
 import { useActiveKol } from './useActiveKol'
 import DiscoverDirectoryView from './DiscoverDirectoryView'
 import KolDirectoryPage from './KolDirectoryPage'
+import CreatorRoster from './CreatorRoster'
+import CreatorProfilingScreen from './CreatorProfilingScreen'
+import CreatorDetail from './CreatorDetail'
+import SmartDiscovery from './SmartDiscovery'
 import DiscoverCart from './DiscoverCart'
 import DiscoverRates from './DiscoverRates'
 import CampaignBuilder from './CampaignBuilder'
@@ -80,7 +88,13 @@ const PER_KOL_SECTIONS: Record<string, KolSection> = {
  * the source's three checkout steps, which it draws inside the Cart segment
  * rather than beside it, so Cart stays selected for the whole flow.
  */
-const STRIP_ANCHOR: Record<string, string> = { ordering: 'cart' }
+const STRIP_ANCHOR: Record<string, string> = {
+  ordering: 'cart',
+  // The two creator drill-downs are reached from the creator database and
+  // return to it, so that segment stays lit while they are showing.
+  profiling: 'mine',
+  creator: 'mine',
+}
 
 export interface DiscoverWorkspaceProps {
   orgId: string
@@ -95,6 +109,20 @@ export interface DiscoverWorkspaceProps {
   tab: string
   view: string | null
   /**
+   * Which creator the `creators` tab's two drill-down views are about, from
+   * `?creator=`. Null everywhere else. In the URL rather than in state so the
+   * profiling screen survives a reload and can be handed to someone else — a run
+   * takes minutes, and "send me the link" is the normal thing to do with it.
+   */
+  creatorId: string | null
+  /**
+   * `?add=1` — open the Add Account modal as soon as the roster mounts. It is a
+   * URL flag rather than component state because "Add Another Creator" arrives
+   * here as a navigation from the profiling screen, and state does not survive
+   * one.
+   */
+  openAddCreator: boolean
+  /**
    * Read on the server for the Workspace half of Settings — members, tracked
    * platforms, whether payment and AI keys are configured. Null on every other
    * tab: the page only pays for it when that tab is the one being asked for.
@@ -103,7 +131,7 @@ export interface DiscoverWorkspaceProps {
 }
 
 export default function DiscoverWorkspace({
-  orgId, orgSlug, tab, view, workspaceSettings,
+  orgId, orgSlug, tab, view, creatorId, openAddCreator, workspaceSettings,
 }: DiscoverWorkspaceProps) {
   const router = useRouter()
   const shortlist = useDiscoverSelection(orgId, 'compare')
@@ -120,9 +148,37 @@ export default function DiscoverWorkspace({
   const [checkoutSeed, setCheckoutSeed] =
     useState<{ objective?: string; name?: string; promoCode?: string } | undefined>(undefined)
 
-  const go = useCallback((nextTab: string, nextView?: string | null) => {
-    router.push(tabHref(orgSlug, nextTab, nextView), { scroll: false })
+  const go = useCallback((
+    nextTab: string,
+    nextView?: string | null,
+    extra?: Record<string, string | null | undefined>,
+  ) => {
+    router.push(tabHref(orgSlug, nextTab, nextView, extra), { scroll: false })
   }, [router, orgSlug])
+
+  /**
+   * The creator-database screens. They are views of Directory, so they navigate
+   * like every other segment of it and carry the id they are about.
+   */
+  const goCreator = useCallback((nextView: string, id?: string | null) => {
+    go('directory', nextView, { creator: id })
+  }, [go])
+
+  /**
+   * Which Creator Database screen is showing, if any.
+   *
+   * These are Directory views, so this only fires for `directory` — and the two
+   * drill-downs need an id, so a link to one without `?creator=` (a bookmark
+   * saved before the creator was deleted, say) resolves to the database list
+   * rather than to a screen with nothing to render.
+   */
+  const CREATOR_VIEWS = ['mine', 'smart', 'profiling', 'creator']
+  const creatorScreen = tab !== 'directory' ? null
+    // A bare `?tab=directory` lands on Roster KOL, the first segment.
+    : !view ? 'mine'
+    : !CREATOR_VIEWS.includes(view) ? null
+    : (view === 'profiling' || view === 'creator') && !creatorId ? 'mine'
+    : view
 
   const kolName = activeKol.ready ? activeKol.kol?.username : undefined
   const creatorSection = tab === 'directory' && view ? PER_KOL_SECTIONS[view] : undefined
@@ -158,16 +214,21 @@ export default function DiscoverWorkspace({
     out.push({
       label: def.label,
       // Back out to the list this view hangs off: the tracked roster when we are
-      // inside a creator, otherwise the tab's first segment.
+      // inside a tracked account's analysis views, the creator database when we
+      // are inside one of its two drill-downs, otherwise the tab's first segment.
       href: view
-        ? () => go(def.id, inCreator ? 'tracked' : visibleViews(def)[0]?.id)
+        ? () => go(def.id, inCreator
+            ? 'tracked'
+            : (creatorScreen === 'profiling' || creatorScreen === 'creator')
+              ? 'mine'
+              : visibleViews(def)[0]?.id)
         : undefined,
     })
     if (inCreator && kolName) out.push({ label: kolName })
     const active = [...(def.views ?? []), ...(def.creatorViews ?? [])].find(v => v.id === view)
     if (active && (inCreator || def.views?.length)) out.push({ label: active.label })
     return out
-  }, [def, view, inCreator, kolName, go])
+  }, [def, view, inCreator, creatorScreen, kolName, go])
 
   return (
     <div className="p-5 max-w-[1500px] mx-auto">
@@ -232,10 +293,16 @@ export default function DiscoverWorkspace({
       )}
 
       <div>
-        {/* Roster is the landing segment, so it also answers a bare `?tab=` with
-            no `view` — a link that predates the two rosters becoming one tab. */}
-        {tab === 'directory' && !creatorSection && view !== 'tracked' && (
-          <KolDirectoryPage orgId={orgId} orgSlug={orgSlug} embedded />
+        {tab === 'directory' && !creatorSection && view === 'database' && (
+          <KolDirectoryPage
+            orgId={orgId}
+            orgSlug={orgSlug}
+            embedded
+            // The source platform's `Add KOL` button, which until now only
+            // flashed a toast. Adding a creator belongs to the org's own roster,
+            // so the button hands over to it with the modal already open.
+            onAddCreator={() => go('directory', 'mine', { add: '1' })}
+          />
         )}
 
         {tab === 'directory' && !creatorSection && view === 'tracked' && (
@@ -272,6 +339,55 @@ export default function DiscoverWorkspace({
           />
         )}
 
+        {/* Creator Database — intake, the org's own roster, and Smart Discovery.
+            The two drill-downs read `?creator=`; without one there is nothing to
+            show, so they fall back to the roster rather than an empty shell. */}
+        {/* Roster KOL is the landing segment, so it also answers a bare
+            `?tab=directory` and the module's front page. */}
+        {creatorScreen === 'mine' && (
+          <CreatorRoster
+            orgId={orgId}
+            embedded
+            openAddOnMount={openAddCreator}
+            onOpenCreator={id => goCreator('creator', id)}
+            onOpenProfiling={id => goCreator('profiling', id)}
+            onFindSimilar={id => goCreator('smart', id)}
+          />
+        )}
+
+        {creatorScreen === 'profiling' && creatorId && (
+          <CreatorProfilingScreen
+            orgId={orgId}
+            creatorId={creatorId}
+            onViewProfile={id => goCreator('creator', id)}
+            onAddAnother={() => go('directory', 'mine', { add: '1' })}
+            onGoToDiscovery={() => go('directory', 'database')}
+            onFindSimilar={id => goCreator('smart', id)}
+            onBackToRoster={() => goCreator('mine')}
+          />
+        )}
+
+        {creatorScreen === 'creator' && creatorId && (
+          <CreatorDetail
+            orgId={orgId}
+            creatorId={creatorId}
+            onBack={() => goCreator('mine')}
+            onFollowRun={id => goCreator('profiling', id)}
+            onFindSimilar={id => goCreator('smart', id)}
+            onDeleted={() => goCreator('mine')}
+          />
+        )}
+
+        {creatorScreen === 'smart' && (
+          <SmartDiscovery
+            orgId={orgId}
+            embedded
+            referenceId={creatorId}
+            onOpenCreator={id => goCreator('creator', id)}
+            onGoToRoster={() => goCreator('mine')}
+          />
+        )}
+
         {tab === 'compare' && (
           <DiscoverCompare orgId={orgId} orgSlug={orgSlug} embedded
             onGoToPlanning={() => go('order', 'ordering')} />
@@ -281,7 +397,7 @@ export default function DiscoverWorkspace({
           <NegotiationWorkspace
             orgId={orgId}
             onGoToCart={() => go('order', 'cart')}
-            onGoToDirectory={() => go('directory', 'roster')}
+            onGoToDirectory={() => go('directory', 'database')}
           />
         )}
 
