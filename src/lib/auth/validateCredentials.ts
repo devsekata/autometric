@@ -13,7 +13,7 @@ export async function validateCredentials(
   password: string
 ): Promise<ValidateResult> {
   const result = await pool.query(
-    'SELECT id, email, name, role, password_hash FROM users WHERE email = $1',
+    'SELECT id, email, name, role, password_hash FROM public.user WHERE email = $1',
     [email]
   )
 

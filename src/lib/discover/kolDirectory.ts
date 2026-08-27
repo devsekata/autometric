@@ -113,15 +113,27 @@ const SORT_COLUMNS: Record<string, string> = {
 }
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
+/**
+ * Scraped creators first, page by page — every list is grouped by provenance
+ * before anything else. `status` is 'Live' (refreshed within 7 days),
+ * 'Calculated' (an older row that still carries a measured engagement rate)
+ * or 'Estimated' (never scraped — the `kol_directory` row has no measurement
+ * behind it at all). Live and Calculated both mean "this creator has real
+ * data", so they sort ahead of Estimated together; Live leads Calculated
+ * because it is the fresher of the two.
+ */
+const SCRAPED_FIRST = `CASE status WHEN 'Live' THEN 0 WHEN 'Calculated' THEN 1 ELSE 2 END ASC`
+
 function orderBy(key: string, dir: string): string {
   const col = SORT_COLUMNS[key] ?? SORT_COLUMNS.followers
   const direction = dir === 'asc' ? 'ASC' : 'DESC'
   // NULLS LAST in both directions: a creator with no follower count or no
   // measured engagement belongs at the bottom of either ordering, not floated
   // to the top of the ascending one.
-  return col === 'username'
+  const rest = col === 'username'
     ? `username ${direction}`
     : `${col} ${direction} NULLS LAST, username ASC`
+  return `${SCRAPED_FIRST}, ${rest}`
 }
 
 const MAX_PAGE_SIZE = 60
@@ -156,12 +168,19 @@ const BASE = `
          t.name                                    AS tier,
          (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified,
          -- Provenance, using the same three labels the rest of Discover uses:
-         -- a recent refresh is Live, an older row that still carries a measured
-         -- engagement rate is Calculated, and a row imported without metrics is
-         -- Estimated. Nothing here is invented — it describes what the row has.
+         -- a recent refresh is Live, an older row that was actually scraped
+         -- (see migration 004 in scrapper-project — scrape_status is kept in
+         -- sync with whether l0_raw actually holds follower data for this
+         -- account, not with whatever the old per-platform pipelines happened
+         -- to write) is Calculated, and a row with no completed scrape at all
+         -- is Estimated. engagement_rate IS NOT NULL used to stand in for
+         -- this and was wrong for ~9% of the roster — a null-but-measured
+         -- TikTok row read as Estimated, and hundreds of profile-only
+         -- Instagram rows read as Calculated with no post or follower behind
+         -- them.
          CASE
            WHEN kd.last_refreshed_at >= now() - interval '7 days' THEN 'Live'
-           WHEN kd.engagement_rate IS NOT NULL                    THEN 'Calculated'
+           WHEN kd.scrape_status = 'success'                      THEN 'Calculated'
            ELSE 'Estimated'
          END                                       AS status,
          kd.last_refreshed_at

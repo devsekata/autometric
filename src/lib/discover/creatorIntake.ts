@@ -1,9 +1,13 @@
 import kolDb from '@/lib/kolDb'
 import pool from '@/lib/db'
-import { fetchFbProfile, fetchIgProfile, apifyItemError } from '@/lib/apify/client'
+import { fetchFbProfile, apifyItemError } from '@/lib/apify/client'
+import { checkKolExists, type AddKolPlatform } from '@/lib/kolDirectory/addKolCheck'
 import { parseCreatorInput, platformLabel, profileUrlFor, type CreatorPlatform } from './creatorInput'
 import { findCreatorByHandle, toExistingRef } from './creatorStore'
-import { VALIDATION_STEPS, type AccountPreview, type CheckResult, type FlowStep, type KnownElsewhere } from './creatorFlow'
+import {
+  VALIDATION_STEPS, type AccountPreview, type CheckResult, type CreatorVisibility, type FlowStep,
+  type KnownElsewhere,
+} from './creatorFlow'
 
 /**
  * Check Account — everything that happens between the user pressing the button
@@ -71,76 +75,137 @@ type Lookup =
   | { state: 'unverified'; reason: string }
 
 /**
- * TikTok's public oEmbed endpoint, which is the one free lookup of the three
- * that carries real information.
+ * Instagram and TikTok existence checks delegate to the "Add New KOL"
+ * pipeline's own check (`@/lib/kolDirectory/addKolCheck`) rather than running
+ * an independent Apify lookup here. Two reasons: an account already scraped
+ * into the commercial roster (`kol_directory`) is recognised without spending
+ * another Apify run, and a brand-new account discovered here is scraped by
+ * the same pipeline a minute later (`creatorProfiling.ts`) — one roster, one
+ * pipeline, instead of two independent scrapers each forming their own
+ * opinion about the same handle.
  *
- * `@/lib/competitors/verify` documents why Instagram and Facebook cannot be
- * pre-checked this way (both answer identically for real and invented handles).
- * oEmbed answers 400 for a handle that does not exist and 200 with the creator's
- * display name and avatar for one that does — so TikTok gets an instant, free
- * result where the other two need Apify.
+ * TikTok's old free oEmbed lookup and Instagram's direct Apify call are both
+ * retired in favour of this. Facebook is untouched — `lookupFacebook` below
+ * still runs its own Apify call directly, because the `kol_directory`
+ * pipeline does not support that platform.
  */
-async function lookupTiktok(username: string): Promise<Lookup> {
-  const url = `https://www.tiktok.com/oembed?url=https://www.tiktok.com/@${encodeURIComponent(username)}`
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 8_000)
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-      },
-    })
-    if (res.status === 400 || res.status === 404) {
-      return { state: 'not_found', message: notFound('tiktok', username) }
-    }
-    if (!res.ok) return { state: 'unverified', reason: `TikTok oEmbed answered HTTP ${res.status}` }
 
-    const data = await res.json() as { title?: string; author_name?: string; thumbnail_url?: string }
-    return {
-      state: 'found',
-      account: {
-        platform: 'tiktok',
-        username,
-        profileUrl: profileUrlFor('tiktok', username),
-        displayName: data.author_name ?? data.title ?? null,
-        avatarUrl: data.thumbnail_url ?? null,
-        // oEmbed carries identity and nothing else — no follower count, and no
-        // way to tell a private account from a public one. Both are left unset
-        // rather than guessed; profiling reads them from the account's own
-        // metadata a minute later.
-        visibility: 'unknown',
-      },
-    }
-  } catch (err) {
-    return { state: 'unverified', reason: err instanceof Error ? err.message : String(err) }
-  } finally {
-    clearTimeout(timer)
+/**
+ * Read the extra fields `AccountPreview` wants for an account already in
+ * `kol_directory` — `checkKolExists`'s `already_in_directory` branch only
+ * carries id/username/scrapeStatus/followersCount/lastRefreshedAt, which is
+ * the shape the "Add New KOL" duplicate screen needs, not this one.
+ *
+ * `is_private` comes from `l1_silver.unified_profile`, joined through
+ * `kol_social_account` — `kol_directory` itself has no visibility column.
+ * Both joins are `LEFT`: a roster row can exist with no harmonised profile
+ * behind it yet (still scraping, or the scrape failed), and this must not
+ * throw the whole check over a row that just has less to say.
+ */
+async function directoryPreview(kolDirectoryId: string): Promise<{
+  avatarUrl: string | null
+  bio: string | null
+  profileUrl: string | null
+  followers: number | null
+  following: number | null
+  postsCount: number | null
+  verified: boolean
+  visibility: CreatorVisibility
+} | null> {
+  const { rows } = await kolDb().query<{
+    avatar_url: string | null
+    bio: string | null
+    profile_url: string | null
+    followers_count: number | null
+    verified_status: string | null
+    following_count: string | number | null
+    media_count: number | null
+    is_private: boolean | null
+  }>(
+    `SELECT kd.avatar_url, kd.bio, kd.profile_url, kd.followers_count, kd.verified_status,
+            up.following_count, up.media_count, up.is_private
+       FROM public.kol_directory kd
+       LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+       LEFT JOIN l1_silver.unified_profile up ON up.social_account_id = ksa.social_account_id
+      WHERE kd.id = $1
+      LIMIT 1`,
+    [kolDirectoryId],
+  )
+  const r = rows[0]
+  if (!r) return null
+  return {
+    avatarUrl: r.avatar_url,
+    bio: r.bio,
+    profileUrl: r.profile_url,
+    followers: r.followers_count,
+    following: r.following_count !== null && r.following_count !== undefined ? Number(r.following_count) : null,
+    postsCount: r.media_count,
+    verified: r.verified_status === 'verified',
+    visibility: r.is_private === true ? 'private' : r.is_private === false ? 'public' : 'unknown',
   }
 }
 
-async function lookupInstagram(username: string): Promise<Lookup> {
-  const profile = await withTimeout(fetchIgProfile(username), LOOKUP_TIMEOUT_MS)
-  const err = apifyItemError(profile)
-  if (err?.gone) return { state: 'not_found', message: notFound('instagram', username) }
-  if (err) return { state: 'unverified', reason: `${err.code}: ${err.description}` }
-  if (!profile?.id) return { state: 'unverified', reason: 'Instagram returned no profile for that handle.' }
+/**
+ * Visibility off the raw payload `checkKolExists` fetched for a handle that
+ * is not in the roster yet. It carries the same actor responses the old
+ * `lookupInstagram`/`lookupTiktok` read `private`/`privateAccount` from —
+ * only the caller changed, not the shape of what Apify returns.
+ */
+function visibilityFromNewAccount(platform: AddKolPlatform, raw: unknown): CreatorVisibility {
+  if (platform === 'instagram') {
+    const profile = raw as { private?: boolean } | null
+    return typeof profile?.private === 'boolean' ? (profile.private ? 'private' : 'public') : 'unknown'
+  }
+  const posts = Array.isArray(raw) ? raw as { authorMeta?: { privateAccount?: boolean } }[] : []
+  const author = posts.find(p => p?.authorMeta)?.authorMeta
+  return typeof author?.privateAccount === 'boolean' ? (author.privateAccount ? 'private' : 'public') : 'unknown'
+}
 
+async function lookupViaKolDirectory(platform: AddKolPlatform, rawInput: string): Promise<Lookup> {
+  const result = await checkKolExists(platform, rawInput)
+
+  if (result.state === 'not_found') return { state: 'not_found', message: result.message }
+  if (result.state === 'unverified') return { state: 'unverified', reason: result.message }
+  if (result.state === 'invalid_input') {
+    // Step 1 already validated this exact input against this exact platform,
+    // so this is unreachable in practice — it exists only because
+    // `checkKolExists` is typed to allow it.
+    return { state: 'unverified', reason: result.message }
+  }
+
+  if (result.state === 'already_in_directory') {
+    const preview = await directoryPreview(result.kol.id)
+    return {
+      state: 'found',
+      account: {
+        platform: platform as CreatorPlatform,
+        username: result.kol.username,
+        profileUrl: preview?.profileUrl ?? profileUrlFor(platform, result.kol.username),
+        displayName: null,
+        avatarUrl: preview?.avatarUrl ?? null,
+        bio: preview?.bio ?? null,
+        followers: result.kol.followersCount ?? preview?.followers ?? null,
+        following: preview?.following ?? null,
+        postsCount: preview?.postsCount ?? null,
+        verified: preview?.verified ?? false,
+        visibility: preview?.visibility ?? 'unknown',
+      },
+    }
+  }
+
+  // result.state === 'new'
+  const { account } = result
   return {
     state: 'found',
     account: {
-      platform: 'instagram',
-      username: profile.username || username,
-      profileUrl: profileUrlFor('instagram', profile.username || username),
-      displayName: profile.fullName ?? null,
-      avatarUrl: profile.profilePicUrlHD ?? profile.profilePicUrl ?? null,
-      bio: profile.biography ?? null,
-      followers: profile.followersCount ?? null,
-      following: profile.followsCount ?? null,
-      postsCount: profile.postsCount ?? null,
-      verified: !!profile.verified,
-      visibility: profile.private ? 'private' : 'public',
+      platform: platform as CreatorPlatform,
+      username: account.username,
+      profileUrl: account.profileUrl,
+      displayName: account.displayName,
+      avatarUrl: account.avatarUrl,
+      bio: account.bio,
+      followers: account.followers,
+      visibility: visibilityFromNewAccount(platform, account.raw),
     },
   }
 }
@@ -174,10 +239,10 @@ async function lookupFacebook(username: string): Promise<Lookup> {
 const notFound = (platform: string, username: string) =>
   `We could not find @${username} on ${platformLabel(platform)}. Check the spelling, or open the profile and copy its URL.`
 
-async function lookup(platform: CreatorPlatform, username: string): Promise<Lookup> {
+async function lookup(platform: CreatorPlatform, username: string, rawInput: string): Promise<Lookup> {
   try {
-    if (platform === 'tiktok') return await lookupTiktok(username)
-    if (platform === 'instagram') return await lookupInstagram(username)
+    if (platform === 'tiktok') return await withTimeout(lookupViaKolDirectory('tiktok', rawInput), LOOKUP_TIMEOUT_MS)
+    if (platform === 'instagram') return await withTimeout(lookupViaKolDirectory('instagram', rawInput), LOOKUP_TIMEOUT_MS)
     return await lookupFacebook(username)
   } catch (err) {
     if (err instanceof LookupTimeout) {
@@ -313,7 +378,7 @@ export async function checkCreatorAccount(
   const elsewhereSoon = knownElsewhere(orgId, parsed.platform, username)
 
   // 2. Does the account exist?
-  const found = await lookup(parsed.platform, username)
+  const found = await lookup(parsed.platform, username, rawInput)
 
   if (found.state === 'not_found') {
     void elsewhereSoon.catch(() => {})

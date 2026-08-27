@@ -1,11 +1,14 @@
+import kolDb from '@/lib/kolDb'
 import {
-  apifyItemError, fetchFbPosts, fetchFbProfile, fetchIgPosts, fetchIgProfile, fetchTiktokPosts,
-  type ApifyFbPost, type ApifyIgPost, type ApifyTiktokPost, type ApifyTiktokAuthorMeta,
+  apifyItemError, fetchFbPosts, fetchFbProfile,
+  type ApifyFbPost,
 } from '@/lib/apify/client'
+import { scrapeNewKol } from '@/lib/kolDirectory/addKolScrape'
+import { profileUrlFor } from './creatorInput'
 import { CATEGORIES, LOCATIONS, tierOf } from './vocab'
 import {
-  finishRun, getCreator, saveMeasurements, saveRunSteps, saveSnapshot, setProfilingStatus, startRun,
-  type CreatorMeasurements,
+  finishRun, getCreator, saveMeasurements, saveRunSteps, saveSnapshot, setProfilingStatus,
+  startRun, type CreatorMeasurements,
 } from './creatorStore'
 import {
   PROFILING_STEPS, type CreatorContent, type CreatorProfile, type CreatorVisibility, type FlowStep,
@@ -138,47 +141,6 @@ const numOrNull = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-async function harvestInstagram(username: string, known: CreatorProfile): Promise<Harvest> {
-  const profile = await fetchIgProfile(username)
-  const err = apifyItemError(profile)
-  if (err?.gone) throw new Error(`Instagram no longer serves @${username}: ${err.description || err.code}`)
-  if (!profile?.id && !known.followers) {
-    throw new Error(`Instagram returned no profile for @${username}.`)
-  }
-
-  const isPrivate = !!profile?.private
-  // A private account's posts are not readable. Asking for them anyway costs an
-  // actor run to be told the same thing, so it is not asked.
-  const posts = isPrivate ? [] : await fetchIgPosts(username, WINDOW_DAYS)
-
-  return {
-    displayName: profile?.fullName ?? null,
-    avatarUrl: profile?.profilePicUrlHD ?? profile?.profilePicUrl ?? null,
-    bio: profile?.biography ?? null,
-    verified: !!profile?.verified,
-    visibility: isPrivate ? 'private' : 'public',
-    followers: numOrNull(profile?.followersCount),
-    following: numOrNull(profile?.followsCount),
-    postsCount: numOrNull(profile?.postsCount),
-    categories: profile?.businessCategoryName ? [profile.businessCategoryName] : [],
-    postsNote: isPrivate ? 'Account is private — its posts are not readable.' : null,
-    posts: posts.slice(0, MAX_POSTS).map((p: ApifyIgPost) => ({
-      url: p.url ?? (p.shortCode ? `https://www.instagram.com/p/${p.shortCode}/` : null),
-      caption: p.caption ?? null,
-      likes: numOrNull(p.likesCount),
-      comments: numOrNull(p.commentsCount),
-      views: numOrNull(p.videoPlayCount ?? p.videoViewCount),
-      shares: null,
-      date: p.timestamp ?? null,
-      format: p.productType === 'clips' ? 'Reels'
-        : p.type === 'Sidecar' ? 'Carousel'
-        : p.type === 'Video' ? 'Video'
-        : 'Feed Post',
-      hashtags: hashtagsOf(p.caption, p.hashtags),
-    })),
-  }
-}
-
 async function harvestFacebook(username: string): Promise<Harvest> {
   const profile = await fetchFbProfile(username)
   const err = apifyItemError(profile)
@@ -210,53 +172,243 @@ async function harvestFacebook(username: string): Promise<Harvest> {
   }
 }
 
-async function harvestTiktok(username: string): Promise<Harvest> {
-  // One actor run carries both legs: TikTok embeds the author's profile in every
-  // post item, so posts and profile are the same request. `days = null` asks for
-  // the latest posts regardless of date, which is also the only way to reach the
-  // profile of a creator who has not posted inside the window.
-  const posts = await fetchTiktokPosts(username, null, MAX_POSTS)
-  const author: ApifyTiktokAuthorMeta | null =
-    posts.find(p => p.authorMeta)?.authorMeta ?? null
+/* ── the kol_directory pipeline (Instagram & TikTok) ─────────────────────── */
 
-  const err = posts.length ? apifyItemError(posts[0]) : null
-  if (err?.gone) throw new Error(`TikTok no longer serves @${username}: ${err.description || err.code}`)
-  if (!author && !posts.length) {
-    throw new Error(`TikTok returned nothing for @${username}. The account may be new, private, or blocked to our region.`)
+/**
+ * Instagram and TikTok no longer run their own Apify harvest here. Both
+ * platforms are handled by the "Add New KOL" pipeline (`@/lib/kolDirectory`),
+ * which writes into `public.kol_directory` — the commercial roster shared
+ * with `scrapper-project`, in the separate `kol` database. Profiling's job
+ * for these two platforms shrinks to: find the roster row (or create it),
+ * wait for it to be scraped, then read the result into the same `Harvest`
+ * shape the old direct-Apify harvests produced — never scrape independently,
+ * so a creator added here and one added through "Add New KOL" end up as the
+ * exact same roster row instead of two competing scrapes of one account.
+ *
+ * Facebook is untouched: the roster pipeline does not support it, so
+ * `harvestFacebook` above still calls Apify directly.
+ */
+
+type KolPipelinePlatform = 'instagram' | 'tiktok'
+
+/** How often, and for how long, this waits on a scrape it did not start
+ *  itself finishing (an in-progress one) or one it just started. */
+const KOL_SCRAPE_POLL_INTERVAL_MS = 5_000
+const KOL_SCRAPE_POLL_TIMEOUT_MS = 120_000
+
+interface DirectoryHit { id: string; scrapeStatus: string | null }
+
+/**
+ * Is this handle already a `kol_directory` row, from any org's intake or from
+ * "Add New KOL" directly? Looked up by handle every time, so two creators
+ * (this org's and another org's, or this one added twice under different
+ * platforms) resolve to the one roster row rather than each minting their
+ * own — `scrapeNewKol` always inserts a fresh row with no de-duplication of
+ * its own, so calling it for a handle that already has one would fork the
+ * roster.
+ */
+async function findDirectoryRow(platform: KolPipelinePlatform, username: string): Promise<DirectoryHit | null> {
+  const { rows } = await kolDb().query<{ id: string; scrape_status: string | null }>(
+    `SELECT kd.id, kd.scrape_status
+       FROM public.kol_directory kd
+       JOIN public.platforms pl ON pl.id = kd.platform_id
+      WHERE pl.key = $1 AND LOWER(kd.username_normalized) = LOWER($2)
+      LIMIT 1`,
+    [platform, username],
+  )
+  return rows[0] ? { id: rows[0].id, scrapeStatus: rows[0].scrape_status } : null
+}
+
+async function waitForScrape(kolDirectoryId: string): Promise<'success' | 'failed' | 'timeout'> {
+  const deadline = Date.now() + KOL_SCRAPE_POLL_TIMEOUT_MS
+  for (;;) {
+    const { rows } = await kolDb().query<{ scrape_status: string | null }>(
+      `SELECT scrape_status FROM public.kol_directory WHERE id = $1`, [kolDirectoryId],
+    )
+    const status = rows[0]?.scrape_status ?? null
+    if (status === 'success' || status === 'failed') return status
+    if (Date.now() >= deadline) return 'timeout'
+    await new Promise(resolve => setTimeout(resolve, KOL_SCRAPE_POLL_INTERVAL_MS))
   }
+}
 
-  const isPrivate = !!author?.privateAccount
-  const cutoff = Date.now() - WINDOW_DAYS * 86_400_000
-  return {
-    displayName: author?.nickName ?? author?.name ?? null,
-    avatarUrl: author?.originalAvatarUrl ?? author?.avatar ?? null,
-    bio: author?.signature ?? null,
-    verified: !!author?.verified,
-    visibility: isPrivate ? 'private' : 'public',
-    followers: numOrNull(author?.fans),
-    following: numOrNull(author?.following),
-    postsCount: numOrNull(author?.video),
-    categories: author?.commerceUserInfo?.category ? [author.commerceUserInfo.category] : [],
-    postsNote: isPrivate ? 'Account is private — its posts are not readable.' : null,
-    posts: (isPrivate ? [] : posts)
-      .filter((p: ApifyTiktokPost) => {
-        if (!p.createTimeISO) return true
-        const t = new Date(p.createTimeISO).getTime()
-        return !Number.isFinite(t) || t >= cutoff
+const numOrNullDb = (v: string | number | null | undefined): number | null => {
+  if (v === null || v === undefined) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** `l1_silver.unified_post.media_type` values seen from both platforms'
+ *  harmonisation, folded into the same labels the old Apify harvests used. */
+function formatOfMediaType(mediaType: string | null): string {
+  const t = (mediaType ?? '').toLowerCase()
+  if (t === 'clips' || t === 'reel' || t === 'reels') return 'Reels'
+  if (t.includes('carousel') || t === 'sidecar') return 'Carousel'
+  if (t === 'video') return 'Video'
+  return 'Feed Post'
+}
+
+interface DirectoryProfileRow {
+  display_name: string | null
+  avatar_url: string | null
+  bio: string | null
+  followers_count: number | null
+  verified_status: string | null
+  is_private: boolean | null
+  following_count: string | number | null
+  media_count: number | null
+  social_account_id: string | null
+}
+
+interface DirectoryPostRow {
+  permalink: string | null
+  caption: string | null
+  likes: string | number | null
+  comments: string | number | null
+  views: string | number | null
+  shares: string | number | null
+  posted_at: Date | string | null
+  media_type: string | null
+  hashtags: string[] | null
+}
+
+/**
+ * Read a scraped roster row (`kol_directory` joined to `l1_silver`) into the
+ * same `Harvest` shape the Apify-backed harvests produce, so everything
+ * downstream — `analyse`, `identifyCategory`, `identifyCity`, saving — runs
+ * completely unmodified.
+ *
+ * Whatever the roster does not carry (platform-declared categories; this
+ * pipeline's `kol_directory.category_id` uses a different taxonomy than
+ * `identifyCategory`'s labels and is not translated here) is left at its
+ * neutral default rather than guessed — the discipline `identifyCategory` and
+ * `identifyCity` already document for their own gaps.
+ */
+async function harvestFromDirectory(kolDirectoryId: string): Promise<Harvest> {
+  const { rows } = await kolDb().query<DirectoryProfileRow>(
+    `SELECT up.display_name, kd.avatar_url, kd.bio, kd.followers_count, kd.verified_status,
+            up.is_private, up.following_count, up.media_count, ksa.social_account_id
+       FROM public.kol_directory kd
+       LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+       LEFT JOIN l1_silver.unified_profile up ON up.social_account_id = ksa.social_account_id
+      WHERE kd.id = $1
+      LIMIT 1`,
+    [kolDirectoryId],
+  )
+  const r = rows[0]
+  if (!r) throw new Error(`kol_directory row ${kolDirectoryId} vanished before it could be read.`)
+
+  const isPrivate = r.is_private === true
+  const posts: SamplePost[] = []
+  if (r.social_account_id && !isPrivate) {
+    const { rows: postRows } = await kolDb().query<DirectoryPostRow>(
+      `SELECT permalink, caption, likes, comments, views, shares, posted_at, media_type, hashtags
+         FROM l1_silver.unified_post
+        WHERE social_account_id = $1
+          AND posted_at >= now() - ($2 || ' days')::interval
+        ORDER BY posted_at DESC
+        LIMIT $3`,
+      [r.social_account_id, WINDOW_DAYS, MAX_POSTS],
+    )
+    for (const p of postRows) {
+      posts.push({
+        url: p.permalink,
+        caption: p.caption,
+        likes: numOrNullDb(p.likes),
+        comments: numOrNullDb(p.comments),
+        views: numOrNullDb(p.views),
+        shares: numOrNullDb(p.shares),
+        date: p.posted_at ? new Date(p.posted_at).toISOString() : null,
+        format: formatOfMediaType(p.media_type),
+        hashtags: hashtagsOf(p.caption, p.hashtags ?? undefined),
       })
-      .slice(0, MAX_POSTS)
-      .map((p: ApifyTiktokPost) => ({
-        url: p.webVideoUrl ?? null,
-        caption: p.text ?? null,
-        likes: numOrNull(p.diggCount),
-        comments: numOrNull(p.commentCount),
-        views: numOrNull(p.playCount),
-        shares: numOrNull(p.shareCount),
-        date: p.createTimeISO ?? null,
-        format: p.isSlideshow ? 'Photo' : 'Video',
-        hashtags: hashtagsOf(p.text, (p.hashtags ?? []).map(h => h?.name ?? '').filter(Boolean)),
-      })),
+    }
   }
+
+  return {
+    displayName: r.display_name ?? null,
+    avatarUrl: r.avatar_url ?? null,
+    bio: r.bio ?? null,
+    verified: r.verified_status === 'verified',
+    // `is_private` comes from `unified_profile`, which only exists once a
+    // scrape has actually landed. No profile row at all reads as
+    // "unconfirmed", the same as a fresh TikTok oEmbed lookup used to.
+    visibility: r.social_account_id ? (isPrivate ? 'private' : 'public') : 'unknown',
+    followers: numOrNullDb(r.followers_count),
+    following: numOrNullDb(r.following_count),
+    postsCount: numOrNullDb(r.media_count),
+    categories: [],
+    postsNote: isPrivate
+      ? 'Account is private — its posts are not readable.'
+      : !posts.length ? `No posts recorded in the commercial roster for the last ${WINDOW_DAYS} days` : null,
+    posts,
+  }
+}
+
+/**
+ * Instagram/TikTok entry point: find this handle's roster row (or start a
+ * scrape for it if none exists), wait for a scrape to land if one is needed,
+ * then read the result.
+ */
+async function harvestFromKolPipeline(
+  platform: KolPipelinePlatform, creator: CreatorProfile, steps: Steps,
+): Promise<Harvest> {
+  const hit = await findDirectoryRow(platform, creator.username)
+
+  if (hit?.scrapeStatus === 'success') {
+    await steps.begin('profile', 'Already scraped into the commercial roster — reading the result.')
+    return harvestFromDirectory(hit.id)
+  }
+
+  if (hit) {
+    // A row exists but was never scraped successfully. Re-running
+    // `scrapeNewKol` here would insert a second identity row for the same
+    // handle (it has no upsert-by-username of its own) — so a `failed` row is
+    // reported as a failure rather than retried, and a `null` one (a scrape
+    // genuinely in progress, started moments ago by this same call for
+    // another org, or by "Add New KOL" directly) is waited on instead of
+    // duplicated.
+    if (hit.scrapeStatus === 'failed') {
+      throw new Error(`The commercial roster's last scrape of @${creator.username} failed. Try refreshing again later.`)
+    }
+    await steps.begin('profile', 'This account is already being scraped into the commercial roster — waiting for it to finish.')
+    const outcome = await waitForScrape(hit.id)
+    if (outcome === 'failed') {
+      throw new Error(`The commercial roster scrape for @${creator.username} failed. Try refreshing again later.`)
+    }
+    if (outcome === 'timeout') {
+      throw new Error(
+        `The commercial roster scrape for @${creator.username} did not finish within ` +
+        `${Math.round(KOL_SCRAPE_POLL_TIMEOUT_MS / 1000)}s. It may still complete in the background — refresh later to pick up the result.`)
+    }
+    return harvestFromDirectory(hit.id)
+  }
+
+  // Genuinely new to the roster — start the same pipeline "Add New KOL" uses.
+  await steps.begin('profile',
+    `${platform === 'tiktok' ? 'TikTok' : 'Instagram'} is not in the commercial roster yet — starting a scrape. This usually takes one to two minutes.`)
+  const { kolDirectoryId } = await scrapeNewKol({
+    platform,
+    username: creator.username,
+    profileUrl: creator.profileUrl ?? profileUrlFor(platform, creator.username),
+    triggeredBy: null,
+    // Discover's intake has no agency context of its own to resolve — the
+    // roster row still gets created; only the `agency_kol_accounts` link is
+    // skipped, same as it is for any other unresolved-agency caller.
+    agencyId: null,
+    createdByUserId: null,
+  })
+
+  const outcome = await waitForScrape(kolDirectoryId)
+  if (outcome === 'failed') {
+    throw new Error(`The commercial roster scrape for @${creator.username} failed. Try refreshing again later.`)
+  }
+  if (outcome === 'timeout') {
+    throw new Error(
+      `The commercial roster scrape for @${creator.username} did not finish within ` +
+      `${Math.round(KOL_SCRAPE_POLL_TIMEOUT_MS / 1000)}s. It may still complete in the background — refresh later to pick up the result.`)
+  }
+  return harvestFromDirectory(kolDirectoryId)
 }
 
 /* ── analysis ─────────────────────────────────────────────────────────────── */
@@ -529,14 +681,17 @@ export async function profileCreator(
 
   try {
     // 1. Profile ─────────────────────────────────────────────────────────────
-    await steps.begin('profile', creator.platform === 'tiktok'
-      // TikTok embeds the profile in every post item, so one actor run covers
-      // this step and the content step both — and it is the slow one.
-      ? 'Asking TikTok for the profile and its recent posts — one request covers both, and it can take a minute or two'
-      : `Asking ${creator.platform === 'facebook' ? 'Facebook' : 'Instagram'} for the profile — this usually takes 30-90 seconds`)
-    const harvest = creator.platform === 'instagram' ? await harvestInstagram(creator.username, creator)
-      : creator.platform === 'facebook' ? await harvestFacebook(creator.username)
-      : await harvestTiktok(creator.username)
+    // Instagram and TikTok read (or start) the commercial roster's own scrape
+    // via `harvestFromKolPipeline`, which calls `steps.begin('profile', ...)`
+    // itself once it knows whether this is a fresh scrape, an in-progress one,
+    // or an already-scraped row — Facebook's timing is simpler, so it keeps
+    // its one static message here.
+    if (creator.platform === 'facebook') {
+      await steps.begin('profile', 'Asking Facebook for the profile — this usually takes 30-90 seconds')
+    }
+    const harvest = creator.platform === 'instagram' ? await harvestFromKolPipeline('instagram', creator, steps)
+      : creator.platform === 'tiktok' ? await harvestFromKolPipeline('tiktok', creator, steps)
+      : await harvestFacebook(creator.username)
     await steps.done('profile', harvest.displayName
       ? `${harvest.displayName} — ${harvest.visibility} account`
       : `${harvest.visibility} account`)

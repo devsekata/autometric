@@ -5,14 +5,18 @@ import { Pool } from 'pg'
  * server from the analytics warehouse `@/lib/db` talks to — hence its own pool
  * and its own `PG_*_KOL` credentials rather than a schema inside `DATABASE_URL`.
  *
- * Only the KOL Directory reads from it, and only from `public.kol_directory`
- * plus its lookup tables (`platforms`, `kol_categories`, `kol_tiers`). The app
- * never writes here: the roster is maintained by the KOL platform itself.
+ * Most of the app only reads from it — the KOL Directory page, and anything
+ * checking whether a handle is already in the commercial roster — and should
+ * keep using `kolDb()` for that. The one exception is the "Add New KOL"
+ * pipeline (`@/lib/kolDirectory/addKolScrape.ts`), which writes a new roster
+ * entry and its raw scrape into this same database and needs `kolDbWrite()`
+ * below. Every other caller should have no reason to reach for the write pool.
  */
 
 const REQUIRED = ['PG_HOST_KOL', 'PG_DB_KOL', 'PG_USER_KOL', 'PG_PASSWORD_KOL'] as const
 
 let pool: Pool | null = null
+let writePool: Pool | null = null
 
 /**
  * The pool is built on first use, not at import time: a missing variable has to
@@ -50,4 +54,38 @@ export default function kolDb(): Pool {
   })
 
   return pool
+}
+
+/**
+ * The write-capable counterpart to `kolDb()`, for the "Add New KOL" pipeline
+ * only. Same server, same credentials (there is no separate read/write user on
+ * this database) — kept as a distinct pool and a distinct function so that
+ * every call site says, by which function it imported, whether it intends to
+ * write to the commercial roster. Grep for `kolDbWrite` to find everything that
+ * does.
+ */
+export function kolDbWrite(): Pool {
+  if (writePool) return writePool
+
+  const missing = REQUIRED.filter(k => !process.env[k])
+  if (missing.length) {
+    throw new Error(
+      `KOL database is not configured: ${missing.join(', ')} missing from the environment. ` +
+      'If these were just added to .env.local, restart the dev server so Next reloads it.',
+    )
+  }
+
+  writePool = new Pool({
+    host: process.env.PG_HOST_KOL,
+    port: Number(process.env.PG_PORT_KOL ?? 5432),
+    database: process.env.PG_DB_KOL,
+    user: process.env.PG_USER_KOL,
+    password: process.env.PG_PASSWORD_KOL,
+    // Even smaller than the read pool: this path runs one creator at a time,
+    // fire-and-forget from the Add KOL route — it never needs concurrency.
+    max: 3,
+    connectionTimeoutMillis: 8_000,
+  })
+
+  return writePool
 }

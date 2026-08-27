@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PJ, TOKENS as T, fmtNum, initialsOf, RosterAvatar } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
+import AddKolDirectoryModal from './AddKolDirectoryModal'
 import {
   KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, filtersToParams,
   type KolFilters,
@@ -191,10 +192,13 @@ export default function KolDirectoryPage({
    */
   initialQuery?: string
   /**
-   * Where `Add KOL` goes. The source platform's button opened a registration
-   * form; here it hands over to My Creators, which owns the whole intake flow —
-   * validation, the duplicate check and profiling. Optional so the page still
-   * renders on its own route, where there is nothing to hand over to.
+   * Historically, where `Add KOL` handed off to — My Creators, which owns the
+   * `discover_creators` intake flow (validation, duplicate check, profiling).
+   * The `Add KOL` button on this page no longer calls this: it now owns its
+   * own intake flow straight into `kol_directory` (see `AddKolDirectoryModal`),
+   * because adding to the commercial roster is a different action against a
+   * different table than adding a tracked creator to this org. The prop stays
+   * on the signature for any other caller that still wants a hand-off hook.
    */
   onAddCreator?: () => void
 }) {
@@ -248,6 +252,8 @@ export default function KolDirectoryPage({
   const [pricing, setPricing] = useState<KolDirectoryRow | null>(null)
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   const [toast, setToast] = useState<string | null>(null)
+  /** The Add New KOL dialog — this page's own intake flow into `kol_directory`. */
+  const [addOpen, setAddOpen] = useState(false)
 
   const flash = useCallback((msg: string) => {
     setToast(msg)
@@ -489,10 +495,8 @@ export default function KolDirectoryPage({
             <Btn
               kind="primary"
               icon="person_add"
-              onClick={() => (onAddCreator
-                ? onAddCreator()
-                : flash('Tambah creator tersedia di layar My Creators'))}
-              title="Tambahkan creator baru ke database organisasi ini">
+              onClick={() => setAddOpen(true)}
+              title="Tambahkan KOL baru ke directory berdasarkan username atau URL profil">
               Add KOL
             </Btn>
           </div>
@@ -747,6 +751,18 @@ export default function KolDirectoryPage({
               cart.add({ socialAccountId: creator.id, relation: 'roster', deliverableId: first.id })
               flash(`@${creator.username} masuk keranjang · ${first.label}`)
             }
+          }}
+        />
+      )}
+
+      {addOpen && (
+        <AddKolDirectoryModal
+          onClose={() => setAddOpen(false)}
+          onKolAdded={() => {
+            setAddOpen(false)
+            // Same trigger the retry button uses — re-runs the list fetch so
+            // the newly added row shows up once its scrape has caught up.
+            setReload(n => n + 1)
           }}
         />
       )}
