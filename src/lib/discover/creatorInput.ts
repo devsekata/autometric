@@ -101,6 +101,27 @@ function looksLikeUrl(raw: string): boolean {
 }
 
 /**
+ * Which platform a pasted link belongs to, by host — null when it is not a link,
+ * or not a host we know.
+ *
+ * Add New KOL uses this when it arrives seeded with a link (`?url=`), so a
+ * pasted TikTok URL does not land under Instagram and greet the user with a
+ * wrong-platform error they did nothing to earn.
+ */
+export function platformOfUrl(raw: string): CreatorPlatform | null {
+  const value = (raw ?? '').trim()
+  if (!looksLikeUrl(value)) return null
+  let url: URL
+  try {
+    url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`)
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '')
+  return CREATOR_PLATFORMS.find(p => p.hosts.includes(host))?.id ?? null
+}
+
+/**
  * Turn one input into a `(platform, username)` pair, or say why it cannot be.
  *
  * The failure cases are distinguished rather than collapsed into "invalid",

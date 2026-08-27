@@ -20,23 +20,32 @@
  * Two levels of depth remain, but neither is navigation you have to plan for:
  *
  *   * a **sub-strip** inside a tab, for the ones that hold more than one screen.
- *     `Directory` carries the two rosters, `Ordering` carries the source's
- *     `[ Rate Cards | Cart | Orders ]` segmented control, and `Reports` and
- *     `Settings` each cover a Discover-side and a Workspace-side page — the
- *     source splits those same two across its module nav and its app nav;
+ *     `Ordering` carries the source's `[ Rate Cards | Cart | Orders ]` segmented
+ *     control, and `Reports` and `Settings` each cover a Discover-side and a
+ *     Workspace-side page — the source splits those same two across its module
+ *     nav and its app nav. `Directory` carries the widest one: four creator
+ *     screens, because autometric has four creator sources where the source
+ *     platform has one;
  *   * **drill-down**, for the seven per-creator analysis views under `Directory`.
  *     They only exist once a creator is selected, so they appear as a sub-strip
  *     only then — a static list would be seven dead entries on first visit. The
  *     source does the same thing with `V.detail`, which is reached by opening a
  *     card and is likewise absent from its nav.
  *
- * Two rosters, one entry. The source has a single creator list because its
- * `KOLS` array is eight hardcoded objects carrying their own metrics. autometric
- * has two real sources that cannot be merged: `public.kol_directory`, the
- * commercial platform's ~7.7k creators, and the accounts this org tracks in the
- * warehouse. Only the second has post-level history, which is why the analysis
- * views hang off it. So the nav keeps the source's single `Directory` entry and
- * the two rosters become its sub-strip rather than two competing tabs.
+ * Four creator screens, one entry. The source's `KOL` opens straight onto its
+ * creator list (`V.list` in `pages/directory.js`) because its `KOLS` array is
+ * eight hardcoded objects and there is only one list to open. autometric has
+ * four real surfaces that cannot be merged — the commercial platform's ~7.7k
+ * creators in `public.kol_directory`, the creators this org added itself, the
+ * accounts it tracks in the warehouse, and the recommendations derived from the
+ * first. Only the tracked accounts have post-level history, which is why the
+ * analysis views hang off them.
+ *
+ * So this entry lands on the commercial directory, exactly as the source's does,
+ * and the other three sit in a sub-strip above it. There was a version where a
+ * dashboard stood in front of all four instead; it answered "what do we already
+ * have?" before anyone had asked, and put a page between the sidebar entry and
+ * the list that entry is named after.
  *
  * The URL is `?tab=<tab>&view=<view>`. Two params rather than one flat value:
  * `view` ids are namespaced by their tab, so `content` can mean Discovery
@@ -107,48 +116,58 @@ export const DISCOVER_TABS: DiscoverTab[] = [
     // `NAVK[0]` — the source's `KOL`, its creator list, and the only place its
     // per-creator drill-down is entered from.
     id: 'directory',
-    label: 'Discovery',
+    // The sidebar's word for this tab, and the only place it shows: every screen
+    // under it is titled by its own view. It matches the hub's heading so the
+    // entry you pressed and the page you land on say the same thing.
+    label: 'Discover Creators',
     icon: 'travel_explore',
     group: 'kol',
-    subtitle: 'Find, manage, monitor, and discover the right creators for your campaign.',
+    subtitle: 'Explore and manage creators available in your workspace and database.',
     views: [
+      {
+        // The commercial platform's ~7.7k creators: the big searchable list.
+        id: 'database',
+        label: 'Creator Database',
+        icon: 'search',
+        subtitle: 'Browse and filter creators from the complete creator database — by keyword, platform, category, tier, followers, engagement rate and rate card.',
+      },
       /**
-       * The creators this org added by hand — the working list. It is named
-       * `mine` rather than `roster` because "roster" is the word the commercial
-       * directory carries in this product, and the two must not be one id.
+       * The creators this org added by hand — the working list, and the one the
+       * product calls the roster KOL. Its id stays `mine` rather than `roster`
+       * because "roster" is also the word the commercial directory carries in
+       * this product, and the two must not be one id.
        */
       {
         id: 'mine',
-        label: 'Roster KOL',
+        label: 'My Creators',
         icon: 'folder_shared',
-        subtitle: 'Kelola KOL dan creator yang sedang kamu kerjakan: tambah akun baru, cek status profiling, lalu saring dengan filter dasar.',
+        subtitle: 'View and manage the creators your organization has added — your own creator roster. Add an account, check its profiling status, then narrow the list with filters.',
       },
       {
         // The warehouse side. It is the roster with post-level history, so the
         // seven analysis views below are reached from here and not from the
         // commercial roster, whose creators have no collected posts.
         id: 'tracked',
-        label: 'Akun Ter-track',
+        label: 'Tracked Accounts',
         icon: 'monitor_heart',
-        subtitle: 'Pantau akun media sosial yang di-track organisasi ini — akun brand sendiri dan kompetitornya — beserta aktivitas terbarunya. Di-track bukan berarti sudah dipesan.',
+        subtitle: 'Monitor the social media accounts this organization tracks — its own and its competitors — and their recent activity. A tracked account is not the same as a creator in your own database, and tracking one is not ordering from them.',
       },
-      {
-        // The commercial platform's ~7.7k creators: the big searchable list.
-        id: 'database',
-        label: 'Creator Database',
-        icon: 'travel_explore',
-        subtitle: 'Jelajahi dan cari creator dari database lengkap: keyword, platform, kategori, tier, followers, engagement rate dan rate card.',
-      },
+      /**
+       * Last in the strip, because it is the only segment that is not a list.
+       * The three before it answer "show me the creators in X"; this one takes
+       * one of those creators and goes looking for more like them, which is a
+       * thing you do *after* you have found somebody worth copying.
+       */
       {
         id: 'smart',
         label: 'Smart Discovery',
-        icon: 'hub',
-        subtitle: 'Mulai dari satu creator yang kamu suka, sebutkan kebutuhanmu — misalnya budget lebih rendah — lalu lihat alternatif serupa beserta alasannya.',
+        icon: 'auto_awesome',
+        subtitle: 'Tell us what you need and find creators that match. Start from a creator who already works for you, say what should be different — a lower budget, another city — and see the alternatives with the reasons they were picked.',
       },
       // Two screens you are sent to, not screens you switch to: one run's
       // progress, and one creator's full profile. Both need `&creator=`, so a
-      // strip entry with no id would be a dead link — the same reason the
-      // per-creator analysis views below are hidden until a creator is active.
+      // card with no id would be a dead link — the same reason the per-creator
+      // analysis views below are hidden until a creator is active.
       { id: 'profiling', label: 'Profiling', icon: 'timeline', hidden: true, subtitle: 'Enam langkah profiling satu creator, seperti yang dicatat server.' },
       { id: 'creator', label: 'Creator Profile', icon: 'person', hidden: true, subtitle: 'Profil lengkap creator yang ditambahkan organisasi ini, beserta riwayat monitoring-nya.' },
     ],
@@ -326,14 +345,29 @@ export function resolveTabParams(
   rawTab: string | null | undefined,
   rawView: string | null | undefined,
 ): TabParams {
-  // The module's front page still has to name its segment: Directory landing
-  // with `view` unset would render neither roster.
+  // The module's front page is Directory's first segment, which is the same
+  // "first visible view" rule every other tab gets — not a second thing to keep
+  // in step with the registry.
   const home = (): TabParams => ({
     tab: DEFAULT_TAB,
     view: visibleViews(BY_ID.get(DEFAULT_TAB))[0]?.id ?? null,
   })
 
-  if (!rawTab) return home()
+  if (!rawTab) {
+    /**
+     * `/discover?view=mine` — a view with no tab beside it.
+     *
+     * That is not a malformed link, it is the *canonical* one: `tabHref` leaves
+     * `?tab=` out for the default tab, so every URL this module writes for one
+     * of Directory's own screens arrives here carrying only a view. Falling
+     * through to `home()` sent all of them to the landing instead — My
+     * Creators, Tracked Accounts, Smart Discovery, the profiling screen and the
+     * seven per-creator analysis views, none of which could be reached by URL
+     * or survive a reload.
+     */
+    if (rawView) return resolveTabParams(DEFAULT_TAB, rawView)
+    return home()
+  }
 
   // `content` means Content Analytics when it arrives as an old flat tab value,
   // and Discovery Content when it is the current tab id. The presence of a
@@ -398,7 +432,15 @@ export function tabHref(
   const base = `/organizations/${orgSlug}/discover`
   const qs = new URLSearchParams()
   if (tab !== DEFAULT_TAB) qs.set('tab', tab)
-  if (view) qs.set('view', view)
+  /**
+   * A tab's first visible segment is what its bare URL already means, so naming
+   * it in the query would only make `/discover` and `/discover?view=database`
+   * two spellings of one page — and the sidebar link the longer of the two.
+   * `resolveTabParams` resolves the bare form back to this same segment, so the
+   * short URL and the long one land on the same screen.
+   */
+  const landing = visibleViews(BY_ID.get(tab))[0]?.id
+  if (view && view !== landing) qs.set('view', view)
   for (const [key, value] of Object.entries(extra ?? {})) {
     if (value) qs.set(key, value)
   }

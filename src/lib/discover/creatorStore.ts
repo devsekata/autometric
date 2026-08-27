@@ -128,6 +128,8 @@ export interface CreatorListQuery {
   q?: string | null
   platform?: string | null
   category?: string | null
+  /** The city profiling read off the account — Basic Discovery's Location. */
+  city?: string | null
   tier?: string | null
   minFollowers?: number | null
   minErPct?: number | null
@@ -163,6 +165,7 @@ export async function listCreators(orgId: string, f: CreatorListQuery = {}): Pro
   }
   if (f.platform) add('platform = $n', f.platform)
   if (f.category) add('category = $n', f.category)
+  if (f.city) add('city = $n', f.city)
   if (f.tier) add('tier = $n', f.tier)
   if (f.status) add('profiling_status = $n', f.status)
   // A minimum of zero is not a minimum: `followers >= 0` would drop every
@@ -184,10 +187,11 @@ export async function listCreators(orgId: string, f: CreatorListQuery = {}): Pro
 export async function listCreatorFacets(orgId: string): Promise<{
   categories: { name: string; count: number }[]
   platforms: { key: string; count: number }[]
+  cities: { name: string; count: number }[]
   tiers: { name: string; count: number }[]
   total: number
 }> {
-  const [cats, plats, tiers, total] = await Promise.all([
+  const [cats, plats, cities, tiers, total] = await Promise.all([
     pool.query<{ name: string; count: string }>(
       `SELECT category AS name, COUNT(*)::text AS count FROM public.discover_creators
         WHERE organization_id = $1 AND category IS NOT NULL
@@ -195,6 +199,13 @@ export async function listCreatorFacets(orgId: string): Promise<{
     pool.query<{ key: string; count: string }>(
       `SELECT platform AS key, COUNT(*)::text AS count FROM public.discover_creators
         WHERE organization_id = $1 GROUP BY platform ORDER BY COUNT(*) DESC`, [orgId]),
+    // Ordered by how many creators are in each, not alphabetically: the list
+    // is a filter, and the cities worth offering first are the ones this org
+    // actually works in.
+    pool.query<{ name: string; count: string }>(
+      `SELECT city AS name, COUNT(*)::text AS count FROM public.discover_creators
+        WHERE organization_id = $1 AND city IS NOT NULL AND city <> ''
+        GROUP BY city ORDER BY COUNT(*) DESC, city`, [orgId]),
     pool.query<{ name: string; count: string }>(
       `SELECT tier AS name, COUNT(*)::text AS count FROM public.discover_creators
         WHERE organization_id = $1 AND tier IS NOT NULL
@@ -205,6 +216,7 @@ export async function listCreatorFacets(orgId: string): Promise<{
   return {
     categories: cats.rows.map(r => ({ name: r.name, count: Number(r.count) })),
     platforms: plats.rows.map(r => ({ key: r.key, count: Number(r.count) })),
+    cities: cities.rows.map(r => ({ name: r.name, count: Number(r.count) })),
     tiers: tiers.rows.map(r => ({ name: r.name, count: Number(r.count) })),
     total: Number(total.rows[0]?.count ?? 0),
   }

@@ -71,6 +71,27 @@ export function fmtAge(days: number): string {
   return `${Math.floor(days / 365)}y ago`
 }
 
+/**
+ * "just now" / "2h ago" / "3mo ago" — how long since a timestamp, on the scale
+ * the roster cards use.
+ *
+ * Distinct from `fmtAge`, which is handed a day count already computed by a
+ * query. This one takes the ISO string a row carries and does the arithmetic,
+ * which is what every "last refreshed" and "last post" label needs.
+ */
+export function fmtSince(iso: string | null): string {
+  if (!iso) return 'never'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return 'just now'
+  const h = Math.floor(ms / 3_600_000)
+  if (h < 1) return 'just now'
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d}d ago`
+  const mo = Math.floor(d / 30)
+  return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`
+}
+
 export function fmtDate(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)

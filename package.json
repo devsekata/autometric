@@ -16,6 +16,7 @@
     "seed:admin": "dotenv -e .env.local -- npx tsx seeds/admin.ts",
     "verify:fpk": "dotenv -e .env.local -- node scripts/verify-fpk-wiring.js",
     "verify:creators": "dotenv -e .env.local -- npx tsx scripts/verify-creator-intake.ts",
+    "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],

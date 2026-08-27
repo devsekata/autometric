@@ -30,6 +30,7 @@ import RateOrderSection from './RateOrderSection'
 import ContentAnalytics from './ContentAnalytics'
 import { AiInsightsSection, BrandFitSection, KolReportSection } from './KolInsightSections'
 import { DataSourceStrip } from './credibility'
+import { tabHref } from '@/lib/discover/tabs'
 import type { KolProfile } from '@/lib/discover/profile'
 import type { AccountDetailPayload, AccountPost, AccountRelation } from '@/lib/discover/account'
 
@@ -80,13 +81,19 @@ export default function DiscoverKolDetail({
     return () => { cancelled = true }
   }, [orgId, accountId, relation])
 
-  const backHref = `/organizations/${orgSlug}/discover/kol`
+  /**
+   * Back to the list this account was opened from — Tracked Accounts, named
+   * rather than left to Discovery's default. `/discover/kol` used to be that
+   * list; it is a redirect now, and it resolves to Discovery's landing page,
+   * which is the front door and not where you were.
+   */
+  const backHref = tabHref(orgSlug, 'directory', 'tracked')
 
   if (error) {
     return (
       <div className="p-5 max-w-[1500px] mx-auto">
         <Link href={backHref}><Btn size="sm" variant="ghost">
-          <span className="material-symbols-outlined text-[15px]">arrow_back</span>Kembali ke KOL Intelligence
+          <span className="material-symbols-outlined text-[15px]">arrow_back</span>Kembali ke Tracked Accounts
         </Btn></Link>
         <ErrorState message={error} />
       </div>
@@ -101,7 +108,7 @@ export default function DiscoverKolDetail({
       <Link href={backHref}>
         <Btn size="sm" variant="ghost">
           <span className="material-symbols-outlined text-[15px]">arrow_back</span>
-          Kembali ke KOL Intelligence
+          Kembali ke Tracked Accounts
         </Btn>
       </Link>
 

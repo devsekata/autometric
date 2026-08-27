@@ -8,7 +8,9 @@ import type { WorkspaceSettingsData } from '@/components/discover/WorkspaceSetti
 
 interface Props {
   params: Promise<{ orgSlug: string }>
-  searchParams: Promise<{ tab?: string; view?: string; creator?: string; add?: string }>
+  searchParams: Promise<{
+    tab?: string; view?: string; creator?: string; add?: string; q?: string; url?: string
+  }>
 }
 
 /**
@@ -23,7 +25,9 @@ interface Props {
  */
 export default async function DiscoverPage({ params, searchParams }: Props) {
   const { orgSlug } = await params
-  const { tab: rawTab, view: rawView, creator: rawCreator, add } = await searchParams
+  const {
+    tab: rawTab, view: rawView, creator: rawCreator, add, q: rawQuery, url: rawUrl,
+  } = await searchParams
 
   const session = await auth()
   const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
@@ -36,6 +40,17 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
   // rendered inside the profiling screen.
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
   const creatorId = rawCreator && UUID.test(rawCreator) ? rawCreator : null
+
+  /**
+   * What the hub's search box was submitted with. Both are free text a user
+   * typed, so both are trimmed and capped here rather than passed through: they
+   * reach a query string and an input field, and neither has any use for a
+   * kilobyte of it.
+   */
+  const seed = (raw: string | undefined) => {
+    const value = (raw ?? '').trim().slice(0, 200)
+    return value || null
+  }
 
   let workspaceSettings: WorkspaceSettingsData | null = null
   if (tab === 'settings' && view === 'workspace') {
@@ -53,6 +68,8 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
       view={view}
       creatorId={creatorId}
       openAddCreator={add === '1'}
+      searchQuery={seed(rawQuery)}
+      addInput={seed(rawUrl)}
       workspaceSettings={workspaceSettings}
     />
   )

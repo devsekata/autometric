@@ -1,7 +1,13 @@
 'use client'
 
 /**
- * Creator Database — the org's own roster, and Basic Discovery over it.
+ * My Creators — the org's own roster, and Basic Discovery over it.
+ *
+ * The creators *this organization* added, which is a different thing from the
+ * Creator Database screen beside it: that one searches the commercial platform's
+ * ~7.7k creators, and this one holds the handful somebody here chose to profile.
+ * The two were both called "Creator Database" for a while, which is most of why
+ * Discovery needed a hub to introduce its screens.
  *
  * This is the list intake fills. It is deliberately the same screen as Basic
  * Discovery rather than a second copy of it: filtering a roster and browsing a
@@ -15,16 +21,19 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Chip, EmptyState, PJ, TOKENS as T, fmtNum, RosterAvatar, SelectPill } from './ui'
-import AddCreatorModal from './AddCreatorModal'
+import { Chip, EmptyState, PJ, TOKENS as T, fmtNum, fmtSince, RosterAvatar, SelectPill } from './ui'
 import { CREATOR_PLATFORMS, platformLabel } from '@/lib/discover/creatorInput'
 import { TIERS } from '@/lib/discover/vocab'
 import type { CreatorSummary, ProfilingStatus } from '@/lib/discover/creatorFlow'
 
 export interface CreatorRosterProps {
   orgId: string
-  /** Arrive with the Add Account modal already open (`?add=1`). */
-  openAddOnMount?: boolean
+  /**
+   * Go to Add New KOL. Intake is its own page now, so this roster's Add button
+   * navigates instead of opening a dialog over the list — the list is not what
+   * you are doing while you add somebody.
+   */
+  onAddCreator: () => void
   /**
    * Rendered inside the Discover shell, which already draws the title and
    * subtitle for this segment. The screen then keeps only what is its own: the
@@ -43,13 +52,15 @@ interface Filters {
   q: string
   platform: string
   category: string
+  city: string
   tier: string
   follMin: number
   minEr: number
   status: string
 }
 
-const DEFAULT_FILTERS: Filters = { q: '', platform: '', category: '', tier: '', follMin: 0, minEr: 0, status: '' }
+const DEFAULT_FILTERS: Filters =
+  { q: '', platform: '', category: '', city: '', tier: '', follMin: 0, minEr: 0, status: '' }
 
 const FOLLOWER_STEPS: { label: string; value: number }[] = [
   { label: 'Any followers', value: 0 },
@@ -77,18 +88,18 @@ const STATUS_STEPS: { label: string; value: string }[] = [
 interface Facets {
   categories: { name: string; count: number }[]
   platforms: { key: string; count: number }[]
+  cities: { name: string; count: number }[]
   tiers: { name: string; count: number }[]
   total: number
 }
 
 export default function CreatorRoster({
-  orgId, openAddOnMount, embedded, onOpenCreator, onOpenProfiling, onFindSimilar,
+  orgId, onAddCreator, embedded, onOpenCreator, onOpenProfiling, onFindSimilar,
 }: CreatorRosterProps) {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [creators, setCreators] = useState<CreatorSummary[] | null>(null)
   const [facets, setFacets] = useState<Facets | null>(null)
   const [error, setError] = useState('')
-  const [adding, setAdding] = useState(!!openAddOnMount)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const load = useCallback(async (withFacets: boolean) => {
@@ -97,6 +108,7 @@ export default function CreatorRoster({
       if (filters.q.trim()) qs.set('q', filters.q.trim())
       if (filters.platform) qs.set('platform', filters.platform)
       if (filters.category) qs.set('category', filters.category)
+      if (filters.city) qs.set('city', filters.city)
       if (filters.tier) qs.set('tier', filters.tier)
       if (filters.status) qs.set('status', filters.status)
       if (filters.follMin) qs.set('follMin', String(filters.follMin))
@@ -182,9 +194,15 @@ export default function CreatorRoster({
 
   const activeCount =
     (filters.q ? 1 : 0) + (filters.platform ? 1 : 0) + (filters.category ? 1 : 0) +
-    (filters.tier ? 1 : 0) + (filters.status ? 1 : 0) + (filters.follMin ? 1 : 0) + (filters.minEr ? 1 : 0)
+    (filters.city ? 1 : 0) + (filters.tier ? 1 : 0) + (filters.status ? 1 : 0) +
+    (filters.follMin ? 1 : 0) + (filters.minEr ? 1 : 0)
 
   const total = facets?.total ?? creators?.length ?? 0
+
+  const cityOptions = [
+    { label: 'Any location', value: '' },
+    ...(facets?.cities ?? []).map(c => ({ label: `${c.name} (${c.count})`, value: c.name })),
+  ]
 
   const countLine = creators === null
     ? 'Loading the creators this organization has added…'
@@ -192,10 +210,10 @@ export default function CreatorRoster({
       + ' · every figure here was measured during profiling'
 
   const addButton = (
-    <button type="button" onClick={() => setAdding(true)} style={PJ}
+    <button type="button" onClick={onAddCreator} style={PJ}
       className="inline-flex items-center gap-1.5 rounded-lg text-[12px] font-bold px-4 h-9 border bg-[#327488] border-[#327488] text-white hover:bg-[#285D6E] cursor-pointer flex-shrink-0">
       <span className="material-symbols-outlined text-[16px]">person_add</span>
-      Add Creator
+      Add KOL
     </button>
   )
 
@@ -206,7 +224,7 @@ export default function CreatorRoster({
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
             <h2 style={PJ} className="text-[19px] font-extrabold text-[#111827] tracking-[-0.02em]">
-              Creator Database
+              My Creators
             </h2>
             <p className="text-[12px] text-[#6b7280] mt-1 max-w-[70ch]">{countLine}</p>
           </div>
@@ -236,6 +254,13 @@ export default function CreatorRoster({
               className="w-full h-9 pl-8 pr-3 rounded-lg border border-[#e5e7eb] text-[12.5px] text-[#111827] outline-none focus:border-[#327488]"
             />
           </div>
+          {/* Location. A dropdown rather than a chip row like Category and
+              Tier: those are closed vocabularies, and this one is whatever
+              profiling read off the accounts — it grows with the roster. The
+              options come from the facets, so a city is only offered when
+              somebody here is actually in it. */}
+          <div className="w-[150px]"><SelectPill icon="location_on" label="Location" value={filters.city}
+            options={cityOptions} onChange={v => setFilters(f => ({ ...f, city: v }))} /></div>
           <div className="w-[150px]"><SelectPill icon="group" label="Followers" value={filters.follMin}
             options={FOLLOWER_STEPS} onChange={v => setFilters(f => ({ ...f, follMin: v }))} /></div>
           <div className="w-[160px]"><SelectPill icon="favorite" label="Engagement" value={filters.minEr}
@@ -303,10 +328,10 @@ export default function CreatorRoster({
             title="No creators yet"
             body="Add a creator by pasting their profile URL or username. We validate the account, check it is not already here, then profile it."
             action={
-              <button type="button" onClick={() => setAdding(true)} style={PJ}
+              <button type="button" onClick={onAddCreator} style={PJ}
                 className="inline-flex items-center gap-1.5 rounded-lg text-[12px] font-bold px-4 h-9 border bg-[#327488] border-[#327488] text-white hover:bg-[#285D6E] cursor-pointer">
                 <span className="material-symbols-outlined text-[16px]">person_add</span>
-                Add your first creator
+                Add your first KOL
               </button>
             }
           />
@@ -339,16 +364,6 @@ export default function CreatorRoster({
           ))}
         </div>
       )}
-
-      {adding && (
-        <AddCreatorModal
-          orgId={orgId}
-          onClose={() => setAdding(false)}
-          onProfilingStarted={creator => { setAdding(false); onOpenProfiling(creator.id) }}
-          onViewExisting={id => { setAdding(false); onOpenCreator(id) }}
-          onRefreshExisting={async id => { setAdding(false); await refresh(id); onOpenProfiling(id) }}
-        />
-      )}
     </div>
   )
 }
@@ -360,20 +375,6 @@ const STATUS_LOOK: Record<ProfilingStatus, { label: string; fg: string; bg: stri
   running: { label: 'Profiling', fg: '#327488', bg: '#f0f7fa', icon: 'progress_activity' },
   queued: { label: 'Queued', fg: '#6b5bb5', bg: '#f3f0fb', icon: 'schedule' },
   failed: { label: 'Failed', fg: '#a04545', bg: '#fdf2f2', icon: 'error' },
-}
-
-/** "2h ago" / "3mo ago", the same scale the KOL Directory cards use. */
-function sinceLabel(iso: string | null): string {
-  if (!iso) return 'never refreshed'
-  const ms = Date.now() - new Date(iso).getTime()
-  if (!Number.isFinite(ms) || ms < 0) return 'just now'
-  const h = Math.floor(ms / 3_600_000)
-  if (h < 1) return 'just now'
-  if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `${d}d ago`
-  const mo = Math.floor(d / 30)
-  return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`
 }
 
 function CreatorCard({
@@ -447,7 +448,7 @@ function CreatorCard({
       <div className="px-4 pb-3 grid grid-cols-3 gap-2">
         <Stat label="Followers" value={creator.followers !== null ? fmtNum(creator.followers) : null} />
         <Stat label="ER" value={creator.erPct !== null ? `${creator.erPct.toFixed(2)}%` : null} />
-        <Stat label="Updated" value={creator.lastRefreshedAt ? sinceLabel(creator.lastRefreshedAt) : null} small />
+        <Stat label="Updated" value={creator.lastRefreshedAt ? fmtSince(creator.lastRefreshedAt) : null} small />
       </div>
 
       {creator.profilingStatus === 'failed' && creator.profilingError && (

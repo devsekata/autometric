@@ -43,6 +43,7 @@ import {
   PerformanceSection, platformLabel, type SectionProps,
 } from './KolCreatorSections'
 import { creatorIntel, measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
+import { tabHref } from '@/lib/discover/tabs'
 import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
 import type { KolMeasuredRate } from '@/lib/discover/kolMeasured'
 
@@ -115,7 +116,15 @@ export default function KolCreatorWorkspace({
     [data],
   )
 
-  const backToDirectory = () => router.push(`/organizations/${orgSlug}/discover/kol`)
+  /**
+   * Back to the list this creator was opened from — the Creator Database,
+   * named rather than left to Discovery's default.
+   *
+   * `/discover/kol` used to be that list. It is a redirect now, and it resolves
+   * to Discovery's landing page, so leaving it here would answer "back" with
+   * the front door: a search you spent three filters on, gone.
+   */
+  const backToDirectory = () => router.push(tabHref(orgSlug, 'directory', 'database'))
 
   /** Similar Creators hands back `creator:<id>`; everything else is a nav id. */
   const goTo = (id: string) => {

@@ -105,7 +105,7 @@ export default function CreatorDetail({
         {error && (
           <button type="button" onClick={onBack} style={PJ}
             className="text-[12px] font-bold text-[#285D6E] underline mt-2 cursor-pointer">
-            Back to the creator list
+            Back to My Creators
           </button>
         )}
       </div>

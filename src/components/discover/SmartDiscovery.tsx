@@ -3,7 +3,7 @@
 /**
  * Smart Discovery — recommendations from a reference creator.
  *
- * Basic Discovery is the filter form on the Creator Database screen. This is the
+ * Basic Discovery is the filter form on the My Creators screen. This is the
  * other half: pick a creator who already works, and let the system read their
  * category, audience size, engagement and topics and go looking for that shape.
  *
@@ -120,7 +120,7 @@ export default function SmartDiscovery({
               <button type="button" onClick={onGoToRoster} style={PJ}
                 className="inline-flex items-center gap-1.5 rounded-lg text-[12px] font-bold px-4 h-9 border bg-[#327488] border-[#327488] text-white hover:bg-[#285D6E] cursor-pointer">
                 <span className="material-symbols-outlined text-[16px]">person_add</span>
-                Go to the Creator Database
+                Go to My Creators
               </button>
             }
           />

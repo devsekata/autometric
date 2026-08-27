@@ -1,6 +1,6 @@
 /**
- * Verifikasi alur Creator Intake: parsing input → simpan → duplicate check →
- * run log → snapshot → smart discovery.
+ * Verifikasi alur Creator Intake: parsing input → deteksi lokasi → simpan →
+ * duplicate check → run log → snapshot → smart discovery.
  *
  *   npm run verify:creators
  *
@@ -25,6 +25,7 @@ import {
   setMonitoring, setProfilingStatus, startRun,
 } from '../src/lib/discover/creatorStore'
 import { checkCreatorAccount } from '../src/lib/discover/creatorIntake'
+import { identifyCity } from '../src/lib/discover/creatorProfiling'
 import { findSimilarCreators } from '../src/lib/discover/creatorSimilar'
 import pool from '../src/lib/db'
 
@@ -53,7 +54,40 @@ async function main() {
     )
   }
 
-  /* ── 2. store round trip ──────────────────────────────────────────── */
+  /* ── 2. deteksi lokasi ────────────────────────────────────────────── */
+  /**
+   * `identifyCity` mengisi kolom yang difilter Basic Discovery lewat Location,
+   * dan satu-satunya buktinya adalah bio. Yang diuji di sini bukan kota yang
+   * ketemu, melainkan kota yang TIDAK boleh ketemu: `balikpapan` bukan Bali,
+   * `medannya` bukan Medan, dan `DIY` di bio creator hampir selalu berarti
+   * do-it-yourself, bukan Yogyakarta. Salah di sini tidak bikin error — cuma
+   * bikin filter Location diam-diam salah isi.
+   */
+  const cityCases: [string, string | null][] = [
+    ['Content creator | 📍Jakarta Selatan | business: mail@x.com', 'Jakarta'],
+    ['jaksel based • daily vlog', 'Jakarta'],
+    ['Bandung 🌤️ | fashion & thrift', 'Bandung'],
+    ['Anak Jogja | mahasiswa UGM', 'Yogyakarta'],
+    ['Living in Canggu, Bali 🏝', 'Bali'],
+    ['Kuliner Sby | review jujur', 'Surabaya'],
+    ['Makassar food hunter', 'Makassar'],
+    ['Medan punya!', 'Medan'],
+    // jebakan: tidak boleh ada yang cocok
+    ['DIY crafts and home decor tutorials', null],
+    ['Aku balik lagi dengan konten baru', null],
+    ['Explore Balikpapan bareng aku', null],
+    ['Medannya enak banget', null],
+    ['just vibes', null],
+    ['', null],
+    // dua kota dengan bukti sama kuat bukan jawaban
+    ['Jakarta & Bandung — dua kota, satu channel', null],
+  ]
+  for (const [bio, expect] of cityCases) {
+    const r = identifyCity(bio)
+    ok(`city "${bio.slice(0, 42) || '(kosong)'}"`, r.city === expect, `${r.city ?? 'null'} — ${r.basis}`)
+  }
+
+  /* ── 3. store round trip ──────────────────────────────────────────── */
   const { rows: orgs } = await pool.query<{ id: string; name: string }>(
     'SELECT id, name FROM public.organizations WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1',
   )
@@ -86,7 +120,7 @@ async function main() {
   ])
   await saveMeasurements(creator.id, {
     displayName: 'Smoke Test', followers: 42_000, erPct: 3.25, tier: 'Micro',
-    category: 'Tech', visibility: 'public',
+    category: 'Tech', city: 'Bandung', visibility: 'public',
     content: {
       postsAnalyzed: 12, windowDays: 90,
       formats: [{ label: 'Reels', count: 8, share: 66.7 }],
@@ -122,10 +156,17 @@ async function main() {
   const filteredOut = await listCreators(org.id, { minFollowers: 1_000_000 })
   ok('list filters by follower floor', filteredIn.some(c => c.id === creator.id) && !filteredOut.some(c => c.id === creator.id))
 
+  // Location is the newest predicate in listCreators and the only one whose
+  // column nothing wrote until profiling learned to read it off the bio.
+  const inCity = await listCreators(org.id, { q: 'smoketest', city: 'Bandung' })
+  const wrongCity = await listCreators(org.id, { q: 'smoketest', city: 'Surabaya' })
+  ok('list filters by location', inCity.some(c => c.id === creator.id) && !wrongCity.some(c => c.id === creator.id))
+
   const facets = await listCreatorFacets(org.id)
   ok('facets count the roster', facets.total >= 1 && facets.platforms.some(p => p.key === 'instagram'))
+  ok('facets offer the cities on the roster', facets.cities.some(c => c.name === 'Bandung' && c.count >= 1))
 
-  /* ── 3. duplicate check without touching the platform ─────────────── */
+  /* ── 4. duplicate check without touching the platform ─────────────── */
   const check = await checkCreatorAccount(org.id, 'instagram', `@${username}`)
   ok('check reports an existing creator', check.state === 'exists')
   if (check.state === 'exists') {
@@ -137,14 +178,14 @@ async function main() {
   const bad = await checkCreatorAccount(org.id, 'instagram', 'https://tiktok.com/@someone')
   ok('check rejects a wrong-platform URL', bad.state === 'invalid_url')
 
-  /* ── 4. smart discovery degrades without the KOL database ─────────── */
+  /* ── 5. smart discovery degrades without the KOL database ─────────── */
   const similar = await findSimilarCreators(org.id, creator.id, 'creator', {})
   ok('similar search returns a reference', similar?.reference.id === creator.id)
   ok('similar search notes the unreachable roster or has candidates',
     !!similar && (similar.notes.length > 0 || similar.candidates.length > 0),
     similar?.notes.join(' | '))
 
-  /* ── 5. cleanup ───────────────────────────────────────────────────── */
+  /* ── 6. cleanup ───────────────────────────────────────────────────── */
   ok('deleteCreator removes the row', await deleteCreator(org.id, creator.id))
   ok('cascade removed the run and snapshots',
     (await pool.query('SELECT 1 FROM public.discover_creator_runs WHERE creator_id = $1', [creator.id])).rowCount === 0)

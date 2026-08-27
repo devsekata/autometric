@@ -16,12 +16,13 @@
  * competed for the same job and the horizontal one scrolled sideways on a laptop.
  *
  *   Discover  ?tab=…                       ← sidebar branch
- *   ├─ Discovery        four segments, `mine` first and therefore the module's
- *   │    │                landing view
- *   │    ├─ mine          creators this org added, and the intake flow
+ *   ├─ Discovery        lands on the commercial directory, as the source's `KOL`
+ *   │    │                does; the other three creator sources are its strip.
+ *   │    │                `&add=1` opens intake as a dialog over any of them
+ *   │    ├─ database      the commercial roster, searchable — the landing
+ *   │    ├─ mine          creators this org added
  *   │    ├─ tracked       accounts this org monitors, and the seven per-creator
  *   │    │                analysis views reached from them
- *   │    ├─ database      the commercial roster, searchable
  *   │    └─ smart         reference-based recommendations
  *   ├─ Compare
  *   ├─ Reports          &view=discover | workspace
@@ -56,6 +57,7 @@ import DiscoverDirectoryView from './DiscoverDirectoryView'
 import KolDirectoryPage from './KolDirectoryPage'
 import CreatorRoster from './CreatorRoster'
 import CreatorProfilingScreen from './CreatorProfilingScreen'
+import AddCreatorModal from './AddCreatorModal'
 import CreatorDetail from './CreatorDetail'
 import SmartDiscovery from './SmartDiscovery'
 import DiscoverCart from './DiscoverCart'
@@ -87,13 +89,13 @@ const PER_KOL_SECTIONS: Record<string, KolSection> = {
  * Which segment stays lit while a hidden view is showing. The ordering flow is
  * the source's three checkout steps, which it draws inside the Cart segment
  * rather than beside it, so Cart stays selected for the whole flow.
+ *
+ * Discovery's two drill-downs used to need an entry here as well. They no longer
+ * do: that tab is a hub and draws no strip, so what says where you are inside it
+ * is the breadcrumb.
  */
 const STRIP_ANCHOR: Record<string, string> = {
   ordering: 'cart',
-  // The two creator drill-downs are reached from the creator database and
-  // return to it, so that segment stays lit while they are showing.
-  profiling: 'mine',
-  creator: 'mine',
 }
 
 export interface DiscoverWorkspaceProps {
@@ -116,12 +118,26 @@ export interface DiscoverWorkspaceProps {
    */
   creatorId: string | null
   /**
-   * `?add=1` — open the Add Account modal as soon as the roster mounts. It is a
-   * URL flag rather than component state because "Add Another Creator" arrives
-   * here as a navigation from the profiling screen, and state does not survive
-   * one.
+   * `?add=1` — open the Add KOL dialog over whichever Discovery screen is
+   * showing. A URL flag rather than component state because "Add Another
+   * Creator" arrives here as a navigation from the profiling screen, and state
+   * does not survive one.
    */
   openAddCreator: boolean
+  /**
+   * `?q=` — what the hub's search box was submitted with, applied to the Creator
+   * Database as its opening query. In the URL for the same reason `?add=1` is:
+   * the hub reaches that screen by navigating, so anything held in state here
+   * would be gone by the time the screen mounts.
+   */
+  searchQuery: string | null
+  /**
+   * `?url=` — a profile link carried into the Add KOL dialog so it opens on
+   * that link with its platform already picked. Whether it is a usable profile
+   * link is the dialog's judgement, not this component's: it is the screen with
+   * somewhere to say so.
+   */
+  addInput: string | null
   /**
    * Read on the server for the Workspace half of Settings — members, tracked
    * platforms, whether payment and AI keys are configured. Null on every other
@@ -131,7 +147,7 @@ export interface DiscoverWorkspaceProps {
 }
 
 export default function DiscoverWorkspace({
-  orgId, orgSlug, tab, view, creatorId, openAddCreator, workspaceSettings,
+  orgId, orgSlug, tab, view, creatorId, openAddCreator, searchQuery, addInput, workspaceSettings,
 }: DiscoverWorkspaceProps) {
   const router = useRouter()
   const shortlist = useDiscoverSelection(orgId, 'compare')
@@ -165,25 +181,73 @@ export default function DiscoverWorkspace({
   }, [go])
 
   /**
-   * Which Creator Database screen is showing, if any.
+   * Which of Directory's creator-side screens is showing, if any: the org's own
+   * roster, the recommendations, and the two per-creator drill-downs.
    *
    * These are Directory views, so this only fires for `directory` — and the two
    * drill-downs need an id, so a link to one without `?creator=` (a bookmark
-   * saved before the creator was deleted, say) resolves to the database list
-   * rather than to a screen with nothing to render.
+   * saved before the creator was deleted, say) resolves to the roster rather
+   * than to a screen with nothing to render.
    */
   const CREATOR_VIEWS = ['mine', 'smart', 'profiling', 'creator']
   const creatorScreen = tab !== 'directory' ? null
-    // A bare `?tab=directory` lands on Roster KOL, the first segment.
-    : !view ? 'mine'
+    // A bare `?tab=directory` is the hub, which is none of these.
+    : !view ? null
     : !CREATOR_VIEWS.includes(view) ? null
     : (view === 'profiling' || view === 'creator') && !creatorId ? 'mine'
     : view
+
+  /**
+   * `Add KOL`, from wherever it was pressed: raise the dialog over the screen
+   * you are on rather than navigating off it. The flag rides the current view,
+   * so closing puts it back exactly as it was.
+   */
+  const goAddKol = useCallback(
+    () => go('directory', view ?? 'database', { add: '1' }),
+    [go, view],
+  )
+
+  /**
+   * Re-run profiling on a creator that already exists, then follow the run.
+   *
+   * The intake modal offers this when the handle you typed is already in the
+   * database: the creator is not new, but the data may be stale. The roster has
+   * its own copy of this because it also has a list to reload afterwards; here
+   * there is nothing to reload, because following the run is a navigation.
+   */
+  const refreshExisting = useCallback(async (creatorId: string) => {
+    try {
+      await fetch(`/api/organizations/${orgId}/discover/creators/${creatorId}/refresh`, { method: 'POST' })
+    } catch (err) {
+      // The progress screen is where a failed run is reported, and it is where
+      // this is going either way — so a failed kick-off needs no second notice.
+      console.error('[discover] refresh could not be started:', err)
+    }
+    goCreator('profiling', creatorId)
+  }, [orgId, goCreator])
 
   const kolName = activeKol.ready ? activeKol.kol?.username : undefined
   const creatorSection = tab === 'directory' && view ? PER_KOL_SECTIONS[view] : undefined
   /** A per-creator view with nothing selected is the list, not an empty shell. */
   const inCreator = !!creatorSection && !!activeKol.kol
+
+  /**
+   * Where the Add KOL dialog may open: the four creator screens — everywhere
+   * "we should add this person" is a thought you can have. Not on a single
+   * creator's screens, where the subject is that one creator, and not on
+   * another tab, where `?add=1` would be a flag about a module you are not in.
+   */
+  const addHere = tab === 'directory'
+    && (!view || ['database', 'mine', 'tracked', 'smart'].includes(view))
+
+  /**
+   * Where the shell draws the button itself: everywhere the dialog may open,
+   * minus the two screens that carry their own. The Creator Database has the
+   * source platform's `Add KOL` in its page head and My Creators has one beside
+   * its filters; a second in the header above either would be two buttons for
+   * one action.
+   */
+  const showAddKol = addHere && !!view && view !== 'database' && view !== 'mine'
 
   /* ── the sub-strip, for tabs that hold more than one screen ───────────── */
 
@@ -209,39 +273,57 @@ export default function DiscoverWorkspace({
   const heading = tabHeading(tab, inCreator || def?.views?.length ? view : null)
 
   const crumbs = useMemo(() => {
-    const out: { label: string; href?: () => void }[] = [{ label: 'Discover' }]
+    type Crumb = { label: string; href?: () => void; icon?: string }
+    const out: Crumb[] = [{ label: 'Discover' }]
     if (!def) return out
+
+    const all = [...(def.views ?? []), ...(def.creatorViews ?? [])]
+    const labelOf = (id: string) => all.find(v => v.id === id)?.label ?? id
+    const active = all.find(v => v.id === view)
+
+    const landing = visibleViews(def)[0]?.id
     out.push({
       label: def.label,
-      // Back out to the list this view hangs off: the tracked roster when we are
-      // inside a tracked account's analysis views, the creator database when we
-      // are inside one of its two drill-downs, otherwise the tab's first segment.
-      href: view
-        ? () => go(def.id, inCreator
-            ? 'tracked'
-            : (creatorScreen === 'profiling' || creatorScreen === 'creator')
-              ? 'mine'
-              : visibleViews(def)[0]?.id)
-        : undefined,
+      // Back out to the list this view hangs off — for a tab with a strip, that
+      // is its first segment.
+      href: view && view !== landing ? () => go(def.id, landing) : undefined,
     })
-    if (inCreator && kolName) out.push({ label: kolName })
-    const active = [...(def.views ?? []), ...(def.creatorViews ?? [])].find(v => v.id === view)
-    if (active && (inCreator || def.views?.length)) out.push({ label: active.label })
+
+    /**
+     * Name the list a drill-down was opened from before naming the drill-down
+     * itself: the analysis views hang off the tracked accounts, and profiling
+     * and a creator's profile hang off the org's own roster. Neither is in the
+     * sub-strip while it is showing — the strip has been replaced by that
+     * creator's own sections — so without this crumb there is no way back to
+     * the list except the browser's own.
+     */
+    if (inCreator) {
+      out.push({ label: labelOf('tracked'), href: () => go(def.id, 'tracked') })
+      if (kolName) out.push({ label: kolName })
+    } else if (creatorScreen === 'profiling' || creatorScreen === 'creator') {
+      out.push({ label: labelOf('mine'), href: () => go(def.id, 'mine') })
+    }
+
+    // Not on the landing: `Discover / Discover Creators / Creator Database`
+    // spends its last two crumbs saying the same thing, and the sub-strip below
+    // already shows which segment is selected.
+    if (active && def.views?.length && view !== landing) out.push({ label: active.label })
     return out
   }, [def, view, inCreator, creatorScreen, kolName, go])
 
   return (
     <div className="p-5 max-w-[1500px] mx-auto">
-      {/* Breadcrumb, not navigation — the sidebar does the navigating. It exists
-          so the panel still states where you are, and so the way back out of a
-          creator is a click and not the browser button. */}
+      {/* Breadcrumb. On most tabs the sidebar does the navigating and this only
+          states where you are; inside a hub tab it is also the way out, since
+          the sidebar holds the tab and not the screens under it. */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-1 flex-wrap mb-1">
         {crumbs.map((c, i) => (
           <span key={`${c.label}-${i}`} className="inline-flex items-center gap-1">
             {i > 0 && <span className="material-symbols-outlined text-[13px] text-[#d1d5db]">chevron_right</span>}
             {c.href ? (
               <button type="button" onClick={c.href} style={PJ}
-                className="text-[10.5px] font-bold uppercase tracking-widest text-[#9ca3af] hover:text-[#285D6E] hover:underline">
+                className="inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-widest text-[#9ca3af] hover:text-[#285D6E] hover:underline">
+                {c.icon && <span className="material-symbols-outlined text-[13px]">{c.icon}</span>}
                 {c.label}
               </button>
             ) : (
@@ -260,7 +342,23 @@ export default function DiscoverWorkspace({
         <DiscoverHeader
           title={heading.title}
           subtitle={heading.subtitle ?? ''}
-          actions={<CartBar orgId={orgId} tab={tab} view={view} go={go} />}
+          actions={
+            <>
+              {/* The module's primary action, on every screen it makes sense
+                  on. It raises the dialog over the current page rather than
+                  navigating first, so adding a creator does not cost you the
+                  list you were reading. */}
+              {showAddKol && (
+                <button type="button" style={PJ}
+                  onClick={goAddKol}
+                  className="inline-flex items-center gap-1.5 rounded-lg text-[12px] font-bold px-4 h-9 border bg-[#327488] border-[#327488] text-white hover:bg-[#285D6E] cursor-pointer">
+                  <span className="material-symbols-outlined text-[16px]">person_add</span>
+                  Add KOL
+                </button>
+              )}
+              <CartBar orgId={orgId} tab={tab} view={view} go={go} />
+            </>
+          }
         />
       )}
 
@@ -293,15 +391,18 @@ export default function DiscoverWorkspace({
       )}
 
       <div>
-        {tab === 'directory' && !creatorSection && view === 'database' && (
+        {/* The landing, and the source platform's `V.list`: the commercial
+            directory, searchable. A bare `?tab=directory` resolves here, so it
+            renders when `view` has not been named yet too. */}
+        {tab === 'directory' && !creatorSection && (!view || view === 'database') && (
           <KolDirectoryPage
             orgId={orgId}
             orgSlug={orgSlug}
+            initialQuery={searchQuery ?? ''}
             embedded
             // The source platform's `Add KOL` button, which until now only
-            // flashed a toast. Adding a creator belongs to the org's own roster,
-            // so the button hands over to it with the modal already open.
-            onAddCreator={() => go('directory', 'mine', { add: '1' })}
+            // flashed a toast. Same destination as every other one: intake.
+            onAddCreator={goAddKol}
           />
         )}
 
@@ -339,16 +440,15 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {/* Creator Database — intake, the org's own roster, and Smart Discovery.
-            The two drill-downs read `?creator=`; without one there is nothing to
-            show, so they fall back to the roster rather than an empty shell. */}
-        {/* Roster KOL is the landing segment, so it also answers a bare
-            `?tab=directory` and the module's front page. */}
+        {/* My Creators — the org's own roster and the intake flow — plus Smart
+            Discovery beside it. The two drill-downs read `?creator=`; without
+            one there is nothing to show, so they fall back to the roster rather
+            than to an empty shell. */}
         {creatorScreen === 'mine' && (
           <CreatorRoster
             orgId={orgId}
             embedded
-            openAddOnMount={openAddCreator}
+            onAddCreator={goAddKol}
             onOpenCreator={id => goCreator('creator', id)}
             onOpenProfiling={id => goCreator('profiling', id)}
             onFindSimilar={id => goCreator('smart', id)}
@@ -360,7 +460,7 @@ export default function DiscoverWorkspace({
             orgId={orgId}
             creatorId={creatorId}
             onViewProfile={id => goCreator('creator', id)}
-            onAddAnother={() => go('directory', 'mine', { add: '1' })}
+            onAddAnother={() => go('directory', 'database', { add: '1' })}
             onGoToDiscovery={() => go('directory', 'database')}
             onFindSimilar={id => goCreator('smart', id)}
             onBackToRoster={() => goCreator('mine')}
@@ -461,6 +561,23 @@ export default function DiscoverWorkspace({
             : <Spinner />
         )}
       </div>
+
+      {/* Add KOL — platform, handle, the five checks, then one of six outcomes.
+          One dialog for the whole module rather than one per screen: every
+          outcome ends in a navigation, so there is never a list left behind
+          that needs reloading in place. */}
+      {addHere && openAddCreator && (
+        <AddCreatorModal
+          orgId={orgId}
+          initialInput={addInput}
+          // Closing drops `?add=1` and `?url=` and leaves you exactly where you
+          // were, rather than on a URL that reopens the dialog on reload.
+          onClose={() => go('directory', view ?? 'database')}
+          onProfilingStarted={creator => goCreator('profiling', creator.id)}
+          onViewExisting={id => goCreator('creator', id)}
+          onRefreshExisting={refreshExisting}
+        />
+      )}
     </div>
   )
 }

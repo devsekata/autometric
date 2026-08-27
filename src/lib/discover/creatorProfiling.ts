@@ -2,7 +2,7 @@ import {
   apifyItemError, fetchFbPosts, fetchFbProfile, fetchIgPosts, fetchIgProfile, fetchTiktokPosts,
   type ApifyFbPost, type ApifyIgPost, type ApifyTiktokPost, type ApifyTiktokAuthorMeta,
 } from '@/lib/apify/client'
-import { CATEGORIES, tierOf } from './vocab'
+import { CATEGORIES, LOCATIONS, tierOf } from './vocab'
 import {
   finishRun, getCreator, saveMeasurements, saveRunSteps, saveSnapshot, setProfilingStatus, startRun,
   type CreatorMeasurements,
@@ -104,7 +104,6 @@ interface Harvest {
   followers: number | null
   following: number | null
   postsCount: number | null
-  city?: string | null
   /** Platform categories, when the platform states them (Facebook pages do). */
   categories?: string[]
   /** Normalised posts, newest first. Empty when none could be read. */
@@ -434,6 +433,79 @@ export function identifyCategory(
   }
 }
 
+/**
+ * Where this creator is, when they say so.
+ *
+ * Location is one of Basic Discovery's filters, and until now nothing wrote the
+ * column it filters on — every creator intake produced was `city: null`, so the
+ * filter would have been a control over an empty set.
+ *
+ * The evidence is the bio, and only the bio — the one field all three platforms
+ * return (`biography` on Instagram, `intro` on Facebook, `signature` on TikTok)
+ * and the one place a creator states where they are.
+ *
+ * Hashtags are deliberately left out, unlike in `identifyCategory`. A category
+ * tag describes the creator (`#skincare` on half their posts means they make
+ * skincare content), but a location tag describes the *post*: `#explorejakarta`
+ * is as likely to be a Bandung creator on a trip as a Jakarta resident. Reading
+ * it as an address would fill this column with the places people visit rather
+ * than the places they live. Concatenated tags make it worse — matching inside
+ * `#balikpapan` yields Bali — so the tags buy a weak signal at the price of a
+ * confident wrong answer.
+ *
+ * Matched against `vocab.LOCATIONS` rather than free text, so the value lands in
+ * the vocabulary Smart Discovery's location constraint already speaks — a city
+ * this cannot name stays null rather than being written in whatever spelling the
+ * creator used, which would make the filter list grow a synonym per creator.
+ *
+ * The aliases are how people actually write these: `jaksel` and `jkt` are far
+ * more common in a bio than `Jakarta`, and a Bali creator names the village
+ * (`Canggu`, `Ubud`) rather than the island. `diy` is deliberately *not* an alias
+ * for Yogyakarta, common though it is on paper: in a creator bio it is nearly
+ * always the English "DIY", and a wrong city is worse than no city.
+ *
+ * Rule-based, and null when nothing matches, for the same reason the category is.
+ */
+const CITY_KEYWORDS: Record<(typeof LOCATIONS)[number], string[]> = {
+  Jakarta: ['jakarta', 'jkt', 'jaksel', 'jakut', 'jaktim', 'jakbar', 'jakpus', 'tangerang', 'bekasi', 'depok', 'bsd'],
+  Bandung: ['bandung', 'bdg'],
+  Surabaya: ['surabaya', 'sby'],
+  Medan: ['medan'],
+  Yogyakarta: ['yogyakarta', 'jogjakarta', 'yogya', 'jogja'],
+  Bali: ['bali', 'denpasar', 'canggu', 'ubud', 'seminyak'],
+  Makassar: ['makassar'],
+}
+
+export function identifyCity(bio: string | null | undefined): { city: string | null; basis: string } {
+  const haystack = (bio ?? '').toLowerCase()
+  if (!haystack.trim()) return { city: null, basis: 'No bio to read a location from' }
+
+  const scores = LOCATIONS.map(name => {
+    const hits = CITY_KEYWORDS[name].reduce(
+      // Bounded both ends, unlike the category match: `bali` must not fire on
+      // `balik` or `balikpapan`, and `medan` must not fire on `medannya`.
+      (n, w) => n + (haystack.match(new RegExp(`\\b${w}\\b`, 'g'))?.length ?? 0),
+      0,
+    )
+    return { name, hits }
+  }).sort((a, b) => b.hits - a.hits)
+
+  const best = scores[0]
+  if (!best || best.hits === 0) {
+    return { city: null, basis: 'No known city named in the bio' }
+  }
+  // A tie is two cities with equal evidence, which is not an answer. It happens
+  // to creators who list where they are *and* where they shoot; naming either
+  // one would be a coin flip written into a filter.
+  if (scores[1] && scores[1].hits === best.hits) {
+    return { city: null, basis: `Bio names ${best.name} and ${scores[1].name} equally — too ambiguous to pick one` }
+  }
+  return {
+    city: best.name,
+    basis: `named ${best.hits} time${best.hits > 1 ? 's' : ''} in the bio`,
+  }
+}
+
 /* ── the pipeline ─────────────────────────────────────────────────────────── */
 
 /**
@@ -503,6 +575,7 @@ export async function profileCreator(
     // 5. Generate ────────────────────────────────────────────────────────────
     await steps.begin('generate')
     const tier = harvest.followers !== null && harvest.followers > 0 ? tierOf(harvest.followers) : null
+    const { city, basis: cityBasis } = identifyCity(harvest.bio)
     const measurements: CreatorMeasurements = {
       displayName: harvest.displayName ?? creator.displayName,
       avatarUrl: harvest.avatarUrl ?? creator.avatarUrl,
@@ -517,6 +590,9 @@ export async function profileCreator(
       // being overwritten with emptiness.
       ...(harvest.verified !== undefined ? { verified: harvest.verified } : {}),
       ...(category ? { category } : {}),
+      // Absent rather than null when unknown, so a bio that stopped naming a
+      // city does not erase the one an earlier run read from it.
+      ...(city ? { city } : {}),
       ...(analysis ? {
         avgLikes: analysis.avgLikes,
         avgComments: analysis.avgComments,
@@ -528,6 +604,10 @@ export async function profileCreator(
     await steps.done('generate', [
       tier ? `${tier} tier` : null,
       category ?? null,
+      // The city, and when there is none, why — the same discipline the other
+      // five steps keep: a blank field on the profile should be explained by
+      // the run that left it blank.
+      city ? `${city} (${cityBasis})` : `no location — ${cityBasis}`,
       harvest.visibility === 'private' ? 'limited data (private account)' : null,
     ].filter(Boolean).join(' · ') || 'Profile assembled')
 

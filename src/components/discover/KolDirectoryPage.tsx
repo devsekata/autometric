@@ -178,23 +178,29 @@ interface SavedList { name: string; filters: KolFilters }
  * the actions beside it stay: they describe the result set, not the page.
  */
 export default function KolDirectoryPage({
-  orgId, orgSlug, embedded = false, onAddCreator,
+  orgId, orgSlug, embedded = false, initialQuery = '', onAddCreator,
 }: {
   orgId: string
   orgSlug: string
   embedded?: boolean
   /**
+   * What to search for on arrival — the Discovery hub's search box hands its
+   * query over this way. Seeded into both `query` and `search` so the first
+   * fetch already carries it, rather than firing an unfiltered request and then
+   * a second one 350ms later when the debounce catches up.
+   */
+  initialQuery?: string
+  /**
    * Where `Add KOL` goes. The source platform's button opened a registration
-   * form; here it hands over to the Creator Database segment, which owns the
-   * whole intake flow — validation, the duplicate check and profiling. Optional
-   * so the page still renders on its own route, where there is nothing to hand
-   * over to.
+   * form; here it hands over to My Creators, which owns the whole intake flow —
+   * validation, the duplicate check and profiling. Optional so the page still
+   * renders on its own route, where there is nothing to hand over to.
    */
   onAddCreator?: () => void
 }) {
   const router = useRouter()
-  const [query, setQuery] = useState('')
-  const [search, setSearch] = useState('')
+  const [query, setQuery] = useState(initialQuery)
+  const [search, setSearch] = useState(initialQuery)
   const [filters, setFilters] = useState<KolFilters>(KOL_FILTERS_DEFAULT)
   const [sort, setSort] = useState<SortState>({ key: 'followers', dir: 'desc' })
   const [view, setView] = useState<'card' | 'table'>('card')
@@ -485,7 +491,7 @@ export default function KolDirectoryPage({
               icon="person_add"
               onClick={() => (onAddCreator
                 ? onAddCreator()
-                : flash('Tambah creator tersedia di segmen Creator Database'))}
+                : flash('Tambah creator tersedia di layar My Creators'))}
               title="Tambahkan creator baru ke database organisasi ini">
               Add KOL
             </Btn>

@@ -29,7 +29,9 @@ export interface CreatorProfilingScreenProps {
   orgId: string
   creatorId: string
   onViewProfile: (creatorId: string) => void
+  /** Start another intake run — reopen the Add KOL dialog with an empty field. */
   onAddAnother: () => void
+  /** Out of intake entirely, to the Discovery this creator is now part of. */
   onGoToDiscovery: () => void
   onFindSimilar: (creatorId: string) => void
   onBackToRoster: () => void
@@ -90,7 +92,7 @@ export default function CreatorProfilingScreen({
         {error && (
           <button type="button" onClick={onBackToRoster} style={PJ}
             className="text-[12px] font-bold text-[#285D6E] underline mt-2 cursor-pointer">
-            Back to the creator list
+            Back to My Creators
           </button>
         )}
       </div>
@@ -163,7 +165,7 @@ export default function CreatorProfilingScreen({
             </h3>
             <p className="text-[12px] text-[#6b7280] mt-0.5 leading-snug">
               {done
-                ? 'The profile is saved and available for Discovery. Everything below was read from the platform — anything it could not read is left empty rather than estimated.'
+                ? 'Creator successfully added to the database. The profile is searchable on the Discovery Dashboard and listed in My Creators from now on. Everything below was read from the platform — anything it could not read is left empty rather than estimated.'
                 : failed
                   ? creator.profilingError || run?.error || 'The run stopped before it finished.'
                   : 'You can leave this page — the run continues on the server and this screen picks it up again.'}
@@ -252,11 +254,15 @@ export default function CreatorProfilingScreen({
             <Primary icon="person" onClick={() => onViewProfile(creator.id)}>View Full Profile</Primary>
             <Secondary icon="person_add" onClick={onAddAnother}>Add Another Creator</Secondary>
             <Secondary icon="travel_explore" onClick={onGoToDiscovery}>Go to Discovery</Secondary>
+            {/* The bridge into Smart Discovery, from the one creator who is
+                freshest in mind. Not one of the three the flow promises, but the
+                reference search is exactly what a just-profiled creator is good
+                for, and it is one click from here or six from anywhere else. */}
             <Secondary icon="hub" onClick={() => onFindSimilar(creator.id)}>Find similar creators</Secondary>
           </>
         ) : (
           <>
-            <Secondary icon="list" onClick={onBackToRoster}>Back to the creator list</Secondary>
+            <Secondary icon="list" onClick={onBackToRoster}>Back to My Creators</Secondary>
             {!failed && <Secondary icon="person_add" onClick={onAddAnother}>Add another while this runs</Secondary>}
           </>
         )}

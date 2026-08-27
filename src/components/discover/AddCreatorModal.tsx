@@ -1,13 +1,21 @@
 'use client'
 
 /**
- * Add Account — the modal that starts the intake flow.
+ * Add KOL — the dialog that starts the intake flow.
  *
- * Three phases in one dialog, because they are one decision: pick a platform and
- * paste a handle, watch the five checks run, then act on what came back. The
- * work that follows — profiling — is deliberately *not* here: it takes minutes,
- * and a modal is the wrong shape for something you are meant to walk away from,
- * so pressing Start Profiling closes this and hands over to the progress screen.
+ * A dialog rather than a page, and deliberately: adding a creator is a short
+ * errand you run *from* somewhere, and the somewhere is worth keeping. Opened
+ * over the Discovery Dashboard it leaves the list you were reading intact
+ * underneath, and closing it costs nothing — no navigation, no lost scroll
+ * position, no second trip back. The flag that opens it is `?add=1`, so it
+ * still survives a reload and can still be linked to.
+ *
+ * Three phases in one dialog, because they are one decision: pick a platform
+ * and paste a handle, watch the five checks run, then act on what came back.
+ * The work that follows — profiling — is deliberately *not* here: it takes
+ * minutes, and a modal is the wrong shape for something you are meant to walk
+ * away from, so pressing Start Profiling closes this and hands over to the
+ * progress screen.
  *
  * Six result screens, one per outcome of `checkCreatorAccount`. They exist as
  * separate screens rather than one screen with a colour-coded banner because the
@@ -19,7 +27,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PJ, TOKENS as T, fmtNum, RosterAvatar } from './ui'
 import {
-  CREATOR_PLATFORMS, parseCreatorInput, platformLabel, type CreatorPlatform,
+  CREATOR_PLATFORMS, parseCreatorInput, platformLabel, platformOfUrl, type CreatorPlatform,
 } from '@/lib/discover/creatorInput'
 import {
   VALIDATION_STEPS, type AccountPreview, type CheckResult, type CreatorSummary, type FlowStep,
@@ -29,6 +37,17 @@ type Phase = 'input' | 'checking' | 'result'
 
 export interface AddCreatorModalProps {
   orgId: string
+  /**
+   * A handle or profile URL to open on (`?url=`), for a link that arrived from
+   * somewhere other than this field.
+   *
+   * It seeds the field, not the check: the run still has to be pressed. The
+   * paste happened on another screen, so confirming what was pasted before
+   * spending an actor call on it is the honest order, and it leaves room to fix
+   * a link that came out of the clipboard wrong.
+   */
+  initialInput?: string | null
+  /** Dismiss without adding anybody — drops `?add=1` and leaves you where you were. */
   onClose: () => void
   /** A brand-new creator was created and its first run started. */
   onProfilingStarted: (creator: CreatorSummary) => void
@@ -39,18 +58,31 @@ export interface AddCreatorModalProps {
 }
 
 export default function AddCreatorModal({
-  orgId, onClose, onProfilingStarted, onViewExisting, onRefreshExisting,
+  orgId, initialInput, onClose, onProfilingStarted, onViewExisting, onRefreshExisting,
 }: AddCreatorModalProps) {
-  const [platform, setPlatform] = useState<CreatorPlatform>('instagram')
-  const [value, setValue] = useState('')
+  // A seeded link carries its own platform, so the picker follows it rather than
+  // sitting on Instagram and greeting a TikTok URL with a wrong-platform error
+  // the user did nothing to earn.
+  const [platform, setPlatform] = useState<CreatorPlatform>(
+    () => (initialInput ? platformOfUrl(initialInput) : null) ?? 'instagram',
+  )
+  const [value, setValue] = useState(initialInput ?? '')
   const [phase, setPhase] = useState<Phase>('input')
   const [result, setResult] = useState<CheckResult | null>(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { inputRef.current?.focus() }, [])
+  // Selected rather than merely focused when it arrives seeded: a link that
+  // came from elsewhere is one keystroke from being replaced if it came out
+  // wrong.
+  useEffect(() => {
+    inputRef.current?.focus()
+    if (initialInput) inputRef.current?.select()
+  }, [initialInput])
 
+  // Escape closes, except while a creator is being written — that request is
+  // already in flight and dismissing the dialog would not call it back.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !submitting) onClose() }
     document.addEventListener('keydown', onKey)
@@ -134,15 +166,16 @@ export default function AddCreatorModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Add creator account"
+        aria-label="Add New KOL"
         className="relative bg-white rounded-2xl w-full max-w-[560px] mx-4 max-h-[88vh] overflow-y-auto border border-[#e5e7eb]"
         style={{ boxShadow: T.shadowLg }}
       >
         <header className="px-6 pt-5 pb-4 border-b border-[#f3f4f6] flex items-start justify-between gap-3">
           <div>
-            <h2 style={PJ} className="text-[15px] font-extrabold text-[#111827]">Add Creator Account</h2>
+            <h2 style={PJ} className="text-[15px] font-extrabold text-[#111827]">Add New KOL</h2>
             <p className="text-[12px] text-[#9ca3af] mt-0.5">
-              Paste a profile URL or type a username. We check the account before anything is stored.
+              Add a creator by entering their social media profile information. We check the account
+              before anything is stored.
             </p>
           </div>
           <button
@@ -190,6 +223,18 @@ export default function AddCreatorModal({
             />
           )}
         </div>
+
+        {/* Where the creator ends up once this dialog is done with them. The
+            dashboard behind it is the list they will appear in, so saying so
+            here is the whole answer to "and then what". */}
+        <p className="px-6 pb-5 -mt-1 text-[11px] text-[#9ca3af] flex items-start gap-1.5">
+          <span className="material-symbols-outlined text-[14px] mt-px">info</span>
+          <span>
+            A creator that passes these checks is profiled and saved to this
+            organization&apos;s database, and appears on the Discovery Dashboard,
+            in My Creators and in search as soon as the run finishes.
+          </span>
+        </p>
       </div>
     </div>
   )
@@ -237,7 +282,8 @@ function PhaseRail({ phase }: { phase: Phase }) {
 /* ── 1. input ─────────────────────────────────────────────────────────────── */
 
 function InputPhase({
-  platform, onPlatform, value, onValue, inputRef, problem, suggest, onSuggest, error, onSubmit, canSubmit,
+  platform, onPlatform, value, onValue, inputRef, problem, suggest, onSuggest,
+  error, onSubmit, canSubmit,
 }: {
   platform: CreatorPlatform
   onPlatform: (p: CreatorPlatform) => void

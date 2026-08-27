@@ -11,7 +11,7 @@ type Params = { params: Promise<{ id: string }> }
 
 /**
  * GET /api/organizations/[id]/discover/creators
- *   ?q=&platform=&category=&tier=&follMin=&minEr=&status=&facets=1
+ *   ?q=&platform=&category=&city=&tier=&follMin=&minEr=&status=&facets=1
  *
  * The org's own creator roster — the one this app writes. Basic Discovery
  * filters against exactly these params.
@@ -41,6 +41,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       q: sp.get('q'),
       platform: sp.get('platform'),
       category: sp.get('category'),
+      city: sp.get('city'),
       tier: sp.get('tier'),
       status: sp.get('status'),
       minFollowers: num('follMin'),
