@@ -179,7 +179,7 @@ interface SavedList { name: string; filters: KolFilters }
  * the actions beside it stay: they describe the result set, not the page.
  */
 export default function KolDirectoryPage({
-  orgId, orgSlug, embedded = false, initialQuery = '', onAddCreator,
+  orgId, orgSlug, embedded = false, initialQuery = '', onAddCreator, onFindSimilar,
 }: {
   orgId: string
   orgSlug: string
@@ -201,6 +201,18 @@ export default function KolDirectoryPage({
    * on the signature for any other caller that still wants a hand-off hook.
    */
   onAddCreator?: () => void
+  /**
+   * Smart Discovery's second entry point: take this row as the reference and
+   * go looking for creators like it.
+   *
+   * It matters that this is offered *here*. Smart Discovery used to be reachable
+   * only from the creators an org had added by hand, which quietly made the
+   * feature about the roster — you could not ask "find me more like this" about
+   * one of the 7.7k creators in the database unless you first adopted them. The
+   * reference only has to be somebody whose shape you want more of, so every row
+   * on this page can be one.
+   */
+  onFindSimilar?: (kolId: string) => void
 }) {
   const router = useRouter()
   const [query, setQuery] = useState(initialQuery)
@@ -461,6 +473,7 @@ export default function KolDirectoryPage({
     onFav: () => { setFavorites(s => toggle(s, r.id)); flash(favorites.has(r.id) ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
     onCompare: () => toggleCompare(r),
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
+    onSimilar: onFindSimilar ? () => onFindSimilar(r.id) : null,
   })
 
   const topCategories = (facets?.categories ?? []).slice(0, 6)
@@ -682,6 +695,7 @@ export default function KolDirectoryPage({
                     inCart={inCart}
                     onCart={r => (inCart(r.id) ? removeFromCart(r) : addToCart(r))}
                     onOpen={openProfile}
+                    onSimilar={onFindSimilar ? r => onFindSimilar(r.id) : null}
                   />
                 )}
 
@@ -780,11 +794,13 @@ export default function KolDirectoryPage({
 /* ── card ─────────────────────────────────────────────────────────────────── */
 
 function CreatorCard({
-  creator: c, fav, inCompare, inCart, onOpen, onFav, onCompare, onCart,
+  creator: c, fav, inCompare, inCart, onOpen, onFav, onCompare, onCart, onSimilar,
 }: {
   creator: KolDirectoryRow
   fav: boolean; inCompare: boolean; inCart: boolean
   onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void
+  /** Null when the page was mounted without a Smart Discovery destination. */
+  onSimilar: (() => void) | null
 }) {
   const st = statusOf(c.status)
   const banner = gradOf(bannerFor(c.id))
@@ -806,6 +822,13 @@ function CreatorCard({
             activeColor={T.primary} solid />
           <IconToggle on={inCart} onClick={onCart} icon={inCart ? 'shopping_cart_checkout' : 'add_shopping_cart'}
             title={inCart ? 'In cart' : 'Add to cart'} activeColor="#3d8a5f" solid />
+          {/* Find Similar sits with the other per-row actions rather than inside
+              the opened profile, so "more like this one" is answerable while
+              scanning the list — which is when the thought occurs. */}
+          {onSimilar && (
+            <IconToggle on={false} onClick={onSimilar} icon="auto_awesome"
+              title="Find similar creators" activeColor="#6b5bb5" solid />
+          )}
         </div>
       </div>
 
@@ -882,7 +905,7 @@ function CreatorCard({
 /* ── table ────────────────────────────────────────────────────────────────── */
 
 function DirectoryTable({
-  rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, onOpen,
+  rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, onOpen, onSimilar,
 }: {
   rows: KolDirectoryRow[]
   cols: Record<ColKey, boolean>
@@ -895,6 +918,8 @@ function DirectoryTable({
   inCart: (id: string) => boolean
   onCart: (r: KolDirectoryRow) => void
   onOpen: (r: KolDirectoryRow) => void
+  /** Null when the page was mounted without a Smart Discovery destination. */
+  onSimilar: ((r: KolDirectoryRow) => void) | null
 }) {
   const active = (Object.keys(COLDEFS) as ColKey[]).filter(c => cols[c])
   const arrow = (key: SortKey) => sort.key === key
@@ -971,11 +996,21 @@ function DirectoryTable({
                   </span>
                 </Td>
                 <Td last={i === rows.length - 1} right>
-                  <span onClick={e => { e.stopPropagation(); onCart(r) }}
-                    title={inCart(r.id) ? 'In cart' : 'Add to cart'}
-                    className="material-symbols-outlined text-[18px] cursor-pointer"
-                    style={{ color: inCart(r.id) ? T.primary : T.t4 }}>
-                    {inCart(r.id) ? 'shopping_cart_checkout' : 'add_shopping_cart'}
+                  <span className="inline-flex items-center gap-1.5 justify-end">
+                    {onSimilar && (
+                      <span onClick={e => { e.stopPropagation(); onSimilar(r) }}
+                        title="Find similar creators"
+                        className="material-symbols-outlined text-[18px] cursor-pointer"
+                        style={{ color: T.t4 }}>
+                        auto_awesome
+                      </span>
+                    )}
+                    <span onClick={e => { e.stopPropagation(); onCart(r) }}
+                      title={inCart(r.id) ? 'In cart' : 'Add to cart'}
+                      className="material-symbols-outlined text-[18px] cursor-pointer"
+                      style={{ color: inCart(r.id) ? T.primary : T.t4 }}>
+                      {inCart(r.id) ? 'shopping_cart_checkout' : 'add_shopping_cart'}
+                    </span>
                   </span>
                 </Td>
               </tr>

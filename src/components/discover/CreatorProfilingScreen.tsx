@@ -105,7 +105,7 @@ export default function CreatorProfilingScreen({
   const running = !done && !failed
 
   /**
-   * The six steps as the run recorded them, with anything the run has not
+   * The seven steps as the run recorded them, with anything the run has not
    * reached yet filled in as pending. The run's own array is the source; this
    * only guarantees six rows so the list does not grow as the run progresses.
    */
@@ -196,7 +196,7 @@ export default function CreatorProfilingScreen({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
-        {/* ── the six steps ────────────────────────────────────────────── */}
+        {/* ── the seven steps ────────────────────────────────────────────── */}
         <section className="rounded-2xl border border-[#e5e7eb] bg-white p-5" style={{ boxShadow: T.shadow }}>
           <h4 style={PJ} className="text-[10.5px] font-bold uppercase tracking-widest text-[#9ca3af] mb-3.5">
             Profiling steps

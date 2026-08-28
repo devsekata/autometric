@@ -55,6 +55,7 @@ import { useDiscoverCart } from './useDiscoverCart'
 import { useActiveKol } from './useActiveKol'
 import DiscoverDirectoryView from './DiscoverDirectoryView'
 import KolDirectoryPage from './KolDirectoryPage'
+import DiscoverHub from './DiscoverHub'
 import CreatorRoster from './CreatorRoster'
 import CreatorProfilingScreen from './CreatorProfilingScreen'
 import AddCreatorModal from './AddCreatorModal'
@@ -118,6 +119,15 @@ export interface DiscoverWorkspaceProps {
    */
   creatorId: string | null
   /**
+   * `?refsrc=` — which list `creatorId` is in when Smart Discovery is the view.
+   *
+   * `Find Similar` is offered on Creator Database rows as well as on the org's
+   * own creators, and the two ids are resolved by different queries. Absent
+   * means the org's own roster, which is what the link meant before Creator
+   * Database rows could be a reference.
+   */
+  referenceSource: 'creator' | 'roster' | null
+  /**
    * `?add=1` — open the Add KOL dialog over whichever Discovery screen is
    * showing. A URL flag rather than component state because "Add Another
    * Creator" arrives here as a navigation from the profiling screen, and state
@@ -147,7 +157,8 @@ export interface DiscoverWorkspaceProps {
 }
 
 export default function DiscoverWorkspace({
-  orgId, orgSlug, tab, view, creatorId, openAddCreator, searchQuery, addInput, workspaceSettings,
+  orgId, orgSlug, tab, view, creatorId, referenceSource, openAddCreator, searchQuery, addInput,
+  workspaceSettings,
 }: DiscoverWorkspaceProps) {
   const router = useRouter()
   const shortlist = useDiscoverSelection(orgId, 'compare')
@@ -178,6 +189,18 @@ export default function DiscoverWorkspace({
    */
   const goCreator = useCallback((nextView: string, id?: string | null) => {
     go('directory', nextView, { creator: id })
+  }, [go])
+
+  /**
+   * `Find Similar`, from either list.
+   *
+   * The id alone is ambiguous — Smart Discovery resolves an org creator and a
+   * Creator Database row with different queries — so the source rides along in
+   * the URL. Omitted for the org's own creators, which is the default and what
+   * every link saved before this existed meant.
+   */
+  const goFindSimilar = useCallback((id: string, source: 'creator' | 'roster') => {
+    go('directory', 'smart', { creator: id, refsrc: source === 'roster' ? 'roster' : null })
   }, [go])
 
   /**
@@ -394,6 +417,22 @@ export default function DiscoverWorkspace({
         {/* The landing, and the source platform's `V.list`: the commercial
             directory, searchable. A bare `?tab=directory` resolves here, so it
             renders when `view` has not been named yet too. */}
+        {/* The landing. A bare `?tab=directory` is where Discovery opens, and it
+            opens on the shelves — who is new, who moved, who is big, who
+            resembles your own creators — with the searchable database directly
+            below. Pressing `Creator Database` in the strip asks for the
+            database on its own, and drops the shelves. */}
+        {tab === 'directory' && !creatorSection && !view && (
+          <DiscoverHub
+            orgId={orgId}
+            onOpenCreator={id => goCreator('creator', id)}
+            onOpenRosterCreator={id =>
+              router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
+            onFindSimilar={(id, source) => goFindSimilar(id, source)}
+            onGoToSmart={() => go('directory', 'smart')}
+          />
+        )}
+
         {tab === 'directory' && !creatorSection && (!view || view === 'database') && (
           <KolDirectoryPage
             orgId={orgId}
@@ -403,6 +442,7 @@ export default function DiscoverWorkspace({
             // The source platform's `Add KOL` button, which until now only
             // flashed a toast. Same destination as every other one: intake.
             onAddCreator={goAddKol}
+            onFindSimilar={id => goFindSimilar(id, 'roster')}
           />
         )}
 
@@ -451,7 +491,7 @@ export default function DiscoverWorkspace({
             onAddCreator={goAddKol}
             onOpenCreator={id => goCreator('creator', id)}
             onOpenProfiling={id => goCreator('profiling', id)}
-            onFindSimilar={id => goCreator('smart', id)}
+            onFindSimilar={id => goFindSimilar(id, 'creator')}
           />
         )}
 
@@ -462,7 +502,7 @@ export default function DiscoverWorkspace({
             onViewProfile={id => goCreator('creator', id)}
             onAddAnother={() => go('directory', 'database', { add: '1' })}
             onGoToDiscovery={() => go('directory', 'database')}
-            onFindSimilar={id => goCreator('smart', id)}
+            onFindSimilar={id => goFindSimilar(id, 'creator')}
             onBackToRoster={() => goCreator('mine')}
           />
         )}
@@ -473,7 +513,7 @@ export default function DiscoverWorkspace({
             creatorId={creatorId}
             onBack={() => goCreator('mine')}
             onFollowRun={id => goCreator('profiling', id)}
-            onFindSimilar={id => goCreator('smart', id)}
+            onFindSimilar={id => goFindSimilar(id, 'creator')}
             onDeleted={() => goCreator('mine')}
           />
         )}
@@ -483,8 +523,12 @@ export default function DiscoverWorkspace({
             orgId={orgId}
             embedded
             referenceId={creatorId}
+            referenceSource={referenceSource}
             onOpenCreator={id => goCreator('creator', id)}
+            onOpenRosterCreator={id =>
+              router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onGoToRoster={() => goCreator('mine')}
+            onGoToCompare={() => go('compare')}
           />
         )}
 

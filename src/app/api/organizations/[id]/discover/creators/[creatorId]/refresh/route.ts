@@ -10,7 +10,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /**
  * POST /api/organizations/[id]/discover/creators/[creatorId]/refresh
  *
- * Runs profiling again — the same six steps, recorded as a `refresh` run.
+ * Runs profiling again — the same seven steps, recorded as a `refresh` run.
  *
  * This is what keeps a profile from being a one-time snapshot: the numbers land
  * on the creator row, and the day's figures are also written to

@@ -462,7 +462,23 @@ export async function findSimilarCreators(
     notes.push('There is nothing to compare against yet — add and profile more creators, or loosen the constraints.')
   }
 
+  /**
+   * The reference is not similar to itself.
+   *
+   * `c.id !== reference.id` above catches this only within one list. The two
+   * lists are two databases, so the same person carries a different uuid in
+   * each: a creator this org profiled *and* who sits in the Creator Database
+   * came back as their own top recommendation once Creator Database rows could
+   * be the reference. Identity across the two is the handle on a platform, so
+   * that is what is compared — case-folded, because the two sources do not
+   * agree on casing.
+   */
+  const identity = (c: SimilarReference) =>
+    `${(c.platform ?? '').toLowerCase()}:${c.username.toLowerCase()}`
+  const referenceIdentity = identity(reference)
+
   const candidates = [...ownCandidates, ...rosterCandidates]
+    .filter(c => identity(c) !== referenceIdentity)
     .map(c => ({ ...c, ...scoreCandidate(reference, c) }))
     // A candidate scoring under a third of the judgeable rules is not a
     // recommendation, it is padding.

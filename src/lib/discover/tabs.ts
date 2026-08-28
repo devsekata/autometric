@@ -168,7 +168,7 @@ export const DISCOVER_TABS: DiscoverTab[] = [
       // progress, and one creator's full profile. Both need `&creator=`, so a
       // card with no id would be a dead link — the same reason the per-creator
       // analysis views below are hidden until a creator is active.
-      { id: 'profiling', label: 'Profiling', icon: 'timeline', hidden: true, subtitle: 'Enam langkah profiling satu creator, seperti yang dicatat server.' },
+      { id: 'profiling', label: 'Profiling', icon: 'timeline', hidden: true, subtitle: 'Tujuh langkah profiling satu creator, seperti yang dicatat server.' },
       { id: 'creator', label: 'Creator Profile', icon: 'person', hidden: true, subtitle: 'Profil lengkap creator yang ditambahkan organisasi ini, beserta riwayat monitoring-nya.' },
     ],
     creatorViews: [

@@ -10,6 +10,7 @@ interface Props {
   params: Promise<{ orgSlug: string }>
   searchParams: Promise<{
     tab?: string; view?: string; creator?: string; add?: string; q?: string; url?: string
+    refsrc?: string
   }>
 }
 
@@ -27,6 +28,7 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
   const { orgSlug } = await params
   const {
     tab: rawTab, view: rawView, creator: rawCreator, add, q: rawQuery, url: rawUrl,
+    refsrc: rawRefSource,
   } = await searchParams
 
   const session = await auth()
@@ -40,6 +42,16 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
   // rendered inside the profiling screen.
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
   const creatorId = rawCreator && UUID.test(rawCreator) ? rawCreator : null
+
+  /**
+   * Which list `?creator=` is in, for Smart Discovery's reference.
+   *
+   * Only `roster` is read off the URL; anything else — absent, misspelled, a
+   * value from a future version — resolves to the org's own creators, which is
+   * both the default and what every link written before Creator Database rows
+   * could be a reference meant.
+   */
+  const referenceSource = rawRefSource === 'roster' ? 'roster' as const : 'creator' as const
 
   /**
    * What the hub's search box was submitted with. Both are free text a user
@@ -67,6 +79,7 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
       tab={tab}
       view={view}
       creatorId={creatorId}
+      referenceSource={referenceSource}
       openAddCreator={add === '1'}
       searchQuery={seed(rawQuery)}
       addInput={seed(rawUrl)}

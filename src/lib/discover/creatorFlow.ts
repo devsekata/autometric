@@ -38,14 +38,28 @@ export const VALIDATION_STEPS = [
   { key: 'database', label: 'Checking existing database records' },
 ] as const
 
-/** The six stages of `profileCreator`, in the order it runs them. */
+/**
+ * The seven stages of `profileCreator`, in the order it runs them.
+ *
+ * Collecting the posts and reading them used to be one step called `content`,
+ * which made the longest part of a run a single line that sat on "Analyzing
+ * content" for a minute — the fetch and the analysis fail for different reasons
+ * and take very different times, and rolling them together meant a run stalled
+ * on the network looked identical to one stalled on the maths.
+ *
+ * The collection half is the *new* key. Splitting it the other way round —
+ * keeping `content` for the fetch and adding a key for the analysis — would
+ * have re-pointed the key every finished run already carries, and those runs
+ * would render their analysis line as a step that never ran.
+ */
 export const PROFILING_STEPS = [
   { key: 'profile', label: 'Collecting profile information' },
   { key: 'stats', label: 'Fetching account statistics' },
-  { key: 'content', label: 'Analyzing content' },
-  { key: 'category', label: 'Identifying creator category' },
-  { key: 'generate', label: 'Generating creator profile' },
-  { key: 'save', label: 'Saving profile to database' },
+  { key: 'collect', label: 'Collecting available content data' },
+  { key: 'content', label: 'Analyzing content characteristics' },
+  { key: 'category', label: 'Identifying creator category and niche' },
+  { key: 'generate', label: 'Building creator profile' },
+  { key: 'save', label: 'Saving creator to database' },
 ] as const
 
 export const PROFILING_STEP_COUNT = PROFILING_STEPS.length
@@ -119,7 +133,7 @@ export interface CreatorRun {
   id: number
   kind: 'initial' | 'refresh'
   status: 'running' | 'done' | 'failed'
-  /** How many of the six steps have settled. */
+  /** How many of the seven steps have settled. */
   step: number
   steps: FlowStep[]
   error: string | null

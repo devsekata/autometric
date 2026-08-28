@@ -108,7 +108,12 @@ export interface KolDirectoryQuery {
 const SORT_COLUMNS: Record<string, string> = {
   followers: 'followers',
   engagement: 'er_pct',
+  // When the creator's numbers were last measured — not when the row appeared.
   recent: 'last_refreshed_at',
+  // When the row appeared in the database. The Discovery landing's "Recently
+  // added" shelf is this ordering: `recent` answers "who moved", which is a
+  // different question and a different column.
+  created: 'created_at',
   name: 'username',
 }
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
@@ -183,7 +188,12 @@ const BASE = `
            WHEN kd.scrape_status = 'success'                      THEN 'Calculated'
            ELSE 'Estimated'
          END                                       AS status,
-         kd.last_refreshed_at
+         kd.last_refreshed_at,
+         -- Not mapped onto the row; carried so the list can be ordered by when
+         -- a creator was added, which is what the Discovery landing's "Recently
+         -- added" shelf asks for. last_refreshed_at above answers a different
+         -- question — when the numbers were last measured.
+         kd.created_at
     FROM public.kol_directory kd
     LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
     -- Tier bands come from the lookup table, so a creator under the smallest

@@ -15,7 +15,7 @@ import {
 } from './creatorFlow'
 
 /**
- * Profiling — the six steps that turn a validated handle into a creator profile.
+ * Profiling — the seven steps that turn a validated handle into a creator profile.
  *
  * It runs in the background, fire-and-forget from the route that starts it, the
  * same shape the competitor initial sync uses (`@/lib/apify/sync`). It has to:
@@ -706,10 +706,25 @@ export async function profileCreator(
         ].filter(Boolean).join(' · '))
       : steps.skip('stats', `${creator.platform} did not return follower figures for this account`))
 
-    // 3. Content ─────────────────────────────────────────────────────────────
+    /**
+     * 3. Collect content ──────────────────────────────────────────────────────
+     *
+     * The posts are already in `harvest` by this point — the collection happens
+     * up in the harvest, not here. This step reports what that collection
+     * returned, so the screen can say "nothing was published recently" as its
+     * own outcome rather than folding it into the analysis below, which would
+     * then be skipped for a reason that is not about analysis at all.
+     */
+    await steps.begin('collect', 'Checking what the account published recently')
+    await (harvest.posts.length
+      ? steps.done('collect', `${harvest.posts.length} post${harvest.posts.length === 1 ? '' : 's'} collected`)
+      : steps.skip('collect', harvest.postsNote
+          ?? `No posts published in the last ${WINDOW_DAYS} days`))
+
+    // 4. Analyse content ─────────────────────────────────────────────────────
     await steps.begin('content', harvest.posts.length
       ? `Reading ${harvest.posts.length} posts`
-      : 'Checking what the account published recently')
+      : 'Nothing collected to analyse')
     const analysis = harvest.posts.length ? analyse(harvest.posts, harvest.followers) : null
     await (analysis
       ? steps.done('content',
@@ -718,7 +733,7 @@ export async function profileCreator(
       : steps.skip('content', harvest.postsNote
           ?? `No posts published in the last ${WINDOW_DAYS} days, so there is nothing to analyse yet`))
 
-    // 4. Category ────────────────────────────────────────────────────────────
+    // 5. Category ────────────────────────────────────────────────────────────
     await steps.begin('category')
     const { category, basis } = identifyCategory(
       harvest.bio, analysis?.content.hashtags ?? [], harvest.categories,
@@ -727,7 +742,7 @@ export async function profileCreator(
       ? steps.done('category', `${category} — ${basis}`)
       : steps.skip('category', basis))
 
-    // 5. Generate ────────────────────────────────────────────────────────────
+    // 6. Build the profile ───────────────────────────────────────────────────
     await steps.begin('generate')
     const tier = harvest.followers !== null && harvest.followers > 0 ? tierOf(harvest.followers) : null
     const { city, basis: cityBasis } = identifyCity(harvest.bio)
@@ -766,7 +781,7 @@ export async function profileCreator(
       harvest.visibility === 'private' ? 'limited data (private account)' : null,
     ].filter(Boolean).join(' · ') || 'Profile assembled')
 
-    // 6. Save ────────────────────────────────────────────────────────────────
+    // 7. Save ────────────────────────────────────────────────────────────────
     await steps.begin('save')
     await saveMeasurements(creatorId, measurements)
     await saveSnapshot(creatorId, {
