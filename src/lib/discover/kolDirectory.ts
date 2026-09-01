@@ -1,6 +1,7 @@
 import kolDb from '@/lib/kolDb'
 import { toIso } from './util'
 import { getKolMeasured, type KolMeasured } from './kolMeasured'
+import { getKolGold, type KolGold } from './kolGold'
 
 /**
  * Query layer for the KOL Directory page.
@@ -480,6 +481,17 @@ export interface KolCreatorPayload {
    * price. The workspace samples whatever this leaves unfilled.
    */
   measured: KolMeasured | null
+  /**
+   * What the L2 Gold layer holds for this creator (see `@/lib/discover/kolGold`):
+   * the pipeline's own profile card, its daily and monthly rollups, and the
+   * inferred audience. Null when L2 has nothing for any account they own.
+   *
+   * Wider coverage than `measured` — 1.976 accounts carry a profile card
+   * against the 23 creators with harvested posts — but each field inside is
+   * independently absent, so callers check the field they need rather than the
+   * object.
+   */
+  gold: KolGold | null
 }
 
 /**
@@ -522,7 +534,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
    * `>` not `>=`: a creator is not ranked ahead of themselves, so the count of
    * creators strictly above them, plus one, is their position.
    */
-  const [rank, platforms, similar, measured] = await Promise.all([
+  const [rank, platforms, similar, measured, gold] = await Promise.all([
     db.query<{
       roster_total: number; followers_rank: number
       er_rank: number | null; er_measured_total: number
@@ -620,6 +632,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     // queries against the same pool, and the workspace cannot decide what to
     // mark as an estimate until it knows which of them came back empty.
     getKolMeasured(id),
+    getKolGold(id),
   ])
 
   const k = rank.rows[0]
@@ -692,6 +705,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       tier: s.tier,
     })),
     measured,
+    gold,
   }
 }
 

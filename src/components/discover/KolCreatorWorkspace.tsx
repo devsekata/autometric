@@ -241,7 +241,7 @@ function Loaded({
   setToast: (s: string) => void
 }) {
   const { creator, identity, rank, platforms, similar } = data
-  const sectionProps: SectionProps = { creator, identity, rank, platforms, similar, intel }
+  const sectionProps: SectionProps = { creator, identity, rank, platforms, similar, intel, gold: data.gold }
   const name = identity.displayName ?? `@${creator.username}`
 
   const estReach = creator.followers !== null && creator.erPct !== null

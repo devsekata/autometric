@@ -21,13 +21,70 @@ import { platformLabel, type SectionProps } from './KolCreatorSections'
 /* ── Profile ──────────────────────────────────────────────────────────────── */
 
 export function ProfileSection({
-  creator, identity, rank, platforms, similar, intel, onGoTo,
+  creator, identity, rank, platforms, similar, intel, gold, onGoTo,
 }: SectionProps & { onGoTo: (id: string) => void }) {
   const name = identity.displayName ?? `@${creator.username}`
   const niche = creator.categories.slice(1).join(' · ')
 
+  /**
+   * `l2_gold.kol_profile_card` — the pipeline's own snapshot of each account
+   * the creator owns. Shown alongside the roster row rather than replacing it:
+   * the roster is what the agency sold, the card is what the platform actually
+   * showed when it was last harvested, and the two disagreeing is information.
+   *
+   * The card's `rate_card*` columns are NULL for every row, so prices stay with
+   * `l1_silver.unified_rate_card` and are not read here — one source per figure.
+   */
+  const cards = gold?.cards ?? []
+
   return (
     <div className="flex flex-col gap-4">
+      {cards.length > 0 && (
+        <VizCard title="Profile Snapshot (terukur, L2 Gold)"
+          subtitle="Angka saat snapshot terakhir diambil pipeline, per akun">
+          <div className="flex flex-col gap-3">
+            {cards.map(c => (
+              <div key={`${c.platform}-${c.username}`} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold">
+                    @{c.username ?? '—'}
+                  </span>
+                  <span className="text-[11px]" style={{ color: T.t3 }}>{platformLabel(c.platform)}</span>
+                  {c.isVerified && (
+                    <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                      className="h-6 px-2 rounded-md text-[10px] font-bold inline-flex items-center">
+                      verified
+                    </span>
+                  )}
+                  {c.isPrivate && (
+                    <span style={{ ...PJ, background: T.surfaceVariant, color: T.t3 }}
+                      className="h-6 px-2 rounded-md text-[10px] font-bold inline-flex items-center">
+                      private
+                    </span>
+                  )}
+                  {c.snapshotDate && (
+                    <span className="text-[10.5px] ml-auto" style={{ color: T.t4 }}>
+                      snapshot {c.snapshotDate}
+                    </span>
+                  )}
+                </div>
+                <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
+                  {c.followers !== null && <MiniField label="Followers" value={fmtNum(c.followers)} />}
+                  {c.following !== null && <MiniField label="Following" value={fmtNum(c.following)} />}
+                  {c.mediaCount !== null && <MiniField label="Post" value={fmtNum(c.mediaCount)} />}
+                  {c.tier && <MiniField label="Tier" value={c.tier} />}
+                </div>
+                {c.website && (
+                  <a href={c.website} target="_blank" rel="noreferrer"
+                    className="text-[11px] underline w-fit" style={{ color: T.primaryDeep }}>
+                    {c.website}
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </VizCard>
+      )}
       <Split
         main={
           <VizCard title="About" subtitle="Creator overview">

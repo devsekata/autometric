@@ -37,6 +37,7 @@ import { measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import type {
   KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
+import type { KolGold } from '@/lib/discover/kolGold'
 
 export interface SectionProps {
   creator: KolDirectoryRow
@@ -51,6 +52,18 @@ export interface SectionProps {
    * estimate for the other 7,695.
    */
   intel: CreatorIntel
+  /**
+   * The L2 Gold rollups, when the pipeline has any for this creator. A third
+   * provenance alongside roster and L1: figures the warehouse aggregated ahead
+   * of time rather than ones this page derives.
+   *
+   * Null, and each field inside independently empty, so a section renders its
+   * real block only where L2 actually has rows and otherwise falls back to the
+   * sampled block it showed before. Never coalesce a null to zero — `null` here
+   * means "the pipeline could not measure it", which is what the missing
+   * Insights columns are.
+   */
+  gold: KolGold | null
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -74,12 +87,86 @@ const METRICS: { key: MetricKey; label: string; format: (n: number) => string }[
 
 const PERIODS = ['30 hari terakhir', '90 hari terakhir', '6 bulan terakhir'] as const
 
-export function PerformanceSection({ creator, platforms, intel }: SectionProps) {
+/** Metrics the L2 rollups actually carry. `reach` is absent on purpose: every
+ *  `reach_sum` in `kol_metric_daily`/`_monthly` is NULL — it needs the Insights
+ *  API. Offering it as a choice would draw an empty chart. */
+const GOLD_METRICS: {
+  key: 'engagement' | 'likes' | 'comments' | 'views' | 'postCount' | 'erFollowers'
+  label: string
+  format: (n: number) => string
+}[] = [
+  { key: 'engagement', label: 'Engagement', format: fmtNum },
+  { key: 'likes', label: 'Likes', format: fmtNum },
+  { key: 'comments', label: 'Comments', format: fmtNum },
+  { key: 'views', label: 'Views', format: fmtNum },
+  { key: 'postCount', label: 'Jumlah post', format: n => String(n) },
+  // Stored as a fraction 0..1 by the pipeline, shown as a percentage here.
+  { key: 'erFollowers', label: 'ER followers', format: n => `${(n * 100).toFixed(2)}%` },
+]
+
+type GoldMetricKey = (typeof GOLD_METRICS)[number]['key']
+type GoldGrain = 'daily' | 'monthly'
+
+export function PerformanceSection({ creator, platforms, intel, gold }: SectionProps) {
   const [metric, setMetric] = useState<MetricKey>('erPct')
   const [platform, setPlatform] = useState('all')
   const [period, setPeriod] = useState<string>(PERIODS[2])
   const m = METRICS.find(x => x.key === metric) ?? METRICS[0]
   const basis = measuredBasis(intel)
+
+  const [goldGrain, setGoldGrain] = useState<GoldGrain>('daily')
+  const [goldMetric, setGoldMetric] = useState<GoldMetricKey>('engagement')
+  const gm = GOLD_METRICS.find(x => x.key === goldMetric) ?? GOLD_METRICS[0]
+
+  /**
+   * The rollups are per account, so a creator on both platforms has two rows
+   * per period. They are summed into one series — except ER, which is a ratio
+   * and cannot be added; there the largest of the day is taken, and the label
+   * says the chart is per account.
+   */
+  const goldPoints = useMemo(() => {
+    if (!gold) return []
+    const rows: { key: string; value: number | null }[] =
+      goldGrain === 'daily'
+        ? gold.daily.map(d => ({ key: d.date, value: d[goldMetric] }))
+        : gold.monthly.map(d => ({
+            key: d.month,
+            value: goldMetric === 'erFollowers' ? d.erFollowers : d[goldMetric],
+          }))
+
+    const byKey = new Map<string, number>()
+    for (const r of rows) {
+      // null means "never measured" and must not become a zero on the chart.
+      if (r.value === null || !r.key) continue
+      const prev = byKey.get(r.key)
+      byKey.set(
+        r.key,
+        prev === undefined
+          ? r.value
+          : goldMetric === 'erFollowers' ? Math.max(prev, r.value) : prev + r.value,
+      )
+    }
+    return [...byKey.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([x, y]) => ({ x, y }))
+  }, [gold, goldGrain, goldMetric])
+
+  /** Totals across the whole rollup, so the tiles say what the pipeline measured. */
+  const goldTotals = useMemo(() => {
+    const sum = (k: 'postCount' | 'likes' | 'comments' | 'views' | 'engagement') => {
+      const vals = (gold?.daily ?? [])
+        .map(d => d[k])
+        .filter((v): v is number => v !== null && v !== undefined)
+      return vals.length ? vals.reduce((a, b) => a + b, 0) : null
+    }
+    return {
+      days: new Set((gold?.daily ?? []).map(d => d.date)).size,
+      months: new Set((gold?.monthly ?? []).map(d => d.month)).size,
+      posts: sum('postCount'), likes: sum('likes'),
+      comments: sum('comments'), views: sum('views'), engagement: sum('engagement'),
+    }
+  }, [gold])
+
+  const hasGold = goldPoints.length > 0 || (gold?.daily.length ?? 0) > 0
 
   /**
    * The period control trims the series rather than refetching: there is only
@@ -107,6 +194,42 @@ export function PerformanceSection({ creator, platforms, intel }: SectionProps) 
             options={METRICS.map(x => [x.key, x.label] as [string, string])} />
         </Field>
       </div>
+
+      {hasGold && (
+        <VizCard
+          title="Performance (terukur, L2 Gold)"
+          subtitle={
+            `${goldTotals.days} hari · ${goldTotals.months} bulan tercatat` +
+            ' · tanggal = tanggal tayang, bukan tanggal scraping'
+          }
+          action={
+            <div className="flex items-end gap-2.5 flex-wrap">
+              <Field label="Grain">
+                <Select value={goldGrain} onChange={v => setGoldGrain(v as GoldGrain)}
+                  options={[['daily', 'Harian'], ['monthly', 'Bulanan']] as [string, string][]} />
+              </Field>
+              <Field label="Metric">
+                <Select value={goldMetric} onChange={v => setGoldMetric(v as GoldMetricKey)}
+                  options={GOLD_METRICS.map(x => [x.key, x.label] as [string, string])} />
+              </Field>
+            </div>
+          }>
+          <div className="grid gap-2.5 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
+            {/* No tile is rendered for a metric the pipeline left NULL — an
+                empty tile claims a measurement that was never taken. */}
+            {goldTotals.posts !== null && <StatTile label="Post" value={fmtNum(goldTotals.posts)} />}
+            {goldTotals.engagement !== null && <StatTile label="Engagement" value={fmtNum(goldTotals.engagement)} />}
+            {goldTotals.likes !== null && <StatTile label="Likes" value={fmtNum(goldTotals.likes)} />}
+            {goldTotals.comments !== null && <StatTile label="Comments" value={fmtNum(goldTotals.comments)} />}
+            {goldTotals.views !== null && <StatTile label="Views" value={fmtNum(goldTotals.views)} />}
+          </div>
+          {goldPoints.length >= 2
+            ? <TrendChart points={goldPoints} format={gm.format} label={gm.label} />
+            : <p className="text-[11px]" style={{ color: T.t4 }}>
+                {gm.label} baru tercatat di {goldPoints.length} periode — grafik butuh minimal dua.
+              </p>}
+        </VizCard>
+      )}
 
       <VizCard title="Performance Overview" subtitle="Rata-rata per konten">
         <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
@@ -591,10 +714,116 @@ function SentimentBars({ parts }: { parts: { label: string; pct: number }[] }) {
 
 /* ── Audience Insights ────────────────────────────────────────────────────── */
 
-export function AudienceSection({ intel }: SectionProps) {
+/**
+ * The pipeline grades its audience inference rather than scoring it, so these
+ * are the only three values the column ever holds. Rendered as words because
+ * that is what they are — turning `inferred_high` into "83%" would invent a
+ * precision the pipeline never claimed.
+ */
+const CONFIDENCE_LABEL: Record<string, string> = {
+  inferred_high: 'keyakinan tinggi',
+  inferred_medium: 'keyakinan sedang',
+  inferred_low: 'keyakinan rendah',
+}
+
+/**
+ * Renders one L2 audience breakdown, or nothing when the pipeline has no rows
+ * for it. Returning null rather than an empty chart is deliberate: an empty
+ * Donut reads as "this creator has no female followers", which is a claim the
+ * data does not make.
+ */
+function GoldBreakdown({
+  title, slices, coverage, asDonut,
+}: {
+  title: string
+  slices: { label: string; pct: number; n: number }[]
+  /**
+   * Share of the audience this dimension could classify, 0..100. The slices are
+   * shares of THAT part, not of the whole audience, so a low number here has to
+   * be visible or the chart overstates what is known.
+   */
+  coverage: number | null
+  asDonut?: boolean
+}) {
+  if (!slices.length) return null
+  return (
+    <div>
+      <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+        {title}
+      </div>
+      {asDonut
+        ? <Donut parts={slices} centerLabel="terklasifikasi" centerValue={`${slices[0]?.pct ?? 0}%`} />
+        : <Bars parts={slices} />}
+      {coverage !== null && (
+        <p className="text-[9.5px] mt-2 leading-[1.5]" style={{ color: T.t4 }}>
+          {coverage < 50
+            ? `Hanya ${coverage}% audiens yang bisa diklasifikasi — proporsi di atas dihitung dari bagian itu saja.`
+            : `${coverage}% audiens terklasifikasi.`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+export function AudienceSection({ intel, gold }: SectionProps) {
   const a = intel.audience
+  const g = gold?.audience ?? null
+
+  // Each breakdown is independently present: a creator can have geo rows and no
+  // interest rows. The sampled card for a dimension is dropped only where L2
+  // actually has that dimension, so the page never shows both for the same idea
+  // with two different numbers.
+  const hasGender = !!g?.gender.length
+  const hasAge = !!g?.age.length
+  const hasGeo = !!(g?.countries.length || g?.cities.length)
+  const hasInterest = !!g?.interests.length
+
+  /**
+   * Inference from a follower sample, not a platform report — said once, here.
+   * `confidence` is a label (`inferred_high` / `inferred_medium` /
+   * `inferred_low`), never a percentage: the column is text and the pipeline
+   * grades the inference rather than scoring it.
+   */
+  const goldNote = g
+    ? `Diinferensi dari sampel follower${g.asOf ? `, per ${g.asOf}` : ''}` +
+      `${g.confidence ? ` · ${CONFIDENCE_LABEL[g.confidence] ?? g.confidence}` : ''}`
+    : undefined
+
   return (
     <div className="flex flex-col gap-4">
+      {(hasGender || hasAge || hasGeo || hasInterest) && g && (
+        <VizCard title="Audience Insights (terukur)" subtitle={goldNote}>
+          <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
+            <GoldBreakdown title="Gender" slices={g.gender} coverage={g.coverage.gender} asDonut />
+            <GoldBreakdown title="Age" slices={g.age} coverage={g.coverage.age} />
+            <GoldBreakdown title="Top Countries" slices={g.countries} coverage={g.coverage.geo} />
+            <GoldBreakdown title="Top Cities" slices={g.cities} coverage={null} />
+          </div>
+          {hasInterest && (
+            <div className="mt-5">
+              <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+                Audience Interests
+              </div>
+              {g.coverage.interests !== null && g.coverage.interests < 50 && (
+                <p className="text-[9.5px] mb-2 leading-[1.5]" style={{ color: T.t4 }}>
+                  Hanya {g.coverage.interests}% audiens yang minatnya bisa diklasifikasi.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {g.interests.map(i => (
+                  <span key={i.label} title={`${i.label}: ${i.pct}% (${fmtNum(i.n)} audiens)`}
+                    style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                    className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5">
+                    {i.label}
+                    <span style={{ color: T.t3 }} className="font-semibold">{i.pct}%</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </VizCard>
+      )}
+
       <VizCard title="Audience Quality" sample
         subtitle="Kualitas audiens dinilai dari aktivitas, perilaku dan sinyal akun">
         <div className="grid gap-2.5 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
@@ -607,23 +836,27 @@ export function AudienceSection({ intel }: SectionProps) {
 
       <Split
         main={
-          <VizCard title="Audience Demographics" sample>
+          <VizCard title={hasGender || hasAge ? 'Audience Demographics (estimasi)' : 'Audience Demographics'} sample>
             <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
               <div>
-                <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
-                  Gender
-                </div>
-                <Donut parts={a.gender} centerLabel="audiens" centerValue={`${a.gender[0]?.pct ?? 0}%`} />
+                    <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+                      Gender
+                    </div>
+                    <Donut parts={a.gender} centerLabel="audiens" centerValue={`${a.gender[0]?.pct ?? 0}%`} />
+                  </div>
+                )}
+                {!hasAge && (
+                  <div>
+                    <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+                      Age
+                    </div>
+                    {/* Ordinal ramp: the order of the bands is part of the meaning. */}
+                    <Bars parts={a.age} ordinal />
+                  </div>
+                )}
               </div>
-              <div>
-                <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
-                  Age
-                </div>
-                {/* Ordinal ramp: the order of the bands is part of the meaning. */}
-                <Bars parts={a.age} ordinal />
-              </div>
-            </div>
-            <div className="mt-5">
+            )}
+            <div className={(!hasGender || !hasAge) ? 'mt-5' : undefined}>
               <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
                 Generation
               </div>
@@ -633,19 +866,23 @@ export function AudienceSection({ intel }: SectionProps) {
         }
         aside={
           <>
-            <VizCard title="Top Locations" sample>
-              <Bars parts={a.location} />
-            </VizCard>
-            <VizCard title="Audience Interests" sample>
-              <div className="flex flex-wrap gap-1.5">
-                {a.interests.map(i => (
-                  <span key={i} style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
-                    className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center">
-                    {i}
-                  </span>
-                ))}
-              </div>
-            </VizCard>
+            {!hasGeo && (
+              <VizCard title="Top Locations" sample>
+                <Bars parts={a.location} />
+              </VizCard>
+            )}
+            {!hasInterest && (
+              <VizCard title="Audience Interests" sample>
+                <div className="flex flex-wrap gap-1.5">
+                  {a.interests.map(i => (
+                    <span key={i} style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                      className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center">
+                      {i}
+                    </span>
+                  ))}
+                </div>
+              </VizCard>
+            )}
           </>
         }
       />
