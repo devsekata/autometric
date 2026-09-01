@@ -15,6 +15,8 @@ import { toIso } from './util'
  *   * `l2_gold.audience_demographics_daily`    69 rows — gender today, age later
  *   * `l2_gold.audience_geo_daily`            181 rows — country and city
  *   * `l2_gold.audience_interest_daily`       214 rows — interest keys
+ *   * `l2_gold.post_metric`                    477 rows — one row per post
+ *   * `l2_gold.content_format_daily`           300 rows — per account, day, format
  *
  * Reached the same way L1 is: from `public.kol_directory` through
  * `public.kol_social_account`, which maps a roster row to the accounts it owns.
@@ -38,6 +40,18 @@ import { toIso } from './util'
  * A zero would read as "measured, and it was nothing". These stay null and the
  * UI omits the tile.
  *
+ * ── The last two tables came online on 1 Sep 2026 ───────────────────────────
+ * `l2_gold.post_metric` and `l2_gold.content_format_daily` used to hold zero rows
+ * and were skipped for that reason. The scraper repo's `gold_post.py` asset now
+ * fills them inside the same `transform_chain_job` the other rollups ride, so
+ * they are read here on the same terms as the rest: 30 creators have rows today,
+ * the same 30 that carry `kol_metric_daily`.
+ *
+ * They reconcile against `kol_metric_daily` by construction, which is what makes
+ * them safe to show beside it — summing `content_format_daily` across formats for
+ * an account-day reproduces the daily row exactly, and `post_metric` does too
+ * once the two sample flags are filtered. The pipeline re-checks that on every
+ * materialize. Neither is aggregated again here.
  */
 
 /** One day of a creator's measured performance, one row per platform. */
@@ -135,6 +149,76 @@ export interface GoldAudience {
   asOf: string | null
 }
 
+/**
+ * One published post, carrying the pipeline's own rank and ER rather than ones
+ * this page derives. The grain of `l2_gold.post_metric`.
+ *
+ * `likesHidden` and `isCollaboration` are the two sample rules, kept as fields
+ * because the pipeline writes EVERY post and expects the reader to filter. They
+ * are also why `erFollowers` can be null on a row whose likes are present: a
+ * collaboration's likes are real but partly someone else's audience, so a ratio
+ * against THIS account's followers would be wrong rather than merely incomplete.
+ */
+export interface GoldPost {
+  platform: string
+  contentId: string
+  /** Full instant of publication. */
+  postedAt: string | null
+  /** `YYYY-MM-DD`, the publication day in WIB — the day the rollups group by. */
+  postDate: string | null
+  mediaType: string | null
+  isSponsored: boolean | null
+  permalink: string | null
+  likesHidden: boolean | null
+  isCollaboration: boolean | null
+  likes: number | null
+  comments: number | null
+  /** TikTok only on the harvest as it stands; null on Instagram means unknown. */
+  shares: number | null
+  saves: number | null
+  views: number | null
+  /** Like + Comment + Share. Saves are deliberately not part of engagement. */
+  engagement: number | null
+  engagementPublic: number | null
+  followersAtPostDate: number | null
+  /** Fraction 0..1, not a percentage. Null for 71% of posts — see above. */
+  erFollowers: number | null
+  /** Rank by ER within the account, from the feature layer. Null when unranked. */
+  rankInAccount: number | null
+  /** Already a JSON array of strings in the column; empty when the post had none. */
+  hashtags: string[]
+}
+
+/**
+ * One (day × format) cell of `l2_gold.content_format_daily` — `kol_metric_daily`
+ * with `media_type` added, and identical formulas, so the two can be compared.
+ *
+ * `mediaType` is the platform's own word (`clips`, `carousel_container`, `feed`,
+ * `VIDEO`, `CAROUSEL`), plus `unknown` for the posts whose format never came
+ * through. Not normalised into shared labels: that mapping is a product decision
+ * that has not been made, and inventing it here would bake it into the data.
+ */
+export interface GoldFormatDay {
+  /** `YYYY-MM-DD`, publication day in WIB. */
+  date: string
+  platform: string
+  mediaType: string
+  postCount: number
+  /** Posts that passed both sample rules; the `*Sum` fields cover only these. */
+  postsInSample: number
+  likes: number | null
+  comments: number | null
+  views: number | null
+  engagement: number | null
+  /**
+   * The ER denominator, kept because ER is a ratio and ratios do not add. A
+   * multi-day ER must be `sum(engagement) / sum(followersDenom)`, never a mean
+   * of `erFollowers`.
+   */
+  followersDenom: number | null
+  erFollowers: number | null
+}
+
 export interface KolGold {
   /** One card per account the creator owns; empty when L2 has none. */
   cards: GoldProfileCard[]
@@ -144,6 +228,10 @@ export interface KolGold {
   monthly: GoldMonthlyPoint[]
   /** Null when no audience inference exists for any of the creator's accounts. */
   audience: GoldAudience | null
+  /** Newest first, capped — see the query. Empty for a creator with no posts. */
+  posts: GoldPost[]
+  /** Oldest first, one row per format per day. */
+  formats: GoldFormatDay[]
 }
 
 /**
@@ -169,6 +257,16 @@ function toDateOnly(v: Date | string | null | undefined): string | null {
 /** `bigint` and `numeric` both arrive as strings from node-pg; null stays null. */
 const num = (v: string | number | null): number | null =>
   v === null || v === undefined ? null : Number(v)
+
+/**
+ * A `jsonb` array of tags as a plain `string[]`.
+ *
+ * node-pg parses `jsonb` for us, so this is a shape guard rather than a parse:
+ * the column is nullable and nothing stops a future writer putting an object
+ * there, and a `.map` over that would throw inside a page render.
+ */
+const strList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 
 /** `count(*)::int` already arrives as a number; everything else may not. */
 const int = (v: string | number | null): number =>
@@ -228,7 +326,8 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest] = await Promise.all([
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats] =
+    await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
       avatar_url: string | null; profile_url: string | null; bio: string | null
@@ -349,13 +448,83 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         GROUP BY i.interest_key`,
       [kolId],
     ),
+
+    // Capped by COUNT, not by date, and that is the difference from the daily
+    // rollup above. This is a list of posts, not a time series: the busiest
+    // creator on the roster carries 200 rows, and a 365-day window would drop
+    // 18 posts that a "top posts" table still wants. Newest first so the cap
+    // takes the recent end when a creator eventually outgrows it.
+    //
+    // Ordering for display (top ER / newest / most viewed) happens in the
+    // component, over these rows — the same way the sampled grid already sorts.
+    db.query<{
+      platform: string | null; content_id: string; posted_at: Date | string | null
+      post_date: Date | string | null; media_type: string | null
+      is_sponsored: boolean | null; permalink: string | null
+      likes_hidden: boolean | null; is_collaboration: boolean | null
+      likes: string | null; comments: string | null; shares: string | null
+      saves: string | null; views: string | null
+      engagement_owned: string | null; engagement_public: string | null
+      followers_at_post_date: string | null; er_followers: string | null
+      rank_in_account: number | null; top_hashtags: unknown
+    }>(
+      `SELECT p.platform, p.content_id, p.posted_at, p.post_date, p.media_type,
+              p.is_sponsored, p.permalink, p.likes_hidden, p.is_collaboration,
+              p.likes, p.comments, p.shares, p.saves, p.views,
+              p.engagement_owned, p.engagement_public,
+              p.followers_at_post_date, p.er_followers,
+              p.rank_in_account, p.top_hashtags
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.post_metric p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY p.posted_at DESC NULLS LAST
+        LIMIT 200`,
+      [kolId],
+    ),
+
+    // NOT windowed, unlike `kol_metric_daily` above, and the difference is
+    // deliberate: this feeds a format MIX, not a time series.
+    //
+    // It used to carry the same 365-day cap, on the reasoning that the two
+    // tables should agree. Measured against the data, that cap only lost rows:
+    // 16 rows across 6 accounts fall outside the window and never reached the
+    // screen. Worse, both this card and the Top Posts table live on the same
+    // Content tab, and `post_metric` below is capped by COUNT rather than by
+    // date — so `irwansyah_15` showed "10 post" in the table beside a format
+    // breakdown built from 8. Two totals for one creator on one tab.
+    //
+    // The card renders shares across the whole period, so the window bought the
+    // reader nothing while silently dropping the oldest content. Both queries
+    // now describe the same corpus. The daily and monthly series above keep
+    // their window — those really are charts over time.
+    db.query<{
+      metric_date: Date | string; platform: string | null; media_type: string
+      post_count: string | null; posts_in_sample: string | null
+      likes_sum: string | null; comments_sum: string | null; views_sum: string | null
+      engagement_sum: string | null; followers_denom_sum: string | null
+      er_followers_daily: string | null
+    }>(
+      `SELECT f.metric_date, f.platform, f.media_type,
+              f.post_count, f.posts_in_sample,
+              f.likes_sum, f.comments_sum, f.views_sum,
+              f.engagement_sum, f.followers_denom_sum, f.er_followers_daily
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.content_format_daily f
+           ON f.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY f.metric_date ASC`,
+      [kolId],
+    ),
   ])
 
   const hasAudience =
     gender.rows.length > 0 || age.rows.length > 0 ||
     geo.rows.length > 0 || interest.rows.length > 0
 
-  if (!cards.rows.length && !daily.rows.length && !monthly.rows.length && !hasAudience) {
+  if (
+    !cards.rows.length && !daily.rows.length && !monthly.rows.length &&
+    !posts.rows.length && !formats.rows.length && !hasAudience
+  ) {
     return null
   }
 
@@ -443,6 +612,43 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       engagement: num(r.engagement_sum),
       erFollowers: num(r.er_followers_monthly),
       followersEom: num(r.followers_eom),
+    })),
+
+    posts: posts.rows.map(r => ({
+      platform: r.platform ?? 'unknown',
+      contentId: r.content_id,
+      postedAt: toIso(r.posted_at),
+      postDate: toDateOnly(r.post_date),
+      mediaType: r.media_type,
+      isSponsored: r.is_sponsored,
+      permalink: r.permalink,
+      likesHidden: r.likes_hidden,
+      isCollaboration: r.is_collaboration,
+      likes: num(r.likes),
+      comments: num(r.comments),
+      shares: num(r.shares),
+      saves: num(r.saves),
+      views: num(r.views),
+      engagement: num(r.engagement_owned),
+      engagementPublic: num(r.engagement_public),
+      followersAtPostDate: num(r.followers_at_post_date),
+      erFollowers: num(r.er_followers),
+      rankInAccount: r.rank_in_account,
+      hashtags: strList(r.top_hashtags),
+    })),
+
+    formats: formats.rows.map(r => ({
+      date: toDateOnly(r.metric_date) ?? '',
+      platform: r.platform ?? 'unknown',
+      mediaType: r.media_type,
+      postCount: int(r.post_count),
+      postsInSample: int(r.posts_in_sample),
+      likes: num(r.likes_sum),
+      comments: num(r.comments_sum),
+      views: num(r.views_sum),
+      engagement: num(r.engagement_sum),
+      followersDenom: num(r.followers_denom_sum),
+      erFollowers: num(r.er_followers_daily),
     })),
 
     audience: hasAudience ? buildAudience() : null,

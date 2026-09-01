@@ -37,7 +37,7 @@ import { measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import type {
   KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
-import type { KolGold } from '@/lib/discover/kolGold'
+import type { GoldFormatDay, GoldPost, KolGold } from '@/lib/discover/kolGold'
 
 export interface SectionProps {
   creator: KolDirectoryRow
@@ -393,6 +393,16 @@ const CONTENT_SORTS = [
   ['top', 'Top performing'], ['recent', 'Terbaru'], ['views', 'Views terbanyak'],
 ] as const
 
+/**
+ * Sorts for the L2 post table. The same three ideas as the sampled grid above,
+ * declared separately on purpose: `top` there means the sampled ER, here it
+ * means the pipeline's `er_followers`. Sharing one constant would suggest the
+ * two tables are ordered by the same number.
+ */
+const GOLD_POST_SORTS = [
+  ['top', 'ER tertinggi'], ['recent', 'Terbaru'], ['views', 'Views terbanyak'],
+] as const
+
 /** `media_type` as an icon, so a cover that never loads still says what it was. */
 const POST_ICON: Record<string, string> = {
   Reels: 'play_circle', Video: 'play_circle', 'Feed Video': 'play_circle',
@@ -471,12 +481,291 @@ function PostCover({
   )
 }
 
+/** Sums that keep null meaning "never measured" instead of collapsing it to 0. */
+const addNullable = (a: number | null, b: number | null): number | null =>
+  a === null && b === null ? null : (a ?? 0) + (b ?? 0)
+
+/** The pipeline stores ER as a fraction 0..1; every screen shows a percentage. */
+const erLabel = (v: number | null) => (v === null ? '\u2014' : `${(v * 100).toFixed(2)}%`)
+
+/**
+ * One row per published post, carrying the pipeline's own rank and ER rather
+ * than figures this page derives.
+ *
+ * Sits ABOVE the sampled grid instead of replacing it. The grid holds covers and
+ * captions, which `post_metric` does not store; this table holds numbers the
+ * grid can only estimate. They are two different things about the same posts, so
+ * dropping either would lose something real.
+ *
+ * A column is omitted entirely when no row carries it, rather than rendered as a
+ * stack of dashes. `shares` and `saves` are the live case: TikTok reports them
+ * and Instagram does not, so a TikTok creator gets both columns and an Instagram
+ * creator gets neither. `reach`, `reposts`, `avg_watch_time_seconds` and
+ * `completion_rate` are NULL for every row in the table and are not even
+ * selected -- see `kolGold`.
+ */
+function GoldPostsCard({ posts }: { posts: GoldPost[] }) {
+  const [sort, setSort] = useState<string>('top')
+  const [format, setFormat] = useState('all')
+
+  const formats = useMemo(
+    () => [...new Set(posts.map(p => p.mediaType ?? 'unknown'))].sort(),
+    [posts])
+
+  /**
+   * Columns are decided over ALL posts, not the filtered view, so changing the
+   * format filter never makes a column appear and vanish under the reader.
+   */
+  const hasShares = posts.some(p => p.shares !== null)
+  const hasSaves = posts.some(p => p.saves !== null)
+  const hasViews = posts.some(p => p.views !== null)
+
+  const rows = useMemo(() => {
+    const out = posts.filter(p => format === 'all' || (p.mediaType ?? 'unknown') === format)
+    /**
+     * Nulls sink to the bottom: "never measured" is not "worst", but it must not
+     * head a table sorted by the very thing it lacks.
+     */
+    const desc = (f: (p: GoldPost) => number | null) => (a: GoldPost, b: GoldPost) => {
+      const av = f(a)
+      const bv = f(b)
+      if (av === null && bv === null) return 0
+      if (av === null) return 1
+      if (bv === null) return -1
+      return bv - av
+    }
+    if (sort === 'views') return [...out].sort(desc(p => p.views))
+    if (sort === 'top') return [...out].sort(desc(p => p.erFollowers))
+    return [...out].sort((a, b) => (b.postedAt ?? '').localeCompare(a.postedAt ?? ''))
+  }, [posts, format, sort])
+
+  const withEr = posts.filter(p => p.erFollowers !== null).length
+  const flagged = posts.filter(p => p.likesHidden || p.isCollaboration).length
+
+  const headers = ['#', 'Post', 'Format', 'Tayang', 'Likes', 'Comments']
+    .concat(hasShares ? ['Shares'] : [])
+    .concat(hasSaves ? ['Saves'] : [])
+    .concat(hasViews ? ['Views'] : [])
+    .concat(['ER'])
+
+  return (
+    <VizCard
+      title="Top Posts (terukur, L2 Gold)"
+      subtitle={
+        `${posts.length} post dari pipeline \u00b7 peringkat & ER dihitung pipeline` +
+        ' \u00b7 tanggal = tanggal tayang'
+      }
+      action={
+        <div className="flex gap-1.5 flex-wrap">
+          <Select value={format} onChange={setFormat}
+            options={([['all', 'Semua format']] as [string, string][])
+              .concat(formats.map(f => [f, f] as [string, string]))} />
+          <Select value={sort} onChange={setSort}
+            options={GOLD_POST_SORTS.map(([v, l]) => [v, l] as [string, string])} />
+        </div>
+      }>
+      {rows.length === 0 ? (
+        <EmptyBlock icon="filter_alt_off" title="Tidak ada post pada format ini"
+          body="Format yang dipilih tidak dipakai creator ini."
+          action={<Btn onClick={() => setFormat('all')}>Reset filter</Btn>} />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${T.outline}` }}>
+                {headers.map(h => (
+                  <th key={h} className="text-left py-2 font-bold whitespace-nowrap"
+                    style={{ color: T.t3 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(p => (
+                <tr key={`${p.platform}-${p.contentId}`}
+                  style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
+                  <td className="py-2.5 tabular-nums" style={{ ...PJ, color: T.t3 }}>
+                    {p.rankInAccount ?? '\u2014'}
+                  </td>
+                  <td className="py-2.5 max-w-[260px]">
+                    {p.permalink ? (
+                      <a href={p.permalink} target="_blank" rel="noreferrer"
+                        style={{ ...PJ, color: T.primaryDeep }}
+                        className="text-[11.5px] font-bold hover:underline inline-flex items-center gap-1">
+                        Buka post
+                        <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                      </a>
+                    ) : (
+                      <span style={{ ...PJ, color: T.t2 }} className="font-bold">{p.contentId}</span>
+                    )}
+                    {p.isSponsored && (
+                      <span style={{ ...PJ, background: '#fdf3e7', color: '#b5761f' }}
+                        className="ml-1.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full">
+                        PAID
+                      </span>
+                    )}
+                    {(p.likesHidden || p.isCollaboration) && (
+                      <span style={{ ...PJ, background: T.surfaceVariant, color: T.t3 }}
+                        className="ml-1.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full"
+                        title={p.likesHidden
+                          ? 'Like disembunyikan platform \u2014 ER tidak dihitung'
+                          : 'Post kolaborasi \u2014 sebagian audiens milik akun lain, ER tidak dihitung'}>
+                        {p.likesHidden ? 'LIKE DISEMBUNYIKAN' : 'KOLABORASI'}
+                      </span>
+                    )}
+                    {p.hashtags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {p.hashtags.slice(0, 3).map(h => (
+                          <span key={h}
+                            style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                            className="text-[9px] font-bold px-1.5 py-0.5 rounded-md">#{h}</span>
+                        ))}
+                        {p.hashtags.length > 3 && (
+                          <span className="text-[9px]" style={{ color: T.t4 }}>
+                            +{p.hashtags.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-2.5 whitespace-nowrap" style={{ color: T.t3 }}>
+                    {p.mediaType ?? 'unknown'}
+                  </td>
+                  <td className="py-2.5 whitespace-nowrap" style={{ color: T.t3 }}>
+                    {p.postDate ? postedLabel(p.postDate) : '\u2014'}
+                  </td>
+                  <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>
+                    {p.likes === null ? '\u2014' : fmtNum(p.likes)}
+                  </td>
+                  <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>
+                    {p.comments === null ? '\u2014' : fmtNum(p.comments)}
+                  </td>
+                  {hasShares && (
+                    <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>
+                      {p.shares === null ? '\u2014' : fmtNum(p.shares)}
+                    </td>
+                  )}
+                  {hasSaves && (
+                    <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>
+                      {p.saves === null ? '\u2014' : fmtNum(p.saves)}
+                    </td>
+                  )}
+                  {hasViews && (
+                    <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>
+                      {p.views === null ? '\u2014' : fmtNum(p.views)}
+                    </td>
+                  )}
+                  <td className="py-2.5 tabular-nums"
+                    style={{ ...PJ, color: p.erFollowers === null ? T.t4 : T.primaryDeep, fontWeight: 800 }}>
+                    {erLabel(p.erFollowers)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="text-[10px] leading-[1.55] mt-3" style={{ color: T.t3 }}>
+        ER dihitung terhadap jumlah follower saat post tayang, dan hanya ada untuk{' '}
+        <b>{withEr} dari {posts.length}</b> post \u2014 sisanya belum punya snapshot
+        follower sebelum tanggal tayangnya.
+        {flagged > 0 && (
+          <> {flagged} post ditandai like-disembunyikan atau kolaborasi: angkanya tetap
+          ditampilkan, tapi ER-nya sengaja dikosongkan karena penyebutnya bukan audiens
+          akun ini saja.</>
+        )}
+      </p>
+    </VizCard>
+  )
+}
+
+/**
+ * The format mix and the ER behind it, from `l2_gold.content_format_daily`.
+ *
+ * Replaces the sampled "Content Format" card only for creators the pipeline
+ * actually covers; everyone else keeps the estimated one, so no creator loses a
+ * card and no card silently changes provenance.
+ *
+ * ER per format is `sum(engagement) / sum(followersDenom)`, never the mean of
+ * the daily `erFollowers`. A ratio is not additive: averaging the daily column
+ * weights a day carrying one post the same as a day carrying twenty. The
+ * pipeline makes the same choice for its monthly ER, and keeping the denominator
+ * on the row is the only reason this page can repeat it.
+ */
+function GoldFormatsCard({ formats }: { formats: GoldFormatDay[] }) {
+  const rows = useMemo(() => {
+    const by = new Map<string, {
+      posts: number; inSample: number
+      engagement: number | null; denom: number | null; views: number | null
+    }>()
+    for (const f of formats) {
+      const cur = by.get(f.mediaType)
+        ?? { posts: 0, inSample: 0, engagement: null, denom: null, views: null }
+      cur.posts += f.postCount
+      cur.inSample += f.postsInSample
+      cur.engagement = addNullable(cur.engagement, f.engagement)
+      cur.denom = addNullable(cur.denom, f.followersDenom)
+      cur.views = addNullable(cur.views, f.views)
+      by.set(f.mediaType, cur)
+    }
+    return [...by.entries()]
+      .map(([mediaType, v]) => ({
+        mediaType,
+        ...v,
+        er: v.engagement !== null && v.denom !== null && v.denom > 0
+          ? v.engagement / v.denom
+          : null,
+      }))
+      .sort((a, b) => b.posts - a.posts)
+  }, [formats])
+
+  const totalPosts = rows.reduce((a, r) => a + r.posts, 0)
+  const days = new Set(formats.map(f => f.date)).size
+  const parts = totalPosts
+    ? rows.map(r => ({
+        label: r.mediaType,
+        pct: Math.round((r.posts / totalPosts) * 1000) / 10,
+      }))
+    : []
+  const withEr = rows.filter(r => r.er !== null)
+
+  return (
+    <VizCard title="Content Format (terukur, L2 Gold)"
+      subtitle={`${totalPosts} post \u00b7 ${days} hari tercatat`}>
+      <Bars parts={parts} />
+
+      {withEr.length > 0 && (
+        <div className="mt-3">
+          <div style={{ ...PJ, color: T.t3 }}
+            className="text-[10.5px] font-extrabold uppercase tracking-wide mb-1">
+            ER per format
+          </div>
+          {/* Only formats whose ER could be computed. A format listed with a dash
+              would read as "this format does not engage", not as "no follower
+              snapshot covered the days it was posted". */}
+          {withEr.map(r => (
+            <Row key={r.mediaType} label={r.mediaType} value={erLabel(r.er)} />
+          ))}
+        </div>
+      )}
+
+      <p className="text-[10px] leading-[1.55] mt-2.5" style={{ color: T.t3 }}>
+        Format ditulis apa adanya seperti yang dilaporkan platform.
+        {rows.some(r => r.mediaType === 'unknown') && (
+          <> <b>unknown</b> berarti format post-nya tidak ikut ter-scrape, bukan sebuah
+          format tersendiri.</>
+        )}
+      </p>
+    </VizCard>
+  )
+}
+
 /**
  * Content gets its own tab rather than living under Performance: "konten apa
  * yang berhasil" is the question a brief is written from, and it is asked on
  * its own, not as a footnote to the rate.
  */
-export function ContentSection({ creator, intel }: SectionProps) {
+export function ContentSection({ creator, intel, gold }: SectionProps) {
   const [format, setFormat] = useState('all')
   const [sort, setSort] = useState<string>('top')
   const [openItem, setOpenItem] = useState<SampleContentItem | null>(null)
@@ -494,6 +783,15 @@ export function ContentSection({ creator, intel }: SectionProps) {
     return out
   }, [intel.content.recent, format, sort])
 
+  /**
+   * The L2 blocks are independently present: the pipeline covers 30 creators of
+   * the roster, and a creator can have posts recorded without the format rollup
+   * reaching back far enough, or the reverse. Each card decides for itself, so
+   * neither ever renders empty.
+   */
+  const goldPosts = gold?.posts ?? []
+  const goldFormats = gold?.formats ?? []
+
   /** True once every cover in the current view has 403'd — see `PostCover`. */
   const coversDown = failedCovers.length > 0
     && items.some(c => c.coverImage)
@@ -503,6 +801,9 @@ export function ContentSection({ creator, intel }: SectionProps) {
     <div className="flex flex-col gap-4">
       <Split
         main={
+          <>
+          {goldPosts.length > 0 && <GoldPostsCard posts={goldPosts} />}
+
           <VizCard title="Content Performance" sample={!intel.real.content}
             subtitle={intel.real.content
               ? `${intel.measured?.postCount ?? 0} post asli dari warehouse — views, likes dan comments terukur; ER dan sentimen masih estimasi`
@@ -557,13 +858,21 @@ export function ContentSection({ creator, intel }: SectionProps) {
               </p>
             )}
           </VizCard>
+          </>
         }
         aside={
           <>
-            <VizCard title="Content Format" sample={!intel.real.formats}
-              subtitle={intel.real.formats ? measuredBasis(intel) : undefined}>
-              <Bars parts={intel.content.formats} />
-            </VizCard>
+            {/* One card for one idea: the measured mix replaces the estimated
+                one where L2 has rows, rather than sitting beside it with a
+                second, different number for the same question. */}
+            {goldFormats.length > 0 ? (
+              <GoldFormatsCard formats={goldFormats} />
+            ) : (
+              <VizCard title="Content Format" sample={!intel.real.formats}
+                subtitle={intel.real.formats ? measuredBasis(intel) : undefined}>
+                <Bars parts={intel.content.formats} />
+              </VizCard>
+            )}
             {/* The source's "Top hashtags & keywords" panel, which it filled from
                 a written-in list. Counted here across every harvested post, so it
                 only appears for a creator whose posts carry tags. */}
@@ -836,9 +1145,20 @@ export function AudienceSection({ intel, gold }: SectionProps) {
 
       <Split
         main={
-          <VizCard title={hasGender || hasAge ? 'Audience Demographics (estimasi)' : 'Audience Demographics'} sample>
-            <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
-              <div>
+          /* A dimension L2 has already measured is NOT estimated again here.
+             Two gender donuts on one tab ask the same question twice and answer
+             it with two different numbers, and the reader has no way to tell
+             which one to believe. The Top Locations and Audience Interests cards
+             beside this one already drop out for exactly that reason; these
+             blocks follow the same rule so the whole tab is consistent.
+
+             Generation stays whatever happens: it has no L2 counterpart, so it
+             is the one estimate here that competes with nothing. */
+          <VizCard title="Audience Demographics" sample>
+            {(!hasGender || !hasAge) && (
+              <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
+                {!hasGender && (
+                  <div>
                     <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
                       Gender
                     </div>
