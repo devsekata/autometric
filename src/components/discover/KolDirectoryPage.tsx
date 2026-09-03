@@ -30,6 +30,13 @@ import {
   type KolFilters,
 } from './KolDirectoryFilters'
 import { useDiscoverCart } from './useDiscoverCart'
+import CreatorQuickInsight from './CreatorQuickInsight'
+import {
+  CREATOR_PRESETS, creatorBadges, creatorSignals, hasCriteria, matchScore,
+  presetById, relaxSuggestions,
+  type CreatorBadge, type CreatorSignals, type MatchCriteria, type MatchResult,
+  type PresetId,
+} from '@/lib/discover/creatorMatch'
 import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
@@ -218,6 +225,14 @@ export default function KolDirectoryPage({
   const [query, setQuery] = useState(initialQuery)
   const [search, setSearch] = useState(initialQuery)
   const [filters, setFilters] = useState<KolFilters>(KOL_FILTERS_DEFAULT)
+  /**
+   * The active smart preset. It is held beside the filters rather than folded
+   * into them because it does two things a filter cannot: it applies its own
+   * real filters *and* it ranks what comes back. Clearing filters clears it too.
+   */
+  const [preset, setPreset] = useState<PresetId | null>(null)
+  /** Which creator's quick-insight panel is open, if any. */
+  const [insightId, setInsightId] = useState<string | null>(null)
   const [sort, setSort] = useState<SortState>({ key: 'followers', dir: 'desc' })
   const [view, setView] = useState<'card' | 'table'>('card')
   const [page, setPage] = useState(1)
@@ -376,8 +391,71 @@ export default function KolDirectoryPage({
   const rosterTotal = facets?.rosterTotal ?? total
 
   const patchFilters = (patch: Partial<KolFilters>) => { setFilters(f => ({ ...f, ...patch })); setPage(1) }
-  const clearFilters = () => { setFilters(KOL_FILTERS_DEFAULT); setPage(1) }
+  const clearFilters = () => { setFilters(KOL_FILTERS_DEFAULT); setPreset(null); setPage(1) }
   const resetAll = () => { setQuery(''); setSearch(''); clearFilters() }
+
+  /* ── intelligence over the loaded page ───────────────────────────────── */
+
+  /** Everything the user has asked for, as one object the scorer understands. */
+  const criteria = useMemo<MatchCriteria>(
+    () => ({ ...filters, preset }),
+    [filters, preset],
+  )
+  const scored = hasCriteria(criteria)
+
+  /**
+   * Signals per row, computed once per page.
+   *
+   * Keyed by id rather than recomputed inline so a re-render from opening the
+   * insight panel does not re-run the generator for every visible card.
+   */
+  const signals = useMemo(() => {
+    const map = new Map<string, CreatorSignals>()
+    for (const r of rows) map.set(r.id, creatorSignals(r))
+    return map
+  }, [rows])
+
+  const badgesOf = useCallback(
+    (id: string): CreatorBadge[] => {
+      const s = signals.get(id)
+      return s ? creatorBadges(s) : []
+    },
+    [signals],
+  )
+
+  const matchOf = useCallback(
+    (r: KolDirectoryRow): MatchResult | null => {
+      const s = signals.get(r.id)
+      return s ? matchScore(r, s, criteria) : null
+    },
+    [signals, criteria],
+  )
+
+  /**
+   * The page, re-ranked by how well each row answers the criteria.
+   *
+   * Deliberately a re-rank of the *loaded page* and not a re-query: the roster
+   * pages server-side and most of these signals have no column to sort on, so
+   * ordering the whole 7,700 by brand fit is not something this can honestly
+   * offer. The results header says which it is, so the ordering is never
+   * mistaken for a global ranking.
+   */
+  const rankedRows = useMemo(() => {
+    if (!scored) return rows
+    return [...rows].sort((a, b) => (matchOf(b)?.overall ?? 0) - (matchOf(a)?.overall ?? 0))
+  }, [rows, scored, matchOf])
+
+  /** Applying a preset sets its real filters and turns on its ranking. */
+  const applyPreset = (id: PresetId) => {
+    if (preset === id) { setPreset(null); setPage(1); return }
+    const def = presetById(id)
+    if (!def) return
+    setPreset(id)
+    setFilters(f => ({ ...KOL_FILTERS_DEFAULT, category: f.category, platform: f.platform, ...def.filters }))
+    setPage(1)
+  }
+
+  const insightRow = insightId ? rows.find(r => r.id === insightId) ?? null : null
 
   const toggleSection = (id: string) => setFpOpen(s => {
     const next = new Set(s)
@@ -468,8 +546,14 @@ export default function KolDirectoryPage({
 
   const cardProps = (r: KolDirectoryRow) => ({
     creator: r,
+    signals: signals.get(r.id) ?? null,
+    badges: badgesOf(r.id),
+    match: matchOf(r),
     fav: favorites.has(r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
-    onOpen: () => openProfile(r),
+    // Opening the panel rather than the profile: the list is for narrowing, and
+    // a navigation per creator is the wrong cost for a decision this small. The
+    // panel carries "View Full Profile" for when it is the right cost.
+    onOpen: () => setInsightId(r.id),
     onFav: () => { setFavorites(s => toggle(s, r.id)); flash(favorites.has(r.id) ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
     onCompare: () => toggleCompare(r),
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
@@ -495,6 +579,14 @@ export default function KolDirectoryPage({
                 <>
                   {total.toLocaleString('id-ID')} of {rosterTotal.toLocaleString('id-ID')} creators
                   {fCount > 0 && ` · ${fCount} filter${fCount > 1 ? 's' : ''} applied`}
+                  {/*
+                    Only the card grid renders `rankedRows`; the table keeps the
+                    column sort the user picked, which is its own control and must
+                    not be silently overridden. So the claim is made per view —
+                    stating it in table view described an ordering that was not
+                    on screen.
+                  */}
+                  {scored && view === 'card' && ' · diurutkan dari yang paling cocok'}
                   {` · ${favorites.size} favorites · ${compare.ids.size} in compare`}
                 </>
               )}
@@ -513,6 +605,46 @@ export default function KolDirectoryPage({
               Add KOL
             </Btn>
           </div>
+        </div>
+
+        {/* ── smart presets ──
+            Eight questions the panel below can express but nobody wants to
+            assemble by hand. Each sets real filters *and* a ranking; the note
+            under an active one says which is which, because the difference
+            decides whether the result count can be trusted. */}
+        <div className="mt-3.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {CREATOR_PRESETS.map(p => {
+              const on = preset === p.id
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPreset(p.id)}
+                  title={p.desc}
+                  style={{
+                    ...PJ,
+                    background: on ? T.primary : '#fff',
+                    color: on ? '#fff' : T.t3,
+                    borderColor: on ? T.primary : T.outline,
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full border px-2.5 h-[28px] text-[11px] font-bold transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[13px]">{p.icon}</span>
+                  {p.label}
+                </button>
+              )
+            })}
+          </div>
+          {preset && (
+            <p className="text-[10.5px] mt-1.5 leading-relaxed" style={{ color: T.t4 }}>
+              {presetById(preset)?.desc}{' '}
+              <span style={{ color: '#b5761f' }}>
+                Peringkat dihitung pada {rows.length} creator di halaman ini, bukan seluruh
+                {' '}{rosterTotal.toLocaleString('id-ID')} — sebagian sinyalnya belum ada kolomnya di database.
+              </span>
+            </p>
+          )}
         </div>
 
         {/* ── toolbar ── */}
@@ -678,14 +810,18 @@ export default function KolDirectoryPage({
                 <p className="text-[12px] mt-2" style={{ color: T.t4 }}>Memuat…</p>
               </div>
             ) : rows.length === 0 ? (
-              <Empty icon="person_search" tint="#cfe0f1" title="No creators match your filters"
-                body="Try a different keyword or clear filters."
+              /* Named criteria and a way out, rather than "no data". What is too
+                 tight is something only the user's own filters can say. */
+              <Empty icon="person_search" tint="#cfe0f1"
+                title="Tidak ada creator yang cocok dengan filter ini"
+                body={relaxSuggestions(criteria).join('  ·  ')
+                  || 'Coba kata kunci lain, atau longgarkan filternya.'}
                 action={<Btn kind="secondary" onClick={resetAll}>Clear filters</Btn>} />
             ) : (
               <div style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 120ms' }}>
                 {view === 'card' ? (
                   <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${filtPanel ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
-                    {rows.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
+                    {rankedRows.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
                   </div>
                 ) : (
                   <DirectoryTable
@@ -769,6 +905,25 @@ export default function KolDirectoryPage({
         />
       )}
 
+      {insightRow && (
+        <CreatorQuickInsight
+          creator={insightRow}
+          match={matchOf(insightRow)}
+          inShortlist={favorites.has(insightRow.id)}
+          inCompare={inCompare(insightRow.id)}
+          onClose={() => setInsightId(null)}
+          onShortlist={() => {
+            setFavorites(f => toggle(f, insightRow.id))
+            flash(favorites.has(insightRow.id) ? 'Dihapus dari shortlist' : 'Ditambahkan ke shortlist')
+          }}
+          onCompare={() => toggleCompare(insightRow)}
+          onOpenProfile={() => { setInsightId(null); openProfile(insightRow) }}
+          // Starting a collaboration is the same step the card's cart action
+          // takes — priced from the rate card, then on into the ordering flow.
+          onCollaborate={() => { setInsightId(null); addToCart(insightRow) }}
+        />
+      )}
+
       {addOpen && (
         <AddKolDirectoryModal
           onClose={() => setAddOpen(false)}
@@ -794,9 +949,15 @@ export default function KolDirectoryPage({
 /* ── card ─────────────────────────────────────────────────────────────────── */
 
 function CreatorCard({
-  creator: c, fav, inCompare, inCart, onOpen, onFav, onCompare, onCart, onSimilar,
+  creator: c, signals, badges, match,
+  fav, inCompare, inCart, onOpen, onFav, onCompare, onCart, onSimilar,
 }: {
   creator: KolDirectoryRow
+  /** Derived intelligence for this row; null only while the page is loading. */
+  signals: CreatorSignals | null
+  badges: CreatorBadge[]
+  /** How well this row answers the active criteria, or null when there are none. */
+  match: MatchResult | null
   fav: boolean; inCompare: boolean; inCart: boolean
   onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void
   /** Null when the page was mounted without a Smart Discovery destination. */
@@ -810,8 +971,8 @@ function CreatorCard({
   return (
     <article onClick={onOpen}
       className="relative rounded-[18px] border overflow-hidden bg-white transition-all hover:-translate-y-[3px]"
-      style={{ borderColor: T.outline, boxShadow: T.shadow, cursor: c.profileUrl ? 'pointer' : 'default' }}
-      title={c.profileUrl ? 'Buka profil creator' : undefined}
+      style={{ borderColor: T.outline, boxShadow: T.shadow, cursor: 'pointer' }}
+      title="Lihat insight singkat creator ini"
     >
       <div className="h-14 relative overflow-hidden" style={{ background: banner }}>
         <span className="absolute rounded-full" style={{ width: 90, height: 90, top: -40, right: 20, background: 'rgba(255,255,255,.16)' }} />
@@ -843,9 +1004,40 @@ function CreatorCard({
         )}
       </div>
 
+      {/* The score sits over the banner rather than in the body: when the list is
+          ranked, "how well does this answer my question" is the first thing to
+          read, before the name. */}
+      {match && (
+        <div className="absolute top-[9px] left-[9px] z-[3] inline-flex items-baseline gap-1 rounded-lg px-2 py-1"
+          style={{ background: 'rgba(255,255,255,.92)', boxShadow: T.shadow }}>
+          <b style={{ ...PJ, color: T.primaryDeep }} className="text-[13px] font-extrabold tabular-nums">
+            {match.overall}%
+          </b>
+          <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: T.t4 }}>
+            match
+          </span>
+        </div>
+      )}
+
       <div className="px-4 pt-2 pb-[15px]">
         <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold truncate">@{c.username}</div>
         <div className="text-[11.5px] mt-px truncate" style={{ color: T.t4 }}>{subtitle || '—'}</div>
+
+        {/* Two or three claims, measured ones first — see `creatorBadges`. */}
+        {badges.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {badges.map(b => (
+              <span key={b.id} style={{
+                ...PJ,
+                background: b.weight === 'strong' ? T.surfaceVariant : '#f3f4f6',
+                color: b.weight === 'strong' ? T.primaryDeep : T.t3,
+              }} className="inline-flex items-center gap-1 rounded-full px-1.5 h-[19px] text-[9.5px] font-bold">
+                <span className="material-symbols-outlined text-[11px]">{b.icon}</span>
+                {b.label}
+              </span>
+            ))}
+          </div>
+        )}
 
         <span className="inline-flex items-center gap-1.5 mt-[9px] rounded-lg px-[9px] py-[3px] text-[10.5px] font-bold max-w-full"
           style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}>
@@ -858,6 +1050,26 @@ function CreatorCard({
           <Stat label="Eng. Rate" value={erLabel(c.erPct)} />
           <Stat label="Est. Reach" value={reachLabel(c)} />
         </div>
+
+        {/* The intelligence row. Modelled throughout, so it is set in the
+            quieter type and the panel behind the card carries the badge. */}
+        {signals && (
+          <div className="flex items-center gap-2 mt-2 text-[10px]" style={{ color: T.t4 }}>
+            <span className="inline-flex items-center gap-0.5" title="Skor kualitas audiens (estimasi)">
+              <span className="material-symbols-outlined text-[12px]">verified_user</span>
+              {signals.audienceQuality}
+            </span>
+            <span style={{ color: '#d1d5db' }}>·</span>
+            <span className="inline-flex items-center gap-0.5" title="Pertumbuhan follower per bulan (estimasi)">
+              <span className="material-symbols-outlined text-[12px]">trending_up</span>
+              {signals.growthMonthly > 0 ? '+' : ''}{signals.growthMonthly.toFixed(1)}%
+            </span>
+            <span style={{ color: '#d1d5db' }}>·</span>
+            <span className="truncate" title="Segmen audiens terbesar (estimasi)">
+              {signals.topAudience ?? '—'}
+            </span>
+          </div>
+        )}
 
         <div className="mt-2.5 flex items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"

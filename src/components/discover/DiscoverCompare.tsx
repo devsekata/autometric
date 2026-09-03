@@ -285,6 +285,59 @@ export default function DiscoverCompare({
     return map
   }, [selected])
 
+  /**
+   * The comparison, said out loud.
+   *
+   * The table already stars the winning cell in every row, which answers "who
+   * wins this metric" once the reader has found the row. It does not answer
+   * "so which one should I pick" — that means scanning twenty rows and holding
+   * six names in your head. These are the four or five dimensions a decision
+   * actually turns on, each stated as a sentence with the margin attached,
+   * because "highest engagement" means something different at +0.1pp than at
+   * +3pp.
+   *
+   * Derived from the same `GROUPS` the table renders, so a highlight can never
+   * disagree with the star beside it. Dimensions where fewer than two
+   * contenders have a value are skipped for the same reason the stars are.
+   */
+  const highlights = useMemo(() => {
+    const wanted: { row: string; title: string; icon: string; unit?: string }[] = [
+      { row: 'Engagement rate', title: 'Engagement tertinggi', icon: 'bolt', unit: '%' },
+      { row: 'Views / post', title: 'Views per post terbanyak', icon: 'visibility' },
+      { row: 'Followers', title: 'Audiens terbesar', icon: 'group' },
+      { row: 'Total views', title: 'Total views terbanyak', icon: 'play_circle' },
+      { row: 'Jumlah post', title: 'Paling produktif', icon: 'dynamic_feed' },
+    ]
+
+    const allRows = GROUPS.flatMap(g => g.rows)
+    const out: { title: string; icon: string; who: string; detail: string }[] = []
+
+    for (const w of wanted) {
+      const metric = allRows.find(r => r.label === w.row)
+      if (!metric) continue
+
+      const scored = selected
+        .map(c => ({ c, v: metric.get(c) }))
+        .filter((x): x is { c: Contender; v: number } => x.v !== null)
+      if (scored.length < 2) continue
+
+      scored.sort((a, b) => (metric.higherIsBetter ? b.v - a.v : a.v - b.v))
+      const [first, second] = scored
+      const gap = Math.abs(first.v - second.v)
+      const pct = second.v !== 0 ? Math.round((gap / Math.abs(second.v)) * 100) : null
+
+      out.push({
+        title: w.title,
+        icon: w.icon,
+        who: `@${first.c.username}`,
+        detail: pct !== null && pct > 0
+          ? `${pct}% di atas @${second.c.username}`
+          : `unggul tipis dari @${second.c.username}`,
+      })
+    }
+    return out
+  }, [selected])
+
   const rosterCount = selected.filter(c => c.source === 'roster').length
   const accountCount = selected.length - rosterCount
 
@@ -405,6 +458,38 @@ export default function DiscoverCompare({
           </span>
         </div>
       </div>
+
+      {/* The answer, above the evidence. The table below is what backs each of
+          these up; this is what the comparison was for. */}
+      {selected.length >= 2 && highlights.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#9ca3af]">
+              Ringkasan perbandingan
+            </span>
+            <span className="flex-1 h-px bg-[#f3f4f6]" />
+          </div>
+          <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            {highlights.map(h => (
+              <div key={h.title}
+                className="rounded-xl border border-[#e5e7eb] bg-white px-3 py-2.5 flex items-start gap-2.5">
+                <span className="w-8 h-8 rounded-lg bg-[#f0f7fa] inline-flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[17px] text-[#285D6E]">{h.icon}</span>
+                </span>
+                <div className="min-w-0">
+                  <span style={PJ} className="block text-[9.5px] font-bold uppercase tracking-widest text-[#9ca3af]">
+                    {h.title}
+                  </span>
+                  <span style={PJ} className="block text-[12.5px] font-extrabold text-[#111827] truncate mt-0.5">
+                    {h.who}
+                  </span>
+                  <span className="block text-[10px] text-[#6b7280]">{h.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {selected.length < 2 ? (
         <EmptyState icon="compare" title="Pilih minimal 2 creator"
