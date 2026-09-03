@@ -89,6 +89,16 @@ export interface DiscoverTab {
    * that already carries controls.
    */
   ownsHeader?: boolean
+  /**
+   * Only for a workspace Admin.
+   *
+   * Two entries carry it — `Ordering`, which is purchasing, and `Settings`,
+   * which is workspace configuration. For a Member they are not disabled or
+   * greyed out, they are *absent*: not in the sidebar, not in the collapsed
+   * rail, and not reachable by typing the URL (see `mayOpenTab`, which the
+   * Discover route enforces on the server).
+   */
+  adminOnly?: boolean
   /** Sub-strip, always visible. */
   views?: DiscoverView[]
   /**
@@ -233,6 +243,8 @@ export const DISCOVER_TABS: DiscoverTab[] = [
     label: 'Ordering',
     icon: 'shopping_cart',
     group: 'kol',
+    // Purchasing, end to end — the Admin's.
+    adminOnly: true,
     views: [
       { id: 'ratecards', label: 'Rate Cards', icon: 'request_quote', subtitle: 'Tarif dasar tiap akun — angka yang jadi dasar harga semua deliverable, dan titik awal negosiasi.' },
       { id: 'cart', label: 'Cart', icon: 'shopping_cart', subtitle: 'Kandidat campaign beserta rate card, deliverables dan subtotalnya.' },
@@ -246,6 +258,8 @@ export const DISCOVER_TABS: DiscoverTab[] = [
     label: 'Settings',
     icon: 'tune',
     group: 'kol',
+    // Workspace configuration — the Admin's.
+    adminOnly: true,
     ownsHeader: true,
     views: [
       { id: 'discover', label: 'Discover', icon: 'travel_explore' },
@@ -277,6 +291,37 @@ export function shown(views: DiscoverView[] | undefined): DiscoverView[] {
 /** The always-visible sub-strip for a tab, hidden entries removed. */
 export function visibleViews(tab: DiscoverTab | undefined): DiscoverView[] {
   return shown(tab?.views)
+}
+
+/* ── the same list, as one role sees it ───────────────────────────────────── */
+
+/**
+ * The workspace role a screen is being drawn for.
+ *
+ * `undefined` means "not known yet" and resolves as Admin. That only happens
+ * before the role has been read, and the alternative — defaulting to Member —
+ * would make the sidebar drop two entries on every load and put them back a
+ * frame later, which reads as a bug rather than as a permission.
+ */
+export type TabRole = 'ADMIN' | 'MEMBER' | undefined
+
+/**
+ * The destinations this role has, in registry order.
+ *
+ * One filtered list rather than two hand-written ones: the sidebar, the
+ * collapsed rail and the route guard all derive from this, so a tab can never be
+ * hidden in one place and reachable in another. Removing an entry here removes
+ * it everywhere, and the list simply closes up — there is nothing left behind to
+ * leave a gap.
+ */
+export function tabsFor(role: TabRole): DiscoverTab[] {
+  return DISCOVER_TABS.filter(t => !t.adminOnly || role !== 'MEMBER')
+}
+
+/** May this role open this tab at all? The route guard's question. */
+export function mayOpenTab(tabId: string, role: TabRole): boolean {
+  const tab = BY_ID.get(tabId)
+  return !tab?.adminOnly || role !== 'MEMBER'
 }
 
 /** Every `view` id a tab answers to — strip, drill-down and hidden alike. */

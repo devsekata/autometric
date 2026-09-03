@@ -1,10 +1,23 @@
-import { DISCOVER_TABS, GROUP_LABEL, visibleViews } from '@/lib/discover/tabs'
+import { GROUP_LABEL, tabsFor, visibleViews, type TabRole } from '@/lib/discover/tabs'
 
 export interface OrgNavItem {
   label: string
   path: string
   icon: string
+  /** Only for autometric staff — gated on the *account* role, not the workspace one. */
   adminOnly?: boolean
+  /**
+   * Only for a workspace Admin, and gated on the role the sidebar is being drawn
+   * for — which is what the "Viewing as" switch changes.
+   *
+   * Distinct from `adminOnly` above, which is about who works at autometric.
+   * This one is about who administers *this workspace*, and it is why the
+   * top-level `Settings` entry disappears for a Member alongside Discover's own:
+   * the requirement is that Settings is not reachable from anywhere, and a
+   * second entry with the same name would be exactly the "other location" it
+   * rules out.
+   */
+  workspaceAdminOnly?: boolean
   /**
    * Discover selects its panel with `?tab=`, so its entries share one route and
    * differ only by the query. `tab` is what "is this the active entry" compares;
@@ -42,17 +55,24 @@ export interface OrgNavItem {
  * stay as strips inside the page: they are steps within a screen, and hanging
  * them off the sidebar is what made this module three levels deep before.
  */
-const DISCOVER_CHILDREN: OrgNavItem[] = DISCOVER_TABS.map((t, i, all) => ({
-  label: t.label,
-  path: 'discover',
-  icon: t.icon,
-  tab: t.id,
-  // Land on the tab's first section when it has an always-visible strip.
-  view: visibleViews(t)[0]?.id ?? null,
-  groupLabel: all[i - 1]?.group === t.group ? undefined : GROUP_LABEL[t.group],
-}))
+const discoverChildren = (role: TabRole): OrgNavItem[] => {
+  // Filtered *before* the group labels are computed, so a group whose first
+  // entry is Admin-only still gets its heading from whichever entry a Member
+  // does have — and a group that empties out prints no heading at all. That is
+  // what makes the list close up cleanly instead of leaving a labelled gap.
+  const tabs = tabsFor(role)
+  return tabs.map((t, i) => ({
+    label: t.label,
+    path: 'discover',
+    icon: t.icon,
+    tab: t.id,
+    // Land on the tab's first section when it has an always-visible strip.
+    view: visibleViews(t)[0]?.id ?? null,
+    groupLabel: tabs[i - 1]?.group === t.group ? undefined : GROUP_LABEL[t.group],
+  }))
+}
 
-export const ORG_NAV_ITEMS: OrgNavItem[] = [
+const ORG_NAV_BASE: OrgNavItem[] = [
   {
     label: 'Dashboard', path: 'dashboard', icon: 'dashboard',
     children: [
@@ -75,13 +95,35 @@ export const ORG_NAV_ITEMS: OrgNavItem[] = [
   // No `tab` on the branch itself: like Dashboard, it prefix-matches the route so
   // it reads as on-path for every tab and for the detail pages underneath, and
   // yields the highlight to whichever child is actually active.
+  // `children` is filled in per role by `orgNavItems` below.
   {
     label: 'Discover', path: 'discover', icon: 'travel_explore',
-    children: DISCOVER_CHILDREN,
   },
   { label: 'Brands',     path: 'brands',     icon: 'store' },
   { label: 'Reports',    path: 'reports',    icon: 'bar_chart' },
   { label: 'Members',    path: 'members',    icon: 'group' },
-  { label: 'Settings',   path: 'settings',   icon: 'settings' },
+  { label: 'Settings',   path: 'settings',   icon: 'settings', workspaceAdminOnly: true },
   { label: 'Monitoring', path: 'monitoring', icon: 'monitor_heart', adminOnly: true },
 ]
+
+/**
+ * The sidebar, as one role sees it.
+ *
+ * A function rather than a constant because the two roles do not have the same
+ * tree: a Member has no Ordering and no Settings, in Discover or at the top
+ * level. Building it per role — rather than rendering everything and hiding two
+ * entries with CSS — is what guarantees there is nothing left behind to leave a
+ * gap, no invisible clickable row, and no disabled item to explain.
+ *
+ * Both the expanded sidebar and the collapsed rail read this, so the rule holds
+ * at every width.
+ */
+export function orgNavItems(role: TabRole): OrgNavItem[] {
+  const children = discoverChildren(role)
+  return ORG_NAV_BASE
+    .filter(i => !i.workspaceAdminOnly || role !== 'MEMBER')
+    .map(i => (i.path === 'discover' && !i.children ? { ...i, children } : i))
+}
+
+/** The Admin tree, for callers with no role to hand. */
+export const ORG_NAV_ITEMS: OrgNavItem[] = orgNavItems('ADMIN')

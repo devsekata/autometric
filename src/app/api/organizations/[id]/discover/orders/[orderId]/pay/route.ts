@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireOrgMemberById } from '@/lib/reports/access'
+import { effectiveOrgRole } from '@/lib/organizations/role'
 import { getOrder } from '@/lib/discover/orders'
 import {
   attachPaymentSession, createPaymentSession, isPaymentConfigured, PaymentNotConfiguredError,
@@ -20,6 +21,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     const { id: orgId, orderId } = await params
     const access = await requireOrgMemberById(orgId)
     if (!access) return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
+
+    // Checkout is purchasing, so it carries the same Admin gate as order
+    // creation — see the note there. Without it the pay call stands on its own
+    // as a way for a Member to spend from a screen they cannot open.
+    if ((await effectiveOrgRole(access.role)) !== 'ADMIN') {
+      return NextResponse.json({ error: 'Payment is restricted to workspace admins.' }, { status: 403 })
+    }
 
     if (!isPaymentConfigured()) {
       return NextResponse.json(

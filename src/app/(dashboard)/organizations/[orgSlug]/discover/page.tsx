@@ -1,7 +1,8 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { getOrgBySlugForUser } from '@/lib/organizations/queries'
-import { resolveTabParams } from '@/lib/discover/tabs'
+import { DEFAULT_TAB, mayOpenTab, resolveTabParams, tabHref, visibleViews, findTab } from '@/lib/discover/tabs'
+import { effectiveOrgRole } from '@/lib/organizations/role'
 import { getWorkspaceSettingsData } from '@/lib/discover/workspaceSettings'
 import DiscoverWorkspace from '@/components/discover/DiscoverWorkspace'
 import type { WorkspaceSettingsData } from '@/components/discover/WorkspaceSettings'
@@ -36,6 +37,19 @@ export default async function DiscoverPage({ params, searchParams }: Props) {
   if (!org) notFound()
 
   const { tab, view } = resolveTabParams(rawTab, rawView)
+
+  /**
+   * Route protection, not decoration.
+   *
+   * Ordering and Settings are Admin-only, and the sidebar simply omits them for
+   * a Member — but a typed URL, a bookmark, or a link saved under an old alias
+   * (`?tab=cart` still resolves to Ordering) would otherwise walk straight in.
+   * Resolving the params first means every alias is covered by one check.
+   */
+  const role = await effectiveOrgRole(org.role)
+  if (!mayOpenTab(tab, role)) {
+    redirect(tabHref(orgSlug, DEFAULT_TAB, visibleViews(findTab(DEFAULT_TAB))[0]?.id ?? null))
+  }
 
   // Shape-checked here rather than in the client: the id goes straight into an
   // API path, and a malformed one should resolve to the roster, not to a 404

@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { usePathname, useParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { ORG_NAV_ITEMS } from '@/lib/organizations/nav'
+import { orgNavItems } from '@/lib/organizations/nav'
 import { logout } from '@/lib/auth/actions'
 import { useSidebar } from './SidebarContext'
+import { useOrgRole } from './OrgContext'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -29,7 +30,11 @@ export default function CollapsedRail({
   const orgSlug = (params?.orgSlug as string | undefined) ?? fallbackOrgSlug
   const base = `/organizations/${orgSlug}`
   const isAppAdmin = session?.user?.role === 'ADMIN'
-  const visibleItems = ORG_NAV_ITEMS.filter(item => !item.adminOnly || isAppAdmin)
+  const workspaceRole = useOrgRole()
+  // The same role rule at 64px as at 280px: an item a Member does not have is
+  // absent from the rail too, not only from the expanded sidebar.
+  const visibleItems = orgNavItems(workspaceRole ?? undefined)
+    .filter(item => !item.adminOnly || isAppAdmin)
 
   return (
     <aside className="h-screen w-[64px] flex flex-col items-center bg-white border-r-2 border-[#e2e8f0] py-3">

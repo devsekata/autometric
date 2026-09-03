@@ -24,6 +24,9 @@ export default function Sidebar({ fallbackOrgSlug, hasOrgs, initialOrgs }: Props
       {hasOrgs ? (
         <>
           <OrgSwitcher fallbackOrgSlug={fallbackOrgSlug} initialOrgs={initialOrgs} />
+          {/* No role control here on purpose. The mode is chosen once, on the
+              "Viewing as" screen after signing in, and the sidebar's job is only
+              to show the navigation that mode has. */}
           <OrgNav fallbackOrgSlug={fallbackOrgSlug} />
         </>
       ) : (

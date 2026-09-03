@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
+import { effectiveOrgRole } from '@/lib/organizations/role'
 import { buildQuotation, createOrder, listOrders, type CartLineInput } from '@/lib/discover/orders'
 
 type Params = { params: Promise<{ id: string }> }
@@ -66,6 +67,18 @@ export async function POST(req: NextRequest, { params }: Params) {
     const { id: orgId } = await params
     const access = await requireOrgMemberById(orgId)
     if (!access) return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
+
+    /**
+     * Ordering belongs to the Admin, and omitting the tab is not a control:
+     * this endpoint creates the order, so a Member with a hand-written fetch
+     * would otherwise buy from a screen they cannot open. Asked through
+     * `effectiveOrgRole` rather than `access.role` so an Admin previewing as
+     * Member is refused here too — the preview is then truthful instead of
+     * showing a purchase that would really go through.
+     */
+    if ((await effectiveOrgRole(access.role)) !== 'ADMIN') {
+      return NextResponse.json({ error: 'Ordering is restricted to workspace admins.' }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => null)
     const lines = parseLines(body?.lines)

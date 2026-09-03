@@ -38,7 +38,8 @@ import { Fragment, useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useParams, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { ORG_NAV_ITEMS, type OrgNavItem } from '@/lib/organizations/nav'
+import { orgNavItems, type OrgNavItem } from '@/lib/organizations/nav'
+import { useOrgRole } from './OrgContext'
 import { resolveTabParams, tabHref } from '@/lib/discover/tabs'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
@@ -52,6 +53,8 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
   const searchParams = useSearchParams()
   const orgSlug = (params?.orgSlug as string | undefined) ?? fallbackOrgSlug
   const { data: session } = useSession()
+  /** The workspace role the sidebar is drawn for, chosen on the login screen. */
+  const workspaceRole = useOrgRole()
 
   const base = `/organizations/${orgSlug}`
   const isAppAdmin = session?.user?.role === 'ADMIN'
@@ -69,9 +72,11 @@ export default function OrgNav({ fallbackOrgSlug }: { fallbackOrgSlug: string })
     setOverrides(o => ({ ...o, [key]: !open }))
   }, [])
 
+  // Built per role, so Ordering and Settings are absent for a Member rather than
+  // rendered and hidden. The list closes up on its own.
   const items = useMemo(
-    () => ORG_NAV_ITEMS.filter(i => !i.adminOnly || isAppAdmin),
-    [isAppAdmin],
+    () => orgNavItems(workspaceRole ?? undefined).filter(i => !i.adminOnly || isAppAdmin),
+    [isAppAdmin, workspaceRole],
   )
 
   /**
