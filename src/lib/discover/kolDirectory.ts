@@ -1,3 +1,4 @@
+import type { QueryResult, QueryResultRow } from 'pg'
 import kolDb from '@/lib/kolDb'
 import { toIso } from './util'
 import { getKolMeasured, type KolMeasured } from './kolMeasured'
@@ -19,6 +20,59 @@ import { getKolGold, type KolGold } from './kolGold'
 
 export type KolDataStatus = 'Live' | 'Estimated' | 'Calculated'
 
+/**
+ * How much to trust a creator's engagement rate (BE-05).
+ *
+ * `measured` is a rate inside the plausible band, `suspect` one that is
+ * arithmetically possible but implausibly high, and `null` means the roster has
+ * no usable rate at all — never measured, stored as zero, or stored as a value
+ * that cannot be an engagement rate.
+ */
+export type KolErQuality = 'measured' | 'suspect' | null
+
+/**
+ * Above this many percent an engagement rate is flagged `suspect` but still
+ * returned and still filterable. 20% is a placeholder pending a Product
+ * decision, which is why it is configuration rather than a literal in the SQL —
+ * see NEED VERIFICATION in the BE-05 notes. Overridable without a deploy.
+ */
+export const ER_SUSPECT_MIN = (() => {
+  const v = Number(process.env.KOL_ER_SUSPECT_MIN)
+  return Number.isFinite(v) && v > 0 ? v : 20
+})()
+
+/**
+ * The roster's engagement rate, with impossible values removed (BE-05).
+ *
+ * `kol_directory.engagement_rate` is stored in percentage points and is not
+ * validated on write. Measured 2026-09-06 over the 7.720 active rows: 1.756
+ * carry a value, 7 of them exceed 100% (up to 223,41% — more engagement than the
+ * creator has followers, which cannot happen) and 6 are exactly 0.
+ *
+ * Both are excluded here for the same reason the rest of this module never
+ * coalesces a null to zero: an unmeasurable figure must not read as a measured
+ * one. A stored 0 is "nobody wrote a rate", not "this creator gets no
+ * engagement" — nothing in the pipeline writes a true zero.
+ *
+ * This is a read-side expression only. Nothing in this module writes to
+ * `kol_directory`, and the raw column is still returned as `erRaw` so the bad
+ * values stay auditable instead of disappearing.
+ *
+ * Every read of the column goes through here — list, filter, sort, per-creator
+ * card, sibling platforms, similar creators and the roster ranks — so a creator
+ * can never be ranked against a population that includes values the same screen
+ * refuses to display. Assumes the table is aliased `kd`, as it is everywhere in
+ * this file.
+ */
+const ER_CLEAN = `CASE
+           WHEN kd.engagement_rate > 0 AND kd.engagement_rate <= 100
+           THEN kd.engagement_rate
+         END`
+
+/** Classifies a cleaned rate for the UI. Threshold lives in `ER_SUSPECT_MIN`. */
+const erQualityOf = (erPct: number | null): KolErQuality =>
+  erPct === null ? null : erPct > ER_SUSPECT_MIN ? 'suspect' : 'measured'
+
 export interface KolDirectoryRow {
   id: string
   /** The roster has no display-name column; the username is the only identity. */
@@ -31,8 +85,20 @@ export interface KolDirectoryRow {
   city: string | null
   categories: string[]
   followers: number | null
-  /** Percentage points, e.g. 0.98 means 0.98%. Null when never measured. */
+  /**
+   * Percentage points, e.g. 0.98 means 0.98%. Null when never measured — which
+   * now also covers the values the roster stores but cannot mean (see
+   * `ER_CLEAN`). This is the field every filter and sort reads.
+   */
   erPct: number | null
+  /**
+   * The column exactly as stored, including the 7 impossible values `erPct`
+   * drops. Present so a bad figure can be traced back rather than silently
+   * vanishing; no screen should filter or rank on it.
+   */
+  erRaw: number | null
+  /** How much to trust `erPct`. Null whenever `erPct` is null. */
+  erQuality: KolErQuality
   tier: string | null
   verified: boolean
   status: KolDataStatus
@@ -48,6 +114,14 @@ export interface KolDirectoryRow {
    * because a LATERAL join for either runs before `LIMIT` and costs seconds.
    */
   agency: string | null
+  /**
+   * The creator's real name, from `agency_kol_accounts.label` — filled for 7.684
+   * of the 7.720 active rows and different from the handle for 3.463 of them.
+   * Null when absent or when it merely repeats the username, the same rule
+   * `getKolCreator` already applies. Attached by `attachRosterExtras`, which was
+   * already reading this table for the agency name.
+   */
+  displayName: string | null
   /** Cheapest priced deliverable, in IDR. Null when the creator has no rate card. */
   rateFrom: number | null
   /** How many distinct deliverables carry a price. */
@@ -56,9 +130,25 @@ export interface KolDirectoryRow {
 
 export interface KolDirectoryFacets {
   categories: { name: string; count: number }[]
+  /**
+   * Active creators carrying no category at all — 3.546 of 7.720. Counted so the
+   * 46% of the roster that every category chip hides is visible as a number
+   * rather than only as a gap between the chip counts and the roster total.
+   */
+  uncategorized: number
   platforms: { key: string; count: number }[]
-  /** Ordered largest tier first, with the follower band the KOL platform defines. */
+  /**
+   * Ordered largest tier first, with the follower band the KOL platform defines.
+   * Scoped to the selected platform when one is passed (BE-02); roster-wide
+   * otherwise.
+   */
   tiers: { name: string; count: number; min: number; max: number | null }[]
+  /**
+   * Active creators that fall into no band — 526 roster-wide, made of 222 with
+   * no `followers_count` and 304 below the smallest band's floor of 1.000.
+   * Scoped alongside `tiers`.
+   */
+  untiered: number
   /** The whole active roster, for the "X of Y creators" line. */
   rosterTotal: number
 }
@@ -84,7 +174,20 @@ export interface KolDirectoryQuery {
   ids?: string[] | null
   q?: string | null
   platform?: string | null
-  category?: string | null
+  /**
+   * Category names, matched by overlap rather than equality (BE-01): 1.183
+   * creators carry more than one category (up to 5), so a creator tagged
+   * Beauty *and* Lifestyle must answer to both chips. Several names union
+   * together — asking for Beauty and Lifestyle means either, not both.
+   *
+   * The sentinel `UNCATEGORIZED` asks for the creators that carry none, and
+   * combines with real names as another member of the union.
+   */
+  categories?: string[] | null
+  /**
+   * Tier names from `kol_tiers`, unioned. The sentinel `UNTIERED` asks for the
+   * creators that fall into no band, mirroring `UNCATEGORIZED`.
+   */
   tiers?: string[]
   minFollowers?: number | null
   minErPct?: number | null
@@ -96,11 +199,24 @@ export interface KolDirectoryQuery {
    */
   maxRate?: number | null
   verifiedOnly?: boolean
+  /**
+   * Lower bounds on the two roster timestamps, for the Section Tabs (BE-04).
+   * `createdAfter` is when the row appeared, `refreshedAfter` when its numbers
+   * were last measured — different columns answering different questions, which
+   * is why "Recently added" and "Recently updated" are not the same tab.
+   */
+  createdAfter?: Date | null
+  refreshedAfter?: Date | null
   sort?: string | null
   dir?: string | null
   page?: number
   pageSize?: number
 }
+
+/** Asks for the creators carrying no category at all. See `categories`. */
+export const UNCATEGORIZED = '__uncategorized'
+/** Asks for the creators falling into no `kol_tiers` band. See `tiers`. */
+export const UNTIERED = '__untiered'
 
 /**
  * Sort keys are whitelisted and the direction is reduced to one of two literals:
@@ -111,6 +227,11 @@ const SORT_COLUMNS: Record<string, string> = {
   engagement: 'er_pct',
   // When the creator's numbers were last measured — not when the row appeared.
   recent: 'last_refreshed_at',
+  // Alias of `recent`, not a second implementation: both resolve to the same
+  // column. `recent` is the name the UI already sends and stays canonical;
+  // `updated` exists because "Recently updated" is what the Section Tabs call
+  // it, and a tab whose own name is rejected by the sort whitelist is a trap.
+  updated: 'last_refreshed_at',
   // When the row appeared in the database. The Discovery landing's "Recently
   // added" shelf is this ordering: `recent` answers "who moved", which is a
   // different question and a different column.
@@ -130,7 +251,16 @@ export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
  */
 const SCRAPED_FIRST = `CASE status WHEN 'Live' THEN 0 WHEN 'Calculated' THEN 1 ELSE 2 END ASC`
 
-function orderBy(key: string, dir: string): string {
+/**
+ * `searching` adds the relevance key produced by `RELEVANCE` below.
+ *
+ * It sits *after* `SCRAPED_FIRST` rather than in front of it, so the existing
+ * invariant — provenance groups the list before anything else — is not changed
+ * by this work. In practice relevance still decides the visible order: no row
+ * is currently 'Live' and only 27 are 'Calculated', so 99,6% of the roster
+ * shares one provenance group and is ordered by relevance inside it.
+ */
+function orderBy(key: string, dir: string, searching: boolean): string {
   const col = SORT_COLUMNS[key] ?? SORT_COLUMNS.followers
   const direction = dir === 'asc' ? 'ASC' : 'DESC'
   // NULLS LAST in both directions: a creator with no follower count or no
@@ -139,7 +269,7 @@ function orderBy(key: string, dir: string): string {
   const rest = col === 'username'
     ? `username ${direction}`
     : `${col} ${direction} NULLS LAST, username ASC`
-  return `${SCRAPED_FIRST}, ${rest}`
+  return `${SCRAPED_FIRST}${searching ? ', rel ASC' : ''}, ${rest}`
 }
 
 const MAX_PAGE_SIZE = 60
@@ -160,9 +290,71 @@ const ACTIVE = `kd.directory_status = 'active'`
  */
 const CATEGORY_IDS = `COALESCE(kd.category_ids, ARRAY[kd.category_id])`
 
+/**
+ * What `?q=` matches (BE-03).
+ *
+ * Four things a person might type, not one. Before this, only `username` was
+ * searched, so the 3.463 creators whose real name differs from their handle —
+ * "Raffi Ahmad" for @raffinagita1717, "Cristiano Ronaldo" for @cristiano — could
+ * not be found by the name anyone would actually type.
+ *
+ * Two rules shape the SQL:
+ *
+ *   * **Semi-joins, never joins.** `agency_kol_accounts` is 1:N against the
+ *     roster, so joining it in would fan a creator into several rows and corrupt
+ *     both `COUNT(*) OVER()` and the page window. `EXISTS` asks the same
+ *     question and cannot duplicate a row.
+ *   * **Nothing runs when `q` is absent.** The parameter guard is the first
+ *     operand of the `OR`, so for the ordinary unfiltered list Postgres
+ *     short-circuits before reaching either subquery. That matters here more
+ *     than usual: `attachRosterExtras` exists precisely because a LATERAL
+ *     against this table before `LIMIT` was measured at 4,2s over the roster.
+ *
+ * Categories are read from `b.categories`, the array the existing LATERAL in
+ * `BASE` already built — no second join for them.
+ */
+const SEARCH_MATCH = `(
+        b.username            ILIKE '%' || $1 || '%'
+     OR b.username_normalized ILIKE '%' || $1 || '%'
+     OR b.bio                 ILIKE '%' || $1 || '%'
+     OR EXISTS (SELECT 1 FROM unnest(COALESCE(b.categories, '{}'::text[])) cn
+                 WHERE cn ILIKE '%' || $1 || '%')
+     OR EXISTS (SELECT 1 FROM public.agency_kol_accounts a
+                 WHERE a.kol_account_id = b.id
+                   AND a.label ILIKE '%' || $1 || '%')
+      )`
+
+/**
+ * Which of the four fields matched, lowest first — the order the caller expects
+ * results in. Evaluated only over rows that already survived `SEARCH_MATCH`, so
+ * the two `EXISTS` here run against a handful of rows rather than the roster.
+ *
+ * `ILIKE $1` with no wildcards is an exact, case-insensitive match that still
+ * honours the escaping in `escapeLike`, which a plain `=` would not.
+ */
+const RELEVANCE = `CASE
+        WHEN $1::text IS NULL                                        THEN 0
+        WHEN b.username ILIKE $1 OR b.username_normalized ILIKE $1   THEN 0
+        WHEN b.username ILIKE $1 || '%'                              THEN 1
+        WHEN EXISTS (SELECT 1 FROM public.agency_kol_accounts a
+                      WHERE a.kol_account_id = b.id
+                        AND a.label ILIKE '%' || $1 || '%')          THEN 2
+        WHEN EXISTS (SELECT 1 FROM unnest(COALESCE(b.categories, '{}'::text[])) cn
+                      WHERE cn ILIKE '%' || $1 || '%')               THEN 3
+        ELSE 4
+      END`
+
+/** True for a creator carrying no category at all — the `UNCATEGORIZED` bucket. */
+const NO_CATEGORY = `(b.categories IS NULL OR cardinality(b.categories) = 0)`
+
 const BASE = `
   SELECT kd.id,
          kd.username,
+         -- Case- and punctuation-folded handle, maintained by the KOL platform
+         -- and already used here to pair a creator's Instagram and TikTok rows.
+         -- Searched alongside username so "raffi.nagita" finds
+         -- @raffinagita1717 without the caller having to guess the punctuation.
+         kd.username_normalized,
          pl.key                                    AS platform,
          kd.profile_url,
          kd.avatar_url,
@@ -170,7 +362,10 @@ const BASE = `
          kd.creator_city                           AS city,
          cats.names                                AS categories,
          kd.followers_count                        AS followers,
-         kd.engagement_rate::float                 AS er_pct,
+         -- BE-05: the filterable rate is the cleaned one, so minEr and
+         -- sort=engagement below inherit the rule without naming it again.
+         ${ER_CLEAN}::float                        AS er_pct,
+         kd.engagement_rate::float                 AS er_raw,
          t.name                                    AS tier,
          (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified,
          -- Provenance, using the same three labels the rest of Discover uses:
@@ -203,7 +398,12 @@ const BASE = `
            ON kd.followers_count >= t.min_followers
           AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)
     LEFT JOIN LATERAL (
-      SELECT ARRAY_AGG(kc.name ORDER BY kc.name) AS names
+      -- Cast to text[]: kol_categories.name is character varying, so the
+      -- aggregate comes back as varchar[] and "varchar[] && text[]" has no
+      -- operator. The old equality predicate coerced silently; the overlap
+      -- operator BE-01 needs does not, so the type is pinned here once rather
+      -- than cast at each of the four places that read this array.
+      SELECT ARRAY_AGG(kc.name ORDER BY kc.name)::text[] AS names
         FROM public.kol_categories kc
        WHERE kc.id = ANY (${CATEGORY_IDS})
     ) cats ON TRUE
@@ -228,8 +428,12 @@ async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
 
   const db = kolDb()
   const [agencies, rates] = await Promise.all([
-    db.query<{ kol_account_id: string; name: string | null }>(
-      `SELECT DISTINCT ON (a.kol_account_id) a.kol_account_id, ag.name
+    // `a.label` rides along on the agency lookup rather than costing a query of
+    // its own: same table, same rows, same DISTINCT ON. It is the creator's real
+    // name, and BE-03 made it searchable — a result set that can be found by
+    // name has to be able to show that name.
+    db.query<{ kol_account_id: string; name: string | null; label: string | null }>(
+      `SELECT DISTINCT ON (a.kol_account_id) a.kol_account_id, ag.name, a.label
          FROM public.agency_kol_accounts a
          JOIN public.agencies ag ON ag.id = a.agency_id AND ag.deleted_at IS NULL
         WHERE a.kol_account_id = ANY($1::uuid[])
@@ -248,43 +452,122 @@ async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
     ),
   ])
 
-  const byAgency = new Map(agencies.rows.map(r => [r.kol_account_id, r.name]))
+  const byAgency = new Map(agencies.rows.map(r => [r.kol_account_id, r]))
   const byRate = new Map(rates.rows.map(r => [r.kol_id, r]))
 
   for (const row of rows) {
-    row.agency = byAgency.get(row.id) ?? null
+    const agency = byAgency.get(row.id)
+    row.agency = agency?.name ?? null
+    // Same rule `getKolCreator` uses: a label that only repeats the handle is
+    // not a display name, and printing it would render "@budi budi".
+    const label = agency?.label?.trim()
+    row.displayName = label && label.toLowerCase() !== row.username.toLowerCase()
+      ? label
+      : null
     const rate = byRate.get(row.id)
     row.rateFrom = rate?.min_fee ? Number(rate.min_fee) : null
     row.rateCount = rate?.n ?? 0
   }
 }
 
+/**
+ * Runs the list statement, with JIT compilation switched off for the search
+ * variant of it.
+ *
+ * Measured on the roster, 2026-09-06, for `?q=`:
+ *
+ *   jit on (default)   742ms   — of which 622ms is JIT: 366ms optimising,
+ *                                217ms emitting, 35ms inlining
+ *   jit off            101ms
+ *
+ * Nothing is scanned faster with JIT off. The statement genuinely executes in
+ * ~100ms either way; the other 600ms is Postgres compiling it. It compiles
+ * because the OR in `SEARCH_MATCH` makes the planner unable to estimate the
+ * subplan's selectivity, so the cost estimate comes out near 2.000.000 — twenty
+ * times `jit_above_cost` — and a plan that expensive is assumed to be worth
+ * compiling. Here it never is: the query returns twelve rows.
+ *
+ * `SET LOCAL` inside a transaction, rather than a server setting: it lasts for
+ * this statement only, cannot leak onto the next borrower of a pooled
+ * connection, and needs nobody's permission. The unfiltered list never enters
+ * this path, so the ordinary page is byte-for-byte the query it always was.
+ *
+ * Delete this once the trigram indexes land — with a sane selectivity estimate
+ * the planner stops reaching for JIT on its own, and the wrapper stops earning
+ * its complexity.
+ */
+async function runList<T extends QueryResultRow>(
+  sql: string, params: unknown[], searching: boolean,
+): Promise<QueryResult<T>> {
+  const db = kolDb()
+  if (!searching) return db.query<T>(sql, params)
+
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query('SET LOCAL jit = off')
+    const res = await client.query<T>(sql, params)
+    await client.query('COMMIT')
+    return res
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDirectoryPayload> {
-  const order = orderBy(query.sort ?? 'followers', query.dir ?? 'desc')
   const pageSize = Math.min(Math.max(Math.trunc(query.pageSize ?? 20), 1), MAX_PAGE_SIZE)
   const page = Math.max(Math.trunc(query.page ?? 1), 1)
   const q = query.q?.trim() ? escapeLike(query.q.trim()) : null
-  const tiers = query.tiers?.length ? query.tiers : null
+  const order = orderBy(query.sort ?? 'followers', query.dir ?? 'desc', q !== null)
 
-  const { rows } = await kolDb().query<{
+  // The two sentinels are pulled out of their lists and become their own
+  // predicate, so "Beauty or uncategorised" is one union rather than two calls.
+  const wantUncategorized = (query.categories ?? []).includes(UNCATEGORIZED)
+  const catNames = (query.categories ?? []).filter(c => c && c !== UNCATEGORIZED)
+  const categories = catNames.length ? catNames : null
+
+  const wantUntiered = (query.tiers ?? []).includes(UNTIERED)
+  const tierNames = (query.tiers ?? []).filter(t => t && t !== UNTIERED)
+  const tiers = tierNames.length ? tierNames : null
+
+  const { rows } = await runList<{
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null; city: string | null
-    categories: string[] | null; followers: number | null; er_pct: number | null
+    categories: string[] | null; followers: number | null
+    er_pct: number | null; er_raw: number | null
     tier: string | null; verified: boolean; status: KolDataStatus
     last_refreshed_at: Date | string | null; total_count: number
   }>(
     `
     WITH base AS (${BASE}),
     filtered AS (
-      SELECT * FROM base b
-       WHERE ($1::text     IS NULL OR b.username ILIKE '%' || $1 || '%')
+      SELECT b.*, ${RELEVANCE} AS rel FROM base b
+       WHERE ($1::text     IS NULL OR ${SEARCH_MATCH})
          AND ($2::text     IS NULL OR b.platform = $2)
-         AND ($3::text     IS NULL OR $3 = ANY (b.categories))
-         AND ($4::text[]   IS NULL OR b.tier = ANY ($4))
+         -- Category: overlap, plus the uncategorised bucket as another member
+         -- of the same union. Equality would hide the 1.183 creators who carry
+         -- more than one category from every chip but their first.
+         AND (
+              ($3::text[] IS NULL AND $12::boolean IS NOT TRUE)
+           OR ($3::text[] IS NOT NULL AND b.categories && $3::text[])
+           OR ($12::boolean IS TRUE AND ${NO_CATEGORY})
+         )
+         AND (
+              ($4::text[] IS NULL AND $13::boolean IS NOT TRUE)
+           OR ($4::text[] IS NOT NULL AND b.tier = ANY ($4))
+           OR ($13::boolean IS TRUE AND b.tier IS NULL)
+         )
          AND ($5::float8   IS NULL OR b.er_pct >= $5)
          AND ($6::boolean  IS NOT TRUE OR b.verified)
          AND ($9::bigint   IS NULL OR b.followers >= $9)
          AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
+         -- Section Tabs (BE-04). Two different columns on purpose: when the row
+         -- appeared, versus when its numbers were last measured.
+         AND ($14::timestamptz IS NULL OR b.created_at >= $14)
+         AND ($15::timestamptz IS NULL OR b.last_refreshed_at >= $15)
          -- Rate card ceiling. EXISTS rather than a join so a creator with three
          -- priced deliverables stays one row; measured at 19ms over the roster.
          AND ($11::bigint IS NULL OR EXISTS (
@@ -301,7 +584,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     [
       q,
       query.platform || null,
-      query.category || null,
+      categories,
       tiers,
       query.minErPct ?? null,
       query.verifiedOnly === true,
@@ -312,7 +595,12 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.maxRate != null && Number.isFinite(query.maxRate)
         ? Math.trunc(query.maxRate)
         : null,
+      wantUncategorized,
+      wantUntiered,
+      query.createdAfter ?? null,
+      query.refreshedAfter ?? null,
     ],
+    q !== null,
   )
 
   const mapped: KolDirectoryRow[] = rows.map(r => ({
@@ -326,6 +614,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       categories: r.categories ?? [],
       followers: r.followers,
       erPct: r.er_pct,
+      erRaw: r.er_raw,
+      erQuality: erQualityOf(r.er_pct),
       tier: r.tier,
       verified: r.verified,
       status: r.status,
@@ -333,6 +623,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       // Filled by attachRosterExtras below; declared here so the row is never
       // half-built between the two statements.
       agency: null,
+      displayName: null,
       rateFrom: null,
       rateCount: 0,
   }))
@@ -355,8 +646,22 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
  * showing with its real count, and re-deriving these on every keystroke would
  * make the option list jump around while someone types.
  */
-export async function listKolFacets(): Promise<KolDirectoryFacets> {
-  const [categories, platforms, tiers, roster] = await Promise.all([
+export async function listKolFacets(
+  opts: { platform?: string | null } = {},
+): Promise<KolDirectoryFacets> {
+  /**
+   * Tier counts narrow to the selected platform (BE-02); category and platform
+   * counts deliberately do not.
+   *
+   * The asymmetry is the point. Tier was showing "Micro 2.942" while Instagram
+   * was selected and only part of that band is on Instagram, so the number
+   * disagreed with the grid underneath it. Category and platform counts are
+   * unchanged because narrowing them was never asked for and doing it here would
+   * quietly alter two filters this task does not cover.
+   */
+  const platform = opts.platform || null
+
+  const [categories, uncategorized, platforms, tiers, untiered, roster] = await Promise.all([
     kolDb().query<{ name: string; count: number }>(`
       SELECT kc.name, COUNT(*)::int AS count
         FROM public.kol_directory kd
@@ -364,6 +669,12 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
        WHERE ${ACTIVE}
        GROUP BY kc.name
        ORDER BY count DESC, kc.name`),
+    kolDb().query<{ count: number }>(`
+      SELECT COUNT(*)::int AS count
+        FROM public.kol_directory kd
+       WHERE ${ACTIVE}
+         AND (kd.category_ids IS NULL OR cardinality(kd.category_ids) = 0)
+         AND kd.category_id IS NULL`),
     kolDb().query<{ key: string; count: number }>(`
       SELECT pl.key, COUNT(*)::int AS count
         FROM public.kol_directory kd
@@ -371,6 +682,9 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
        WHERE ${ACTIVE}
        GROUP BY pl.key
        ORDER BY count DESC`),
+    // Driven from `kol_tiers`, so a band with no creators in it still appears
+    // with a count of 0 rather than vanishing — and every boundary comes from
+    // the table, never from a number written here.
     kolDb().query<{ name: string; count: number; min: number; max: number | null }>(`
       SELECT t.name, COUNT(kd.id)::int AS count,
              t.min_followers AS min, t.max_followers AS max
@@ -379,16 +693,34 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
                ON kd.directory_status = 'active'
               AND kd.followers_count >= t.min_followers
               AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)
+              AND ($1::text IS NULL OR kd.platform_id = (
+                    SELECT pl.id FROM public.platforms pl WHERE pl.key = $1))
        GROUP BY t.name, t.min_followers, t.max_followers
-       ORDER BY t.min_followers DESC`),
+       ORDER BY t.min_followers DESC`, [platform]),
+    // The creators no band claims. Two different causes — no follower count at
+    // all, and a count below the smallest band's floor — counted together
+    // because both answer the same question for the reader: who is missing from
+    // every tier chip.
+    kolDb().query<{ count: number }>(`
+      SELECT COUNT(*)::int AS count
+        FROM public.kol_directory kd
+        LEFT JOIN public.kol_tiers t
+               ON kd.followers_count >= t.min_followers
+              AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)
+       WHERE ${ACTIVE}
+         AND t.name IS NULL
+         AND ($1::text IS NULL OR kd.platform_id = (
+               SELECT pl.id FROM public.platforms pl WHERE pl.key = $1))`, [platform]),
     kolDb().query<{ count: number }>(`
       SELECT COUNT(*)::int AS count FROM public.kol_directory kd WHERE ${ACTIVE}`),
   ])
 
   return {
     categories: categories.rows,
+    uncategorized: uncategorized.rows[0]?.count ?? 0,
     platforms: platforms.rows,
     tiers: tiers.rows,
+    untiered: untiered.rows[0]?.count ?? 0,
     rosterTotal: roster.rows[0]?.count ?? 0,
   }
 }
@@ -505,7 +837,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
-    er_pct: number | null; tier: string | null; verified: boolean
+    er_pct: number | null; er_raw: number | null; tier: string | null; verified: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
     display_name: string | null; agency: string | null
   }>(`
@@ -547,10 +879,10 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
           WHERE ${ACTIVE} AND kd.followers_count > $1)::int AS followers_rank,
         CASE WHEN $2::float8 IS NULL THEN NULL ELSE
           (SELECT COUNT(*) + 1 FROM public.kol_directory kd
-            WHERE ${ACTIVE} AND kd.engagement_rate > $2)::int
+            WHERE ${ACTIVE} AND ${ER_CLEAN} > $2)::int
         END AS er_rank,
         (SELECT COUNT(*) FROM public.kol_directory kd
-          WHERE ${ACTIVE} AND kd.engagement_rate IS NOT NULL)::int AS er_measured_total,
+          WHERE ${ACTIVE} AND ${ER_CLEAN} IS NOT NULL)::int AS er_measured_total,
         -- Category standing only means something when the creator has one; the
         -- 46% of the roster with no category get nulls here, not a fake rank.
         (SELECT COUNT(*) FROM public.kol_directory kd
@@ -566,11 +898,11 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
         CASE WHEN $3::text IS NULL OR $2::float8 IS NULL THEN NULL ELSE
           (SELECT COUNT(*) + 1 FROM public.kol_directory kd
             JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
-           WHERE ${ACTIVE} AND kc.name = $3 AND kd.engagement_rate > $2)::int
+           WHERE ${ACTIVE} AND kc.name = $3 AND ${ER_CLEAN} > $2)::int
         END AS category_er_rank,
         (SELECT COUNT(*) FROM public.kol_directory kd
           JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
-         WHERE ${ACTIVE} AND kc.name = $3 AND kd.engagement_rate IS NOT NULL)::int
+         WHERE ${ACTIVE} AND kc.name = $3 AND ${ER_CLEAN} IS NOT NULL)::int
           AS category_er_total`,
       // The creator's own id is deliberately absent: every count here is over
       // the roster, and an unused parameter leaves Postgres unable to infer a
@@ -589,7 +921,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       er_pct: number | null; verified: boolean
     }>(`
       SELECT kd.id, pl.key AS platform, kd.username, kd.profile_url,
-             kd.followers_count AS followers, kd.engagement_rate::float AS er_pct,
+             kd.followers_count AS followers, ${ER_CLEAN}::float AS er_pct,
              (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
@@ -611,7 +943,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: number | null; er_pct: number | null; tier: string | null
     }>(`
       SELECT kd.id, kd.username, pl.key AS platform, kd.avatar_url,
-             kd.followers_count AS followers, kd.engagement_rate::float AS er_pct,
+             kd.followers_count AS followers, ${ER_CLEAN}::float AS er_pct,
              t.name AS tier
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
@@ -651,6 +983,8 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       categories: r.categories ?? [],
       followers: r.followers,
       erPct: r.er_pct,
+      erRaw: r.er_raw,
+      erQuality: erQualityOf(r.er_pct),
       tier: r.tier,
       verified: r.verified,
       status: r.status,
@@ -658,6 +992,9 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       // Already in hand here: the agency comes from the join above and the
       // prices from `measured`, so neither needs `attachRosterExtras`.
       agency: r.agency,
+      displayName: r.display_name && r.display_name.toLowerCase() !== (r.username ?? '').toLowerCase()
+        ? r.display_name
+        : null,
       rateFrom: measured?.rates.length
         ? Math.min(...measured.rates.map(x => x.fee))
         : null,

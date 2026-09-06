@@ -172,10 +172,21 @@ function isCostEfficient(s: CreatorSignals): boolean {
  * here so this module does not import a component — the dependency runs the
  * other way.
  */
+/**
+ * Mirrors `UNTIERED` in `@/lib/discover/kolDirectory`. Repeated rather than
+ * imported: that module opens a `pg` pool, and this one is reached from client
+ * components — importing the value would pull the driver into the browser
+ * bundle. The two must stay equal; the API rejects nothing, it would simply
+ * stop matching.
+ */
+const UNTIERED_TIER = '__untiered'
+
 export interface MatchCriteria {
-  category: string
+  /** Category names, unioned — a creator matching any of them matches. */
+  categories: string[]
   platform: string
-  tier: string
+  /** Tier names from `kol_tiers`, unioned, plus the `__untiered` sentinel. */
+  tiers: string[]
   follMin: number
   erMin: number
   maxRate: number
@@ -197,8 +208,8 @@ export interface MatchResult {
 
 /** Whether the user has expressed enough for a match score to mean anything. */
 export function hasCriteria(c: MatchCriteria): boolean {
-  return !!(c.category || c.platform || c.tier || c.follMin || c.erMin
-    || c.maxRate || c.verifiedOnly || c.preset)
+  return !!(c.categories.length || c.platform || c.tiers.length || c.follMin
+    || c.erMin || c.maxRate || c.verifiedOnly || c.preset)
 }
 
 /** How far `value` clears `target`, as 0–100. At or above target is 100. */
@@ -225,8 +236,11 @@ export function matchScore(
 
   const parts: MatchPart[] = []
 
-  if (c.category) {
-    const hit = row.categories.some(x => x.toLowerCase() === c.category.toLowerCase())
+  if (c.categories.length) {
+    // Any-of, matching the SQL: the filter unions its members, so a creator who
+    // answers one of the chosen chips answers the criterion.
+    const want = c.categories.map(x => x.toLowerCase())
+    const hit = row.categories.some(x => want.includes(x.toLowerCase()))
     parts.push({ label: 'Category', pct: hit ? 100 : 0, basis: 'measured' })
   }
   if (c.platform) {
@@ -236,8 +250,13 @@ export function matchScore(
       basis: 'measured',
     })
   }
-  if (c.tier) {
-    parts.push({ label: 'Tier', pct: row.tier === c.tier ? 100 : 0, basis: 'measured' })
+  if (c.tiers.length) {
+    // `row.tier` is null for the 526 creators in no band, which is exactly what
+    // the `__untiered` chip asks for — so null is a hit when that chip is on.
+    const hit = row.tier === null
+      ? c.tiers.includes(UNTIERED_TIER)
+      : c.tiers.includes(row.tier)
+    parts.push({ label: 'Tier', pct: hit ? 100 : 0, basis: 'measured' })
   }
   if (c.follMin > 0) {
     parts.push({ label: 'Audience size', pct: reach(s.followers, c.follMin), basis: 'measured' })
@@ -417,8 +436,8 @@ export function relaxSuggestions(c: MatchCriteria): string[] {
   if (c.follMin >= 100_000) out.push('Perkecil batas minimum follower — creator besar jumlahnya sedikit.')
   else if (c.follMin > 0) out.push('Perkecil batas minimum follower.')
   if (c.verifiedOnly) out.push('Matikan filter "verified saja" — banyak creator bagus belum terverifikasi.')
-  if (c.tier) out.push('Lepas filter tier.')
-  if (c.category) out.push('Lepas filter kategori, atau coba kategori yang berdekatan.')
+  if (c.tiers.length) out.push('Lepas filter tier.')
+  if (c.categories.length) out.push('Lepas filter kategori, atau coba kategori yang berdekatan.')
   if (c.platform) out.push('Coba platform lain.')
   return out.slice(0, 3)
 }

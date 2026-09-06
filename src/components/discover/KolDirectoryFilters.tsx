@@ -18,10 +18,19 @@ import { PJ, TOKENS as T, fmtNum } from './ui'
 import type { KolDirectoryFacets } from '@/lib/discover/kolDirectory'
 
 export interface KolFilters {
-  /** '' means "all" for every string filter, mirroring the source's 'all'. */
-  category: string
+  /**
+   * Category names, unioned. Empty means "all".
+   *
+   * Multi-select because a creator can hold up to five categories (1.183 of the
+   * roster hold more than one), and the backend matches by array overlap — so
+   * picking Beauty and Lifestyle means either, not both. The `UNCATEGORIZED`
+   * sentinel joins the same union to ask for the 3.546 creators with none.
+   */
+  categories: string[]
+  /** '' means "all", mirroring the source's 'all'. */
   platform: string
-  tier: string
+  /** Tier names, unioned, plus the `UNTIERED` sentinel. Empty means "all". */
+  tiers: string[]
   /** Absolute follower count, picked from FOLLOWER_STEPS. */
   follMin: number
   /** Percentage points. */
@@ -36,8 +45,50 @@ export interface KolFilters {
 }
 
 export const KOL_FILTERS_DEFAULT: KolFilters = {
-  category: '', platform: '', tier: '', follMin: 0, erMin: 0, maxRate: 0,
+  categories: [], platform: '', tiers: [], follMin: 0, erMin: 0, maxRate: 0,
   verifiedOnly: false,
+}
+
+/**
+ * The two sentinels the directory API understands for "carries none of this".
+ *
+ * Copied from `UNCATEGORIZED` / `UNTIERED` in `@/lib/discover/kolDirectory`
+ * rather than imported: that module opens a `pg` pool and must never reach the
+ * browser bundle, while this file is the one that serialises filters into the
+ * query string. They have to stay equal — if they drift, the chip silently
+ * stops matching instead of erroring.
+ */
+export const UNCATEGORIZED = '__uncategorized'
+export const UNTIERED = '__untiered'
+
+/**
+ * Coerces a stored filter object into the current shape.
+ *
+ * Saved Lists live in `localStorage` and predate multi-select, so lists saved
+ * before this change hold `category: 'Beauty'` and `tier: 'Micro'` as plain
+ * strings. Spreading one of those over the defaults would put a string where the
+ * panel expects an array and break on the first `.map`. Anything unreadable
+ * falls back to the default rather than throwing — a stale saved list should
+ * lose its filter, not the page.
+ */
+export function normalizeKolFilters(raw: unknown): KolFilters {
+  const f = (raw ?? {}) as Record<string, unknown>
+  const many = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x !== '')
+      : typeof v === 'string' && v !== '' ? [v]
+      : []
+  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
+  return {
+    // `category`/`tier` are the pre-multi-select names, still read so old lists
+    // keep working; `categories`/`tiers` win when both are present.
+    categories: many(f.categories ?? f.category),
+    platform: typeof f.platform === 'string' ? f.platform : '',
+    tiers: many(f.tiers ?? f.tier),
+    follMin: num(f.follMin, 0),
+    erMin: num(f.erMin, 0),
+    maxRate: num(f.maxRate, 0),
+    verifiedOnly: f.verifiedOnly === true,
+  }
 }
 
 /**
@@ -75,16 +126,18 @@ export const FOLLOWER_STEPS = [
  */
 export function activeFilterCount(f: KolFilters): number {
   return [
-    f.platform !== '', f.tier !== '', f.follMin > 0, f.erMin > 0, f.maxRate > 0,
-    f.verifiedOnly,
+    f.platform !== '', f.tiers.length > 0, f.follMin > 0, f.erMin > 0,
+    f.maxRate > 0, f.verifiedOnly,
   ].filter(Boolean).length
 }
 
 export const filtersToParams = (f: KolFilters): Record<string, string> => {
   const p: Record<string, string> = {}
-  if (f.category) p.category = f.category
+  // Comma-separated, which the route splits back into a union. Safe as a
+  // delimiter here: no category name in `kol_categories` contains a comma.
+  if (f.categories.length) p.category = f.categories.join(',')
   if (f.platform) p.platform = f.platform
-  if (f.tier) p.tier = f.tier
+  if (f.tiers.length) p.tier = f.tiers.join(',')
   if (f.follMin > 0) p.follMin = String(f.follMin)
   if (f.erMin > 0) p.minEr = String(f.erMin)
   if (f.maxRate > 0) p.maxRate = String(f.maxRate)
@@ -225,6 +278,10 @@ function Unavailable({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Adds or removes one member of a multi-select filter, preserving order. */
+const toggle = (list: string[], value: string): string[] =>
+  list.includes(value) ? list.filter(x => x !== value) : [...list, value]
+
 /* ── panel ────────────────────────────────────────────────────────────────── */
 
 export function KolFilterPanel({
@@ -277,7 +334,7 @@ export function KolFilterPanel({
                 disappears, and a tier left set behind it would keep filtering
                 the grid with no visible control to undo it. */}
             <Chip label="All Platform" on={!filters.platform}
-              onClick={() => onChange({ platform: '', tier: '' })} />
+              onClick={() => onChange({ platform: '', tiers: [] })} />
             {PLATFORMS.map(key => (
               <Chip key={key} label={PLATFORM_LABEL[key]}
                 count={facets?.platforms.find(p => p.key === key)?.count}
@@ -298,13 +355,14 @@ export function KolFilterPanel({
             you click around. */}
         {filters.platform && (
           <Section id="tier" icon="military_tech" label="Tier" open={open.has('tier')} onToggle={onToggleSection}
-            badge={filters.tier || null}>
+            badge={filters.tiers.length ? `${filters.tiers.length} dipilih` : null}>
             <div className="flex flex-col gap-1.5">
-              <Chip label="All tiers" full on={!filters.tier} onClick={() => onChange({ tier: '' })} />
+              <Chip label="All tiers" full on={!filters.tiers.length} onClick={() => onChange({ tiers: [] })} />
               {(facets?.tiers ?? []).map(t => {
-                const on = filters.tier === t.name
+                const on = filters.tiers.includes(t.name)
                 return (
-                  <button key={t.name} type="button" onClick={() => onChange({ tier: on ? '' : t.name })}
+                  <button key={t.name} type="button"
+                    onClick={() => onChange({ tiers: toggle(filters.tiers, t.name) })}
                     style={{
                       borderColor: on ? T.primary : T.outline,
                       background: on ? 'linear-gradient(160deg,#EDF4F7,#fff)' : T.surface,
@@ -319,7 +377,36 @@ export function KolFilterPanel({
                   </button>
                 )
               })}
+
+              {/* The 526 creators no band claims — 222 with no follower count at
+                  all and 304 below the smallest band's floor. Without this chip
+                  they are reachable only by clearing Tier entirely, so a filter
+                  meant to narrow the roster was quietly hiding part of it. */}
+              {facets && facets.untiered > 0 && (() => {
+                const on = filters.tiers.includes(UNTIERED)
+                return (
+                  <button type="button"
+                    onClick={() => onChange({ tiers: toggle(filters.tiers, UNTIERED) })}
+                    style={{
+                      borderColor: on ? T.primary : T.outline,
+                      background: on ? 'linear-gradient(160deg,#EDF4F7,#fff)' : T.surface,
+                    }}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-[14px] border-[1.5px] transition-colors">
+                    <span style={{ ...PJ, color: on ? T.primary : T.t2 }} className="text-[12px] font-extrabold">
+                      Untiered
+                    </span>
+                    <span className="text-[10px] whitespace-nowrap" style={{ color: T.t4 }}>
+                      &lt; {fmtNum(facets.tiers[facets.tiers.length - 1]?.min ?? 1000)} atau kosong
+                      {' · '}{facets.untiered.toLocaleString('id-ID')}
+                    </span>
+                  </button>
+                )
+              })()}
             </div>
+            <p className="text-[9.5px] leading-[1.4] mt-2" style={{ color: T.t4 }}>
+              Bisa pilih lebih dari satu tier — hasilnya gabungan, bukan irisan.
+              Angka di samping mengikuti platform yang sedang dipilih.
+            </p>
           </Section>
         )}
 
@@ -377,14 +464,28 @@ export function KolFilterPanel({
         </Section>
 
         <Section id="category" icon="category" label="Category" open={open.has('category')} onToggle={onToggleSection}
-          badge={filters.category || null}>
+          badge={filters.categories.length ? `${filters.categories.length} dipilih` : null}>
           <div className="flex flex-wrap gap-[7px]">
-            <Chip label="All" on={!filters.category} onClick={() => onChange({ category: '' })} />
+            <Chip label="All" on={!filters.categories.length}
+              onClick={() => onChange({ categories: [] })} />
             {(facets?.categories ?? []).map(c => (
               <Chip key={c.name} label={c.name} count={c.count}
-                on={filters.category === c.name} onClick={() => onChange({ category: c.name })} />
+                on={filters.categories.includes(c.name)}
+                onClick={() => onChange({ categories: toggle(filters.categories, c.name) })} />
             ))}
+            {/* 3.546 creators — 46% of the roster — carry no category at all, so
+                every chip above hides them. This is the only way to see them. */}
+            {facets && facets.uncategorized > 0 && (
+              <Chip label="Tanpa kategori" count={facets.uncategorized}
+                on={filters.categories.includes(UNCATEGORIZED)}
+                onClick={() => onChange({ categories: toggle(filters.categories, UNCATEGORIZED) })} />
+            )}
           </div>
+          <p className="text-[9.5px] leading-[1.4] mt-2" style={{ color: T.t4 }}>
+            Bisa pilih lebih dari satu kategori — hasilnya gabungan. Satu creator
+            bisa punya sampai lima kategori, jadi ia muncul di setiap kategori
+            yang ia bawa.
+          </p>
         </Section>
 
         <Section id="location" icon="location_on" label="Location" open={open.has('location')} onToggle={onToggleSection}

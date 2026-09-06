@@ -30,3 +30,6 @@ autometric_dashboard/
 
 # Office lock/temp files
 ~$*
+
+# Screenshot kerja lokal, jangan ikut di-commit
+Screenshot*.png

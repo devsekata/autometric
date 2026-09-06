@@ -400,7 +400,13 @@ export async function findSimilarCreators(
       // The category narrows 7.7k rows to something the scorer can rank without
       // reading the whole roster. Absent when the reference has no category —
       // then the follower band does the narrowing on its own.
-      category,
+      //
+      // One name in a list of one: the parameter became a union when the
+      // directory learned that a creator can hold several categories (BE-01).
+      // Matching is now overlap rather than equality, which only widens what
+      // comes back here — a creator filed under Beauty *and* Lifestyle used to
+      // be missed by the Lifestyle ask unless it was their first category.
+      categories: category ? [category] : null,
       tiers: constraints.tier ? [constraints.tier] : [],
       minFollowers: reference.followers ? Math.round(reference.followers * 0.5) : null,
       maxRate,

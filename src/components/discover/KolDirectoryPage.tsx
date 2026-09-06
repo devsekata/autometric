@@ -27,6 +27,7 @@ import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import AddKolDirectoryModal from './AddKolDirectoryModal'
 import {
   KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, filtersToParams,
+  normalizeKolFilters,
   type KolFilters,
 } from './KolDirectoryFilters'
 import { useDiscoverCart } from './useDiscoverCart'
@@ -70,14 +71,34 @@ const PLATFORM_LABEL: Record<string, string> = {
   instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook',
 }
 
+/**
+ * The Section Tabs that have a source (BE-04).
+ *
+ * Each is an ordering over a column the roster actually fills, so none of them
+ * can render empty. `all` is the page's default ordering, kept as a tab so the
+ * strip has a way back.
+ */
+const SECTION_TABS: { id: string; label: string; icon: string; sort: SortKey; hint: string }[] = [
+  { id: 'all', label: 'Semua creator', icon: 'grid_view', sort: 'followers',
+    hint: 'Seluruh roster aktif, terbesar dulu.' },
+  { id: 'added', label: 'Baru ditambahkan', icon: 'person_add', sort: 'created',
+    hint: 'Urut dari yang paling baru masuk database (kol_directory.created_at).' },
+  { id: 'updated', label: 'Baru diperbarui', icon: 'update', sort: 'recent',
+    hint: 'Urut dari yang angkanya paling baru diukur (kol_directory.last_refreshed_at).' },
+]
+
 /** The source's SORTOPTS, minus the keys this roster cannot rank on. */
 const SORTOPTS: [SortKey, string][] = [
   ['followers', 'Followers'],
   ['engagement', 'Engagement'],
   ['recent', 'Last updated'],
+  // Exposed by BE-04. The backend has ordered by `created_at` since before this
+  // page shipped — it was simply never offered, so "who is new here" could only
+  // be asked from the Discovery landing's shelf.
+  ['created', 'Recently added'],
   ['name', 'Name'],
 ]
-type SortKey = 'followers' | 'engagement' | 'recent' | 'name'
+type SortKey = 'followers' | 'engagement' | 'recent' | 'created' | 'name'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' }
 
 /** Optional table columns — the source's COLDEFS. */
@@ -124,6 +145,29 @@ const followersLabel = (n: number | null) => (n === null ? '—' : fmtNum(n))
 const erLabel = (er: number | null) => (er === null ? '—' : `${er.toFixed(2)}%`)
 
 /**
+ * The engagement rate with the backend's own quality verdict attached.
+ *
+ * `erQuality` is decided server-side (`ER_SUSPECT_MIN`) and simply rendered
+ * here — the threshold is a Product decision and must not be re-stated in the
+ * UI, or the two would drift. `suspect` means the figure is inside the possible
+ * range but implausibly high; it is still shown, marked, and still filterable.
+ * Values that cannot be an engagement rate at all never arrive: `erPct` is null
+ * for those and the raw number stays in `erRaw` for auditing.
+ */
+function ErValue({ row }: { row: KolDirectoryRow }) {
+  if (row.erQuality !== 'suspect') return <>{erLabel(row.erPct)}</>
+  return (
+    <span className="inline-flex items-center gap-0.5" style={{ color: '#b45309' }}
+      title={`Engagement rate ${erLabel(row.erPct)} luar biasa tinggi untuk roster ini — `
+        + 'ditandai perlu dicek, bukan dibuang. Nilai mentah: '
+        + (row.erRaw === null ? '—' : `${row.erRaw}%`)}>
+      {erLabel(row.erPct)}
+      <span className="material-symbols-outlined text-[12px]">error</span>
+    </span>
+  )
+}
+
+/**
  * Est. Reach is followers × engagement rate — the roster stores no reach column,
  * so it is derived, and the card says so: rows carrying a measured rate are
  * badged Calculated, rows without one show no reach at all rather than a guess.
@@ -165,6 +209,7 @@ function pageWindow(current: number, count: number): (number | '…')[] {
 
 const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'username', header: 'Username', value: r => r.username },
+  { key: 'name', header: 'Name', value: r => r.displayName ?? '' },
   { key: 'platform', header: 'Platform', value: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '') },
   { key: 'followers', header: 'Followers', value: r => r.followers ?? '' },
   { key: 'er', header: 'Engagement rate (%)', value: r => r.erPct ?? '' },
@@ -255,8 +300,13 @@ export default function KolDirectoryPage({
   const [error, setError] = useState<string | null>(null)
   /** Bumped by the retry button — the KOL host is remote and can blip. */
   const [reload, setReload] = useState(0)
-  // Filter options describe the whole roster, so they are fetched once.
-  const facetsLoaded = useRef(false)
+  /**
+  * Filter options describe the whole roster, so they are fetched once — except
+  * that the tier counts are now scoped to the selected platform (BE-02), so they
+  * are fetched again when the platform changes. Holds the platform the current
+  * facets were built for; `null` before the first load, `''` for "all platforms".
+  */
+  const facetsFor = useRef<string | null>(null)
 
   /**
    * Selection keeps whole rows, not just ids: the grid only ever holds one page,
@@ -359,7 +409,7 @@ export default function KolDirectoryPage({
       sort: sort.key, dir: sort.dir, page: String(page), pageSize: String(PAGE_SIZE),
     })
     if (search) params.set('q', search)
-    if (!facetsLoaded.current) params.set('facets', '1')
+    if (facetsFor.current !== filters.platform) params.set('facets', '1')
 
     let cancelled = false
     setLoading(true)
@@ -377,7 +427,7 @@ export default function KolDirectoryPage({
         if (cancelled) return
         setRows(d.rows)
         setTotal(d.total)
-        if (d.facets) { setFacets(d.facets); facetsLoaded.current = true }
+        if (d.facets) { setFacets(d.facets); facetsFor.current = filters.platform }
       })
       .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -387,7 +437,16 @@ export default function KolDirectoryPage({
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const fCount = activeFilterCount(filters)
-  const dirty = Boolean(query || filters.category || fCount)
+  /**
+   * Which section tab is lit, derived from the sort rather than held beside it.
+   * A second state would let the tab strip and the Sort dropdown disagree about
+   * the same list.
+   */
+  const sectionTab = sort.dir === 'desc'
+    ? (SECTION_TABS.find(t => t.sort === sort.key)?.id ?? null)
+    : null
+
+  const dirty = Boolean(query || filters.categories.length || fCount)
   const rosterTotal = facets?.rosterTotal ?? total
 
   const patchFilters = (patch: Partial<KolFilters>) => { setFilters(f => ({ ...f, ...patch })); setPage(1) }
@@ -451,7 +510,7 @@ export default function KolDirectoryPage({
     const def = presetById(id)
     if (!def) return
     setPreset(id)
-    setFilters(f => ({ ...KOL_FILTERS_DEFAULT, category: f.category, platform: f.platform, ...def.filters }))
+    setFilters(f => ({ ...KOL_FILTERS_DEFAULT, categories: f.categories, platform: f.platform, ...def.filters }))
     setPage(1)
   }
 
@@ -647,6 +706,48 @@ export default function KolDirectoryPage({
           )}
         </div>
 
+        {/* ── section tabs (BE-04) ──────────────────────────────────────────
+            Two of the seven tabs the reference header carries have a source in
+            this roster and are wired here: `created_at` (99,7% filled) and
+            `last_refreshed_at` (97,1%). The other five have no Product
+            definition yet — not a missing column, a missing decision — so they
+            are neither named nor guessed at.
+
+            Ordering, not a date window. The backend also accepts `createdAfter`
+            and `refreshedAfter`, but the size of the window is itself a Product
+            decision, and picking one here would invent it: the roster has taken
+            no new creator since 2026-08-28, so a "last 7 days" tab would render
+            permanently empty. Ordering answers the same question ("who is
+            newest") and cannot go empty. */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+          {SECTION_TABS.map(t => {
+            const on = sectionTab === t.id
+            return (
+              <button key={t.id} type="button"
+                onClick={() => { setSort({ key: t.sort, dir: 'desc' }); setPage(1) }}
+                title={t.hint}
+                style={{
+                  ...PJ,
+                  background: on ? T.surfaceVariant : '#fff',
+                  color: on ? T.primaryDeep : T.t3,
+                  borderColor: on ? T.primary : T.outline,
+                }}
+                className="inline-flex items-center gap-1 rounded-full border px-3 h-[30px] text-[11.5px] font-bold transition-colors">
+                <span className="material-symbols-outlined text-[14px]">{t.icon}</span>
+                {t.label}
+              </button>
+            )
+          })}
+          <span
+            title={'Lima tab lain dari panel referensi belum punya definisi Product — '
+              + 'nama, kriteria dan sumbernya belum ditetapkan. Sengaja tidak ditebak.'}
+            style={{ ...PJ, borderColor: T.outlineSoft, color: T.t4 }}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed px-3 h-[30px] text-[11px] font-semibold cursor-help">
+            <span className="material-symbols-outlined text-[14px]">pending</span>
+            5 tab menunggu Product
+          </span>
+        </div>
+
         {/* ── toolbar ── */}
         <div className="flex items-center gap-2.5 flex-wrap my-4">
           <div className="relative flex items-center">
@@ -671,10 +772,15 @@ export default function KolDirectoryPage({
 
           {/* the six biggest categories inline; the rest live in the sidebar */}
           <div className="flex gap-[7px] flex-wrap">
-            <Chip label="All" on={!filters.category} onClick={() => patchFilters({ category: '' })} />
+            <Chip label="All" on={!filters.categories.length}
+              onClick={() => patchFilters({ categories: [] })} />
             {topCategories.map(c => (
-              <Chip key={c.name} label={c.name} on={filters.category === c.name}
-                onClick={() => patchFilters({ category: filters.category === c.name ? '' : c.name })} />
+              <Chip key={c.name} label={c.name} on={filters.categories.includes(c.name)}
+                onClick={() => patchFilters({
+                  categories: filters.categories.includes(c.name)
+                    ? filters.categories.filter(x => x !== c.name)
+                    : [...filters.categories, c.name],
+                })} />
             ))}
           </div>
 
@@ -705,7 +811,9 @@ export default function KolDirectoryPage({
                   <div key={l.name + i}
                     className="flex items-center gap-2 px-1 py-[7px] rounded-lg cursor-pointer hover:bg-[#f7fafc]"
                     onClick={() => {
-                      setFilters({ ...KOL_FILTERS_DEFAULT, ...l.filters })
+                      // Normalised, not spread: lists saved before multi-select
+                      // hold `category`/`tier` as plain strings.
+                      setFilters(normalizeKolFilters({ ...KOL_FILTERS_DEFAULT, ...l.filters }))
                       setPage(1); setListsOpen(false); flash(`Applied "${l.name}"`)
                     }}>
                     <span className="material-symbols-outlined text-[16px]" style={{ color: T.primary }}>bookmark</span>
@@ -965,8 +1073,15 @@ function CreatorCard({
 }) {
   const st = statusOf(c.status)
   const banner = gradOf(bannerFor(c.id))
-  const subtitle = [c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null, c.city]
-    .filter(Boolean).join(' · ')
+  /**
+   * The handle joins the subtitle only when the real name has taken the title
+   * line, so the card never prints the same string twice.
+   */
+  const subtitle = [
+    c.displayName ? `@${c.username}` : null,
+    c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null,
+    c.city,
+  ].filter(Boolean).join(' · ')
 
   return (
     <article onClick={onOpen}
@@ -1020,7 +1135,14 @@ function CreatorCard({
       )}
 
       <div className="px-4 pt-2 pb-[15px]">
-        <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold truncate">@{c.username}</div>
+        {/* The real name leads when the roster has one — 3.463 creators carry a
+            name that differs from their handle, and BE-03 made those searchable,
+            so a result found by name has to show that name. Falls back to the
+            handle, which is the only identity the other 4.257 have. */}
+        <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold truncate"
+          title={c.displayName ? `${c.displayName} · @${c.username}` : `@${c.username}`}>
+          {c.displayName ?? `@${c.username}`}
+        </div>
         <div className="text-[11.5px] mt-px truncate" style={{ color: T.t4 }}>{subtitle || '—'}</div>
 
         {/* Two or three claims, measured ones first — see `creatorBadges`. */}
@@ -1047,7 +1169,7 @@ function CreatorCard({
 
         <div className="flex gap-1.5 mt-[13px]">
           <Stat label="Followers" value={followersLabel(c.followers)} />
-          <Stat label="Eng. Rate" value={erLabel(c.erPct)} />
+          <Stat label="Eng. Rate" value={<ErValue row={c} />} />
           <Stat label="Est. Reach" value={reachLabel(c)} />
         </div>
 
@@ -1189,17 +1311,19 @@ function DirectoryTable({
                     </span>
                     <div className="min-w-0">
                       <div style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-bold flex items-center gap-1.5 truncate">
-                        @{r.username}
+                        {r.displayName ?? `@${r.username}`}
                         {r.verified && <span className="material-symbols-outlined fill text-[13px]" style={{ color: T.primary }}>verified</span>}
                       </div>
                       <div className="text-[10.5px] truncate max-w-[220px]" style={{ color: T.t4 }}>
-                        {r.categories.length ? r.categories.join(' · ') : '—'}
+                        {[r.displayName ? `@${r.username}` : null,
+                          r.categories.length ? r.categories.join(' · ') : null,
+                        ].filter(Boolean).join(' · ') || '—'}
                       </div>
                     </div>
                   </div>
                 </Td>
                 <Td last={i === rows.length - 1} num>{followersLabel(r.followers)}</Td>
-                <Td last={i === rows.length - 1} num>{erLabel(r.erPct)}</Td>
+                <Td last={i === rows.length - 1} num><ErValue row={r} /></Td>
                 {active.map(c => <Td key={c} last={i === rows.length - 1} num>{COLDEFS[c].get(r)}</Td>)}
                 <Td last={i === rows.length - 1}>
                   <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"
@@ -1266,7 +1390,7 @@ function Check({ on, onClick, title }: { on: boolean; onClick: () => void; title
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex-1 rounded-[11px] border px-1.5 py-2 text-center"
       style={{ background: T.surfaceLow, borderColor: T.outlineSoft }}>
