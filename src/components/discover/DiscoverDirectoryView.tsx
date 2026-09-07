@@ -24,6 +24,8 @@ import {
 import { ConfidenceBadge, ConfidenceLegend, MetricValue } from './credibility'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import { useDiscoverSelection } from './useDiscoverSelection'
+import { useDiscoverFavorites, type DiscoverFavorites } from './useDiscoverFavorites'
+import { useSavedLists, type SavedListRecord } from './useSavedLists'
 import { useDiscoverCart } from './useDiscoverCart'
 import { AGE_BANDS, CATEGORIES, LIFESTYLES, LOCATIONS, TIERS } from '@/lib/discover/vocab'
 import type { KolProfile } from '@/lib/discover/profile'
@@ -172,48 +174,12 @@ function useDirectoryFilters(orgId: string) {
  * The filters are stored, not the resulting accounts: a saved list should track
  * the roster as it grows, not freeze whoever qualified on the day it was made.
  */
-export interface SavedList {
-  id: string
-  name: string
-  filters: DirectoryFilters
-}
-
-function useSavedLists(orgId: string) {
-  const key = `autometric:discover:dirlists:${orgId}`
-  const [lists, setLists] = useState<SavedList[]>([])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(key)
-      const parsed = raw ? JSON.parse(raw) : []
-      if (Array.isArray(parsed)) {
-        setLists(parsed.filter((l): l is SavedList =>
-          !!l && typeof l.id === 'string' && typeof l.name === 'string' && !!l.filters))
-      }
-    } catch { /* ignore */ }
-  }, [key])
-
-  const persist = useCallback((next: SavedList[]) => {
-    setLists(next)
-    try { window.localStorage.setItem(key, JSON.stringify(next)) } catch { /* quota / privacy mode */ }
-  }, [key])
-
-  const save = useCallback((name: string, filters: DirectoryFilters) => {
-    setLists(prev => {
-      // Same name overwrites rather than accumulating near-duplicates, which is
-      // what "save" means everywhere else in the product.
-      const without = prev.filter(l => l.name.toLowerCase() !== name.toLowerCase())
-      const next = [...without, { id: `${name}-${without.length}`, name, filters }]
-      try { window.localStorage.setItem(key, JSON.stringify(next)) } catch { /* ignore */ }
-      return next
-    })
-  }, [key])
-
-  const remove = useCallback(
-    (id: string) => persist(lists.filter(l => l.id !== id)), [lists, persist])
-
-  return { lists, save, remove }
-}
+/**
+ * A saved list as this view reads it. The persistent record carries more —
+ * description, membership, timestamps — but Tracked Accounts only ever applies
+ * the filters, so it narrows the shape rather than spreading the rest around.
+ */
+export type SavedList = SavedListRecord<DirectoryFilters>
 
 const FOLLOWER_OPTS = [
   { label: 'Semua follower', value: 0 }, { label: '≥ 10K', value: 10_000 },
@@ -260,9 +226,11 @@ export default function DiscoverDirectoryView({
   const [colsOpen, setColsOpen] = useState(false)
 
   const { filters, update, reset, ready } = useDirectoryFilters(orgId)
-  const savedLists = useSavedLists(orgId)
+  // Saved lists and bookmarks are server-backed now; Compare stays in the
+  // browser because it is one sitting's working set, not a saved decision.
+  const savedLists = useSavedLists<DirectoryFilters>(orgId, 'tracked')
   const shortlist = useDiscoverSelection(orgId, 'compare')
-  const bookmarks = useDiscoverSelection(orgId, 'fav')
+  const bookmarks = useDiscoverFavorites(orgId)
   const cart = useDiscoverCart(orgId)
 
   const PAGE_SIZE = filters.view === 'card' ? 12 : 20
@@ -519,7 +487,7 @@ export default function DiscoverDirectoryView({
           <Btn size="sm" onClick={() => { bulk.forEach(id => { if (!shortlist.ids.has(id)) shortlist.toggle(id) }) }}>
             <span className="material-symbols-outlined text-[14px]">compare</span>Tambah ke shortlist
           </Btn>
-          <Btn size="sm" onClick={() => { bulk.forEach(id => { if (!bookmarks.ids.has(id)) bookmarks.toggle(id) }) }}>
+          <Btn size="sm" onClick={() => { bulk.forEach(id => { if (!bookmarks.has('account', id)) bookmarks.toggle('account', id) }) }}>
             <span className="material-symbols-outlined text-[14px]">bookmark_add</span>Bookmark
           </Btn>
           {onAddToCampaign && (
@@ -549,7 +517,7 @@ export default function DiscoverDirectoryView({
                   cartUnits={cart.lines.filter(l => l.socialAccountId === p.account.id).reduce((n, l) => n + l.qty, 0)}
                   selected={bulk.has(p.account.id)} onSelect={() => toggleBulk(p.account.id)}
                   shortlisted={shortlist.ids.has(p.account.id)} onShortlist={() => shortlist.toggle(p.account.id)}
-                  bookmarked={bookmarks.ids.has(p.account.id)} onBookmark={() => bookmarks.toggle(p.account.id)} />
+                  bookmarked={bookmarks.has('account', p.account.id)} onBookmark={() => bookmarks.toggle('account', p.account.id)} />
               ))}
             </div>
           ) : (
@@ -915,7 +883,7 @@ function KolTable({
   onOrder?: (id: string, relation: 'owned' | 'competitor', username: string) => void
   cart?: ReturnType<typeof useDiscoverCart>
   shortlist: ReturnType<typeof useDiscoverSelection>
-  bookmarks: ReturnType<typeof useDiscoverSelection>
+  bookmarks: DiscoverFavorites
 }) {
   const cols = TABLE_COLUMNS.filter(c => !hiddenColumns.includes(c.id))
   return (
@@ -963,7 +931,7 @@ function KolTable({
                 ))}
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-1 justify-end">
-                    <IconBtn on={bookmarks.ids.has(a.id)} onClick={() => bookmarks.toggle(a.id)} icon="bookmark" title="Bookmark" />
+                    <IconBtn on={bookmarks.has('account', a.id)} onClick={() => bookmarks.toggle('account', a.id)} icon="bookmark" title="Bookmark" />
                     <IconBtn on={shortlist.ids.has(a.id)} onClick={() => shortlist.toggle(a.id)}
                       icon={shortlist.ids.has(a.id) ? 'check' : 'add'} title="Shortlist" />
                     {onOrder && (() => {

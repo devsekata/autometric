@@ -19,6 +19,8 @@
     "verify:filters": "dotenv -e .env.local -- npx tsx scripts/verify-discovery-filters.ts",
     "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
     "verify:nav-roles": "npx tsx scripts/verify-nav-roles.ts",
+    "verify:persistence": "dotenv -e .env.local -- npx tsx scripts/verify-discover-persistence.ts",
+    "migrate:052": "dotenv -e .env.local -- node scripts/apply-migration-052.js",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],

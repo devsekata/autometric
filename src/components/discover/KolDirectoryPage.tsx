@@ -39,6 +39,8 @@ import {
   type PresetId,
 } from '@/lib/discover/creatorMatch'
 import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
+import { useDiscoverFavorites } from './useDiscoverFavorites'
+import { useSavedLists } from './useSavedLists'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryPayload, KolDirectoryRow,
@@ -220,7 +222,6 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'profile', header: 'Profile URL', value: r => r.profileUrl ?? '' },
 ]
 
-interface SavedList { name: string; filters: KolFilters }
 
 /* ── page ─────────────────────────────────────────────────────────────────── */
 
@@ -313,7 +314,13 @@ export default function KolDirectoryPage({
    * and Export / Compare have to work on creators picked across several pages.
    */
   const [selected, setSelected] = useState<Map<string, KolDirectoryRow>>(new Map())
-  const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  /**
+   * Favourites are server-backed — see `useDiscoverFavorites`. They used to be a
+   * bare `useState` here, which meant the heart filled, a toast said "added to
+   * favourites", and the whole set was gone on the next navigation. Compare
+   * below stays in the browser on purpose: it is one sitting's working set.
+   */
+  const favorites = useDiscoverFavorites(orgId)
   const compare = useDiscoverSelection(orgId, 'compare')
   const cart = useDiscoverCart(orgId)
   /**
@@ -327,7 +334,12 @@ export default function KolDirectoryPage({
   const [deliverables, setDeliverables] = useState<Deliverable[]>([])
   /** The creator whose price is being set, when the rate dialog is open. */
   const [pricing, setPricing] = useState<KolDirectoryRow | null>(null)
-  const [savedLists, setSavedLists] = useState<SavedList[]>([])
+  /**
+   * Saved lists live in the database now — see `useSavedLists`. They were kept
+   * in `localStorage` under `autometric.kolDirectory.lists.<org>`; the hook
+   * adopts anything still stored there on first load, then drops it.
+   */
+  const savedLists = useSavedLists<KolFilters>(orgId, 'database')
   const [toast, setToast] = useState<string | null>(null)
   /** The Add New KOL dialog — this page's own intake flow into `kol_directory`. */
   const [addOpen, setAddOpen] = useState(false)
@@ -354,24 +366,6 @@ export default function KolDirectoryPage({
     flash(was ? `@${r.username} dihapus dari compare` : `@${r.username} ditambahkan ke compare`)
   }, [compare, flash])
 
-  const toggle = (set: Set<string>, id: string) => {
-    const next = new Set(set)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    return next
-  }
-
-  /* saved lists — per org, so one browser can hold several clients' shortlists */
-  const listsKey = `autometric.kolDirectory.lists.${orgId}`
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(listsKey)
-      if (raw) setSavedLists(JSON.parse(raw) as SavedList[])
-    } catch { /* a corrupt entry just means no saved lists */ }
-  }, [listsKey])
-  const persistLists = (next: SavedList[]) => {
-    setSavedLists(next)
-    try { window.localStorage.setItem(listsKey, JSON.stringify(next)) } catch { /* private mode */ }
-  }
 
   /* data */
   useEffect(() => {
@@ -608,12 +602,16 @@ export default function KolDirectoryPage({
     signals: signals.get(r.id) ?? null,
     badges: badgesOf(r.id),
     match: matchOf(r),
-    fav: favorites.has(r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
+    fav: favorites.has('roster', r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
     // Opening the panel rather than the profile: the list is for narrowing, and
     // a navigation per creator is the wrong cost for a decision this small. The
     // panel carries "View Full Profile" for when it is the right cost.
     onOpen: () => setInsightId(r.id),
-    onFav: () => { setFavorites(s => toggle(s, r.id)); flash(favorites.has(r.id) ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
+    onFav: () => {
+      const was = favorites.has('roster', r.id)
+      favorites.toggle('roster', r.id)
+      flash(was ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit')
+    },
     onCompare: () => toggleCompare(r),
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
     onSimilar: onFindSimilar ? () => onFindSimilar(r.id) : null,
@@ -646,7 +644,7 @@ export default function KolDirectoryPage({
                     on screen.
                   */}
                   {scored && view === 'card' && ' · diurutkan dari yang paling cocok'}
-                  {` · ${favorites.size} favorites · ${compare.ids.size} in compare`}
+                  {` · ${favorites.keys.size} favorites · ${compare.ids.size} in compare`}
                 </>
               )}
             </p>
@@ -797,7 +795,7 @@ export default function KolDirectoryPage({
           <div className="relative">
             <Pill icon="bookmark" onClick={() => setListsOpen(o => !o)}
               title="Save the current search & filters, or reapply a saved list">
-              Saved Lists{savedLists.length > 0 && <Count n={savedLists.length} />}
+              Saved Lists{savedLists.lists.length > 0 && <Count n={savedLists.lists.length} />}
             </Pill>
             {listsOpen && (
               <Popover onClose={() => setListsOpen(false)} width={260}>
@@ -805,10 +803,21 @@ export default function KolDirectoryPage({
                   className="text-[11px] font-extrabold uppercase tracking-[.05em] px-1 pb-2">
                   Saved Lists
                 </div>
-                {savedLists.length === 0 ? (
+                {/* Four states, not one: still loading, failed to load, loaded
+                    and empty, loaded with lists. Before this they all rendered
+                    as "No saved lists yet", so a failed request looked like an
+                    empty account. */}
+                {savedLists.error ? (
+                  <div className="px-1 pb-1">
+                    <div className="text-[11.5px]" style={{ color: '#b45252' }}>{savedLists.error}</div>
+                    <Btn kind="ghost" icon="refresh" full onClick={savedLists.retry}>Coba lagi</Btn>
+                  </div>
+                ) : !savedLists.ready ? (
+                  <div className="text-[11.5px] px-1 pb-1" style={{ color: T.t4 }}>Memuat…</div>
+                ) : savedLists.lists.length === 0 ? (
                   <div className="text-[11.5px] px-1 pb-1" style={{ color: T.t4 }}>No saved lists yet.</div>
-                ) : savedLists.map((l, i) => (
-                  <div key={l.name + i}
+                ) : savedLists.lists.map(l => (
+                  <div key={l.id}
                     className="flex items-center gap-2 px-1 py-[7px] rounded-lg cursor-pointer hover:bg-[#f7fafc]"
                     onClick={() => {
                       // Normalised, not spread: lists saved before multi-select
@@ -818,19 +827,40 @@ export default function KolDirectoryPage({
                     }}>
                     <span className="material-symbols-outlined text-[16px]" style={{ color: T.primary }}>bookmark</span>
                     <span style={{ ...PJ, color: T.t1 }} className="flex-1 text-[12px] font-bold truncate">{l.name}</span>
-                    <span className="material-symbols-outlined text-[15px]" style={{ color: T.t4 }}
-                      onClick={e => { e.stopPropagation(); persistLists(savedLists.filter((_, j) => j !== i)) }}>
+                    <span className="material-symbols-outlined text-[15px] hover:opacity-70" style={{ color: T.t4 }}
+                      title="Rename"
+                      onClick={async e => {
+                        e.stopPropagation()
+                        const name = window.prompt('Rename this list:', l.name)
+                        if (!name || name.trim() === l.name) return
+                        if (await savedLists.rename(l.id, name.trim())) flash(`Renamed to "${name.trim()}"`)
+                      }}>
+                      edit
+                    </span>
+                    <span className="material-symbols-outlined text-[15px] hover:opacity-70" style={{ color: T.t4 }}
+                      title="Overwrite with the filters on screen now"
+                      onClick={async e => {
+                        e.stopPropagation()
+                        if (await savedLists.update(l.id, filters)) flash(`Updated "${l.name}"`)
+                      }}>
+                      save
+                    </span>
+                    <span className="material-symbols-outlined text-[15px] hover:opacity-70" style={{ color: T.t4 }}
+                      title="Delete"
+                      onClick={async e => {
+                        e.stopPropagation()
+                        if (await savedLists.remove(l.id)) flash(`Deleted "${l.name}"`)
+                      }}>
                       delete
                     </span>
                   </div>
                 ))}
                 <div className="mt-1.5 pt-2" style={{ borderTop: `1px solid ${T.outlineSoft}` }}>
-                  <Btn kind="ghost" icon="add" full onClick={() => {
-                    const name = window.prompt('Name this saved list:', `Custom List ${savedLists.length + 1}`)
-                    if (!name) return
-                    persistLists([...savedLists, { name, filters }])
+                  <Btn kind="ghost" icon="add" full onClick={async () => {
+                    const name = window.prompt('Name this saved list:', `Custom List ${savedLists.lists.length + 1}`)
+                    if (!name?.trim()) return
                     setListsOpen(false)
-                    flash(`Saved list "${name}"`)
+                    if (await savedLists.save(name.trim(), filters)) flash(`Saved list "${name.trim()}"`)
                   }}>
                     Save current filters
                   </Btn>
@@ -1017,12 +1047,13 @@ export default function KolDirectoryPage({
         <CreatorQuickInsight
           creator={insightRow}
           match={matchOf(insightRow)}
-          inShortlist={favorites.has(insightRow.id)}
+          inShortlist={favorites.has('roster', insightRow.id)}
           inCompare={inCompare(insightRow.id)}
           onClose={() => setInsightId(null)}
           onShortlist={() => {
-            setFavorites(f => toggle(f, insightRow.id))
-            flash(favorites.has(insightRow.id) ? 'Dihapus dari shortlist' : 'Ditambahkan ke shortlist')
+            const was = favorites.has('roster', insightRow.id)
+            favorites.toggle('roster', insightRow.id)
+            flash(was ? 'Dihapus dari shortlist' : 'Ditambahkan ke shortlist')
           }}
           onCompare={() => toggleCompare(insightRow)}
           onOpenProfile={() => { setInsightId(null); openProfile(insightRow) }}
