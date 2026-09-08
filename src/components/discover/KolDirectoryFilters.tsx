@@ -11,7 +11,7 @@
  * audience demographics, authenticity, brand fit, paid ratio, campaigns run,
  * rate card, format. Those are left out rather than shipped as controls that
  * filter nothing; what remains is exactly what `public.kol_directory` can
- * answer: platform, tier, followers, engagement, category, verified.
+ * answer: platform, tier, followers, engagement, category, connected.
  */
 
 import { PJ, TOKENS as T, fmtNum } from './ui'
@@ -32,12 +32,41 @@ export interface KolFilters {
    * price under a number cannot be satisfied by the absence of a price.
    */
   maxRate: number
-  verifiedOnly: boolean
+  /**
+   * Business Connected: the creator linked the account through OAuth
+   * (`social_account.platform_user_id` AND `oauth_token`). NOT the
+   * platform's blue tick — that badge was dropped from Discovery.
+   */
+  connectedOnly: boolean
+  /**
+   * Follower-growth band, as a preset key rather than a slider.
+   *
+   * A slider cannot express this filter: every other numeric filter here uses
+   * 0 to mean "no bound", but 0% growth is a real, common value — eight of the
+   * twenty-five measured creators sit exactly at 0.0000%. Presets keep "no
+   * bound" and "exactly flat" distinguishable without a nullable slider.
+   */
+  growth: GrowthKey
 }
+
+/**
+ * Growth bands. Bounds are percentage points of change since the account's
+ * PREVIOUS snapshot — not a month. `min`/`max` are inclusive and `null` means
+ * unbounded on that side.
+ */
+export const GROWTH_PRESETS = [
+  { key: '',     label: 'Any',            min: null, max: null },
+  { key: 'up',   label: 'Naik (> 0%)',    min: 0.0001, max: null },
+  { key: 'flat', label: 'Datar (0%)',     min: 0, max: 0 },
+  { key: 'down', label: 'Turun (< 0%)',   min: null, max: -0.0001 },
+  { key: 'up05', label: 'Naik >= 0,5%',   min: 0.5, max: null },
+  { key: 'up1',  label: 'Naik >= 1%',     min: 1, max: null },
+] as const
+export type GrowthKey = (typeof GROWTH_PRESETS)[number]['key']
 
 export const KOL_FILTERS_DEFAULT: KolFilters = {
   category: '', platform: '', tier: '', follMin: 0, erMin: 0, maxRate: 0,
-  verifiedOnly: false,
+  connectedOnly: false, growth: '',
 }
 
 /**
@@ -76,7 +105,7 @@ export const FOLLOWER_STEPS = [
 export function activeFilterCount(f: KolFilters): number {
   return [
     f.platform !== '', f.tier !== '', f.follMin > 0, f.erMin > 0, f.maxRate > 0,
-    f.verifiedOnly,
+    f.connectedOnly, f.growth !== '',
   ].filter(Boolean).length
 }
 
@@ -88,7 +117,12 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.follMin > 0) p.follMin = String(f.follMin)
   if (f.erMin > 0) p.minEr = String(f.erMin)
   if (f.maxRate > 0) p.maxRate = String(f.maxRate)
-  if (f.verifiedOnly) p.verified = '1'
+  if (f.connectedOnly) p.connected = '1'
+  if (f.growth) {
+    const g = GROWTH_PRESETS.find(x => x.key === f.growth)
+    if (g?.min != null) p.growthMin = String(g.min)
+    if (g?.max != null) p.growthMax = String(g.max)
+  }
   return p
 }
 
@@ -241,7 +275,8 @@ export function KolFilterPanel({
   const count = activeFilterCount(filters)
   const follIdx = Math.max(0, FOLLOWER_STEPS.indexOf(filters.follMin))
   const rateIdx = Math.max(0, RATE_STEPS.indexOf(filters.maxRate))
-  const reachActive = [filters.follMin > 0, filters.erMin > 0, filters.maxRate > 0]
+  const reachActive = [filters.follMin > 0, filters.erMin > 0, filters.maxRate > 0,
+    filters.growth !== '']
     .filter(Boolean).length
 
   return (
@@ -349,11 +384,26 @@ export function KolFilterPanel({
           <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
             display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
             onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
+          <div className="my-[7px] mb-2.5">
+            <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+              <span>Growth</span>
+            </div>
+            <select value={filters.growth}
+              onChange={e => onChange({ growth: e.target.value as GrowthKey })}
+              className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+              style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+              {GROWTH_PRESETS.map(g => (
+                <option key={g.key || 'any'} value={g.key}>{g.label}</option>
+              ))}
+            </select>
+          </div>
           <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
             Engagement rate hanya terukur pada sebagian roster — memasang minimum
             akan menyembunyikan creator yang belum pernah diukur. Rate card ada
             untuk 7.230 dari 7.718 creator; memasang plafon harga menyembunyikan
-            sisanya.
+            sisanya. Growth dihitung dari perubahan followers sejak snapshot
+            sebelumnya (bukan 30 hari) dan baru terukur untuk 25 creator yang
+            sudah punya dua snapshot — memasang filter menyembunyikan sisanya.
           </p>
         </Section>
 
@@ -422,18 +472,19 @@ export function KolFilterPanel({
         <div className="pt-2.5 px-0.5 pb-0.5">
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold">Verified creators only</div>
+              <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold">Connected creators only</div>
               <div className="text-[9.5px] mt-0.5" style={{ color: T.t4 }}>
-                Terisi untuk sebagian roster — creator yang belum pernah dicek
-                ikut tersembunyi saat ini dinyalakan.
+                Connected = creator sudah menghubungkan akunnya lewat OAuth.
+                Belum ada creator yang terhubung, jadi filter ini masih
+                mengembalikan 0 hasil sampai connect flow berjalan.
               </div>
             </div>
-            <button type="button" role="switch" aria-checked={filters.verifiedOnly}
-              onClick={() => onChange({ verifiedOnly: !filters.verifiedOnly })}
+            <button type="button" role="switch" aria-checked={filters.connectedOnly}
+              onClick={() => onChange({ connectedOnly: !filters.connectedOnly })}
               className="w-[38px] h-[22px] rounded-xl relative flex-shrink-0 transition-colors"
-              style={{ background: filters.verifiedOnly ? T.gradient : '#d1d5db' }}>
+              style={{ background: filters.connectedOnly ? T.gradient : '#d1d5db' }}>
               <span className="absolute top-0.5 w-[18px] h-[18px] rounded-full bg-white transition-all"
-                style={{ left: filters.verifiedOnly ? 18 : 2, boxShadow: '0 1px 3px rgba(0,0,0,.18)' }} />
+                style={{ left: filters.connectedOnly ? 18 : 2, boxShadow: '0 1px 3px rgba(0,0,0,.18)' }} />
             </button>
           </div>
         </div>

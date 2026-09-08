@@ -34,7 +34,15 @@ export interface KolDirectoryRow {
   /** Percentage points, e.g. 0.98 means 0.98%. Null when never measured. */
   erPct: number | null
   tier: string | null
-  verified: boolean
+  /**
+   * Percentage change in followers since this account's PREVIOUS snapshot,
+   * from `l2_gold.kol_profile_card.followers_growth`. The gap is whatever the
+   * scraper produced (10-13 days today), so never label it monthly or 30-day.
+   * Null for creators scraped only once, which is most of the roster.
+   */
+  growthPct: number | null
+  /** Business Connected: platform_user_id AND oauth_token both set. */
+  connected: boolean
   status: KolDataStatus
   lastRefreshedAt: string | null
   /**
@@ -95,7 +103,10 @@ export interface KolDirectoryQuery {
    * "no price" is not one.
    */
   maxRate?: number | null
-  verifiedOnly?: boolean
+  /** Percentage points. Null means no bound; 0 is a real bound, not "any". */
+  minGrowth?: number | null
+  maxGrowth?: number | null
+  connectedOnly?: boolean
   sort?: string | null
   dir?: string | null
   page?: number
@@ -116,6 +127,8 @@ const SORT_COLUMNS: Record<string, string> = {
   // different question and a different column.
   created: 'created_at',
   name: 'username',
+  // Percentage change in followers since the account's previous snapshot.
+  growth: 'growth_pct',
 }
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
@@ -172,7 +185,20 @@ const BASE = `
          kd.followers_count                        AS followers,
          kd.engagement_rate::float                 AS er_pct,
          t.name                                    AS tier,
-         (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified,
+         -- Connected -- the business definition, not the platform's blue tick.
+         -- A creator is Connected when they have actually linked the account
+         -- through OAuth: social_account.platform_user_id AND oauth_token are
+         -- both present. kol_directory.verified_status (the old source) is the
+         -- platform badge and says nothing about connection, and
+         -- social_account.connected is a legacy column that is never filled.
+         EXISTS (
+           SELECT 1
+             FROM public.kol_social_account ksa
+             JOIN public.social_account sa ON sa.id = ksa.social_account_id
+            WHERE ksa.kol_id = kd.id
+              AND sa.platform_user_id IS NOT NULL
+              AND sa.oauth_token IS NOT NULL
+         )                                         AS connected,
          -- Provenance, using the same three labels the rest of Discover uses:
          -- a recent refresh is Live, an older row that was actually scraped
          -- (see migration 004 in scrapper-project — scrape_status is kept in
@@ -189,6 +215,7 @@ const BASE = `
            WHEN kd.scrape_status = 'success'                      THEN 'Calculated'
            ELSE 'Estimated'
          END                                       AS status,
+         g.followers_growth::float                 AS growth_pct,
          kd.last_refreshed_at,
          -- Not mapped onto the row; carried so the list can be ordered by when
          -- a creator was added, which is what the Discovery landing's "Recently
@@ -207,6 +234,22 @@ const BASE = `
         FROM public.kol_categories kc
        WHERE kc.id = ANY (${CATEGORY_IDS})
     ) cats ON TRUE
+    -- Follower growth, the only measured one that exists: L1 computes
+    -- (current - previous) / previous * 100 over consecutive profile
+    -- snapshots and l2_gold.kol_profile_card carries it through untouched.
+    -- LATERAL ... LIMIT 1 rather than a plain join so the roster row stays
+    -- one row even if a creator ever maps to more than one linked account;
+    -- ordered by followers to pick the same account the detail page shows.
+    -- Only followers_growth is read here: followers and tier stay on
+    -- kol_directory, which is the agreed source of truth for both.
+    LEFT JOIN LATERAL (
+      SELECT c.followers_growth
+        FROM public.kol_social_account ksa
+        JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
+       WHERE ksa.kol_id = kd.id
+       ORDER BY c.followers_count DESC NULLS LAST
+       LIMIT 1
+    ) g ON TRUE
    WHERE ${ACTIVE}`
 
 /**
@@ -270,7 +313,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null; city: string | null
     categories: string[] | null; followers: number | null; er_pct: number | null
-    tier: string | null; verified: boolean; status: KolDataStatus
+    tier: string | null; growth_pct: number | null; connected: boolean; status: KolDataStatus
     last_refreshed_at: Date | string | null; total_count: number
   }>(
     `
@@ -282,11 +325,13 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          AND ($3::text     IS NULL OR $3 = ANY (b.categories))
          AND ($4::text[]   IS NULL OR b.tier = ANY ($4))
          AND ($5::float8   IS NULL OR b.er_pct >= $5)
-         AND ($6::boolean  IS NOT TRUE OR b.verified)
+         AND ($6::boolean  IS NOT TRUE OR b.connected)
          AND ($9::bigint   IS NULL OR b.followers >= $9)
          AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
          -- Rate card ceiling. EXISTS rather than a join so a creator with three
          -- priced deliverables stays one row; measured at 19ms over the roster.
+         AND ($12::float8  IS NULL OR b.growth_pct >= $12)
+         AND ($13::float8  IS NULL OR b.growth_pct <= $13)
          AND ($11::bigint IS NULL OR EXISTS (
                SELECT 1
                  FROM public.kol_social_account ksa
@@ -304,7 +349,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.category || null,
       tiers,
       query.minErPct ?? null,
-      query.verifiedOnly === true,
+      query.connectedOnly === true,
       pageSize,
       (page - 1) * pageSize,
       query.minFollowers ? Math.trunc(query.minFollowers) : null,
@@ -312,6 +357,10 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.maxRate != null && Number.isFinite(query.maxRate)
         ? Math.trunc(query.maxRate)
         : null,
+      // Growth bounds are not truncated and 0 is meaningful: a creator can sit
+      // exactly at 0.0000%, and eight of them do.
+      query.minGrowth ?? null,
+      query.maxGrowth ?? null,
     ],
   )
 
@@ -327,7 +376,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       followers: r.followers,
       erPct: r.er_pct,
       tier: r.tier,
-      verified: r.verified,
+      growthPct: r.growth_pct,
+      connected: r.connected,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
       // Filled by attachRosterExtras below; declared here so the row is never
@@ -453,7 +503,7 @@ export interface KolCreatorPlatformRow {
   profileUrl: string | null
   followers: number | null
   erPct: number | null
-  verified: boolean
+  connected: boolean
 }
 
 /** A neighbour in the roster — same category where there is one, nearest in size. */
@@ -505,7 +555,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
-    er_pct: number | null; tier: string | null; verified: boolean
+    er_pct: number | null; tier: string | null; growth_pct: number | null; connected: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
     display_name: string | null; agency: string | null
   }>(`
@@ -586,11 +636,18 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     db.query<{
       id: string; platform: string | null; username: string
       profile_url: string | null; followers: number | null
-      er_pct: number | null; verified: boolean
+      er_pct: number | null; connected: boolean
     }>(`
       SELECT kd.id, pl.key AS platform, kd.username, kd.profile_url,
              kd.followers_count AS followers, kd.engagement_rate::float AS er_pct,
-             (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified
+             EXISTS (
+               SELECT 1
+                 FROM public.kol_social_account ksa
+                 JOIN public.social_account sa ON sa.id = ksa.social_account_id
+                WHERE ksa.kol_id = kd.id
+                  AND sa.platform_user_id IS NOT NULL
+                  AND sa.oauth_token IS NOT NULL
+             ) AS connected
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
        WHERE ${ACTIVE}
@@ -652,7 +709,8 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: r.followers,
       erPct: r.er_pct,
       tier: r.tier,
-      verified: r.verified,
+      growthPct: r.growth_pct,
+      connected: r.connected,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
       // Already in hand here: the agency comes from the join above and the
@@ -693,7 +751,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       profileUrl: p.profile_url,
       followers: p.followers,
       erPct: p.er_pct,
-      verified: p.verified,
+      connected: p.connected,
     })),
     similar: similar.rows.map(s => ({
       id: s.id,

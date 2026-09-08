@@ -166,6 +166,25 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
     }
   }, [gold])
 
+  /**
+   * The L2 card for this creator's own platform, falling back to the largest.
+   * `kolGold` returns one card per linked account ordered by followers, and the
+   * roster row this page was opened from names exactly one platform.
+   */
+  const goldCard = useMemo(() => {
+    const cards = gold?.cards ?? []
+    if (!cards.length) return null
+    return cards.find(c => c.platform === creator.platform) ?? cards[0]
+  }, [gold, creator.platform])
+
+  /**
+   * Real follower growth, straight from `l2_gold.kol_profile_card`. It is the
+   * change since the account's PREVIOUS snapshot — 10-13 days apart today, not
+   * a month — so it is never labelled "monthly". Null for the ~99% of the
+   * roster scraped only once; those keep the modelled figure with its marker.
+   */
+  const realGrowth = goldCard?.followersGrowth ?? null
+
   const hasGold = goldPoints.length > 0 || (gold?.daily.length ?? 0) > 0
 
   /**
@@ -328,14 +347,27 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
 
       <Split
         main={
-          <VizCard title="Growth" subtitle="Follower growth — 6 bulan" sample>
+          <VizCard title="Growth" subtitle="Follower growth" sample>
+            {/* The six-month curve is still modelled — the warehouse holds at
+                most two profile snapshots per account, so there is no history
+                to draw. Only the tile below it is real. */}
             <TrendChart points={intel.trend.map(p => ({ x: p.month, y: p.followers }))}
               format={fmtNum} label="Followers" />
             <div className="grid gap-2.5 mt-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
               <StatTile label="Current followers"
                 value={creator.followers === null ? '—' : fmtNum(creator.followers)}
                 hint="data asli roster" />
-              <StatTile label="Monthly" value={`${intel.growth.monthly}%`} sample />
+              {/* Real when the pipeline has two snapshots for this account.
+                  Deliberately NOT called "Monthly": the window is whatever the
+                  scraper produced between the two snapshots. */}
+              <StatTile label="Sejak snapshot terakhir"
+                value={realGrowth === null ? '—' : `${realGrowth > 0 ? '+' : ''}${realGrowth.toFixed(2)}%`}
+                sample={realGrowth === null}
+                hint={realGrowth === null
+                  ? 'butuh dua snapshot; creator ini baru punya satu'
+                  : goldCard?.snapshotDate
+                    ? `data asli L2 Gold · snapshot ${goldCard.snapshotDate}`
+                    : 'data asli L2 Gold'} />
               <StatTile label="3 bulan" value={`${intel.growth.threeMonth}%`} sample />
               <StatTile label="6 bulan" value={`${intel.growth.sixMonth}%`} sample />
             </div>

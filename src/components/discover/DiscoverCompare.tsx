@@ -64,7 +64,7 @@ interface Contender {
   /* published by the KOL platform */
   followers: number | null
   rosterErPct: number | null
-  verified: boolean | null
+  connected: boolean | null
   category: string | null
   city: string | null
 }
@@ -83,7 +83,7 @@ const fromAccount = (a: DirectoryAccount): Contender => ({
   measuredErPct: a.avgErPct,
   followers: null,
   rosterErPct: null,
-  verified: null,
+  connected: null,
   category: null,
   city: null,
 })
@@ -102,7 +102,7 @@ const fromRoster = (r: KolDirectoryRow): Contender => ({
   measuredErPct: null,
   followers: r.followers,
   rosterErPct: r.erPct,
-  verified: r.verified,
+  connected: r.connected,
   category: r.categories[0] ?? null,
   city: r.city,
 })
@@ -194,7 +194,7 @@ const FACTS: { label: string; get: (c: Contender) => string | null }[] = [
   { label: 'Tier / relasi', get: c => c.badge },
   { label: 'Kategori', get: c => c.category },
   { label: 'Kota', get: c => c.city },
-  { label: 'Verified', get: c => (c.verified === null ? null : c.verified ? 'Ya' : 'Tidak') },
+  { label: 'Connected', get: c => (c.connected === null ? null : c.connected ? 'Ya' : 'Tidak') },
 ]
 
 export default function DiscoverCompare({

@@ -66,7 +66,7 @@ export default function KolCreatorReport({
     categories: creator.categories.join(' · ') || '—',
     followers: creator.followers ?? 0,
     erPct: creator.erPct === null ? '' : creator.erPct.toFixed(2),
-    verified: creator.verified ? 'Ya' : 'Tidak',
+    connected: creator.connected ? 'Ya' : 'Tidak',
     status: creator.status,
     followersRank: `#${rank.followersRank} dari ${rank.rosterTotal}`,
     categoryRank: rank.categoryFollowersRank === null
@@ -97,7 +97,7 @@ export default function KolCreatorReport({
     { key: 'categories', header: 'Kategori', value: r => r.categories },
     { key: 'followers', header: 'Followers', value: r => r.followers },
     { key: 'erPct', header: 'Engagement rate %', value: r => r.erPct },
-    { key: 'verified', header: 'Verified', value: r => r.verified },
+    { key: 'connected', header: 'Connected', value: r => r.connected },
     { key: 'status', header: 'Data status', value: r => r.status },
     { key: 'followersRank', header: 'Peringkat followers', value: r => r.followersRank },
     { key: 'categoryRank', header: 'Peringkat kategori', value: r => r.categoryRank },

@@ -101,6 +101,15 @@ export interface GoldProfileCard {
   following: number | null
   mediaCount: number | null
   tier: string | null
+  /**
+   * Percentage change in followers between this snapshot and the account's
+   * previous one — `l1_silver.sp_build_unified_profile()` computes it and
+   * `kol_profile_card` carries it through unchanged. NOT a 30-day or monthly
+   * figure: the gap between snapshots is whatever the scraper produced (10-13
+   * days today), so it must be labelled "since last snapshot", never "monthly".
+   * Null when the account has only ever been scraped once.
+   */
+  followersGrowth: number | null
   /** When the pipeline took this snapshot — the honest "last refreshed". */
   snapshotDate: string | null
 }
@@ -334,12 +343,13 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       website: string | null; is_verified: boolean | null; is_private: boolean | null
       followers_count: string | null; following_count: string | null
       media_count: string | null; tier: string | null
+      followers_growth: string | null
       profile_snapshot_date: Date | string | null
     }>(
       `SELECT c.platform, c.username, c.display_name, c.avatar_url, c.profile_url,
               c.bio, c.website, c.is_verified, c.is_private,
               c.followers_count, c.following_count, c.media_count, c.tier,
-              c.profile_snapshot_date
+              c.followers_growth, c.profile_snapshot_date
          FROM public.kol_social_account ksa
          JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
         WHERE ksa.kol_id = $1
@@ -587,6 +597,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       following: num(r.following_count),
       mediaCount: num(r.media_count),
       tier: r.tier,
+      followersGrowth: num(r.followers_growth),
       snapshotDate: toDateOnly(r.profile_snapshot_date),
     })),
 

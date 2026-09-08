@@ -284,10 +284,10 @@ function Loaded({
                 <h1 style={{ ...PJ, color: T.t1 }} className="text-[20px] font-extrabold tracking-[-0.02em]">
                   {name}
                 </h1>
-                {creator.verified && (
+                {creator.connected && (
                   <span style={{ ...PJ, background: '#eaf5ef', color: '#3d8a5f' }}
                     className="inline-flex items-center gap-1 text-[9.5px] font-extrabold px-2 py-0.5 rounded-full">
-                    <span className="material-symbols-outlined text-[12px]">verified</span>Verified
+                    <span className="material-symbols-outlined text-[12px]">link</span>Connected
                   </span>
                 )}
                 {creator.tier && (

@@ -6,7 +6,7 @@ type Params = { params: Promise<{ id: string }> }
 
 /**
  * GET /api/organizations/[id]/discover/kol-directory
- *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&verified=1&sort=&page=&pageSize=&facets=1
+ *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&growthMin=&growthMax=&connected=1&sort=&page=&pageSize=&facets=1
  *
  * The roster itself is global — it is the commercial KOL platform's directory,
  * not org-scoped data — but the endpoint still requires org membership so the
@@ -48,7 +48,12 @@ export async function GET(req: NextRequest, { params }: Params) {
       minFollowers: num('follMin'),
       minErPct: num('minEr'),
       maxRate: num('maxRate'),
-      verifiedOnly: sp.get('verified') === '1',
+      // Growth bounds may legitimately be negative or exactly 0, so they go
+      // through `num` (which keeps an absent param absent) rather than a
+      // truthiness check.
+      minGrowth: num('growthMin'),
+      maxGrowth: num('growthMax'),
+      connectedOnly: sp.get('connected') === '1',
       sort: sp.get('sort'),
       dir: sp.get('dir'),
       page: num('page') ?? 1,

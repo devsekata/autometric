@@ -67,15 +67,17 @@ const PLATFORM_LABEL: Record<string, string> = {
 const SORTOPTS: [SortKey, string][] = [
   ['followers', 'Followers'],
   ['engagement', 'Engagement'],
+  ['growth', 'Growth'],
   ['recent', 'Last updated'],
   ['name', 'Name'],
 ]
-type SortKey = 'followers' | 'engagement' | 'recent' | 'name'
+type SortKey = 'followers' | 'engagement' | 'growth' | 'recent' | 'name'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' }
 
 /** Optional table columns — the source's COLDEFS. */
 const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => string; sort?: SortKey }> = {
   tier: { label: 'Tier', get: r => r.tier ?? '—' },
+  growth: { label: 'Growth', get: r => growthLabel(r.growthPct), sort: 'growth' },
   reach: { label: 'Est. Reach', get: r => reachLabel(r) },
   platform: { label: 'Platform', get: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '—') },
   category: { label: 'Category', get: r => (r.categories.length ? r.categories.join(' · ') : '—') },
@@ -114,6 +116,14 @@ function sinceLabel(iso: string | null): string {
 }
 
 const followersLabel = (n: number | null) => (n === null ? '—' : fmtNum(n))
+
+/**
+ * Change in followers since the account's PREVIOUS snapshot — 10-13 days apart
+ * today, not a month. Never label this "monthly" or "30d". Null for creators
+ * the pipeline has scraped only once, which is most of the roster.
+ */
+const growthLabel = (n: number | null) =>
+  (n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(2)}%`)
 const erLabel = (er: number | null) => (er === null ? '—' : `${er.toFixed(2)}%`)
 
 /**
@@ -162,6 +172,8 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'followers', header: 'Followers', value: r => r.followers ?? '' },
   { key: 'er', header: 'Engagement rate (%)', value: r => r.erPct ?? '' },
   { key: 'tier', header: 'Tier', value: r => r.tier ?? '' },
+  { key: 'growth', header: 'Growth % (sejak snapshot terakhir)',
+    value: r => (r.growthPct === null ? '' : r.growthPct) },
   { key: 'categories', header: 'Categories', value: r => r.categories.join(' · ') },
   { key: 'status', header: 'Data status', value: r => r.status },
   { key: 'updated', header: 'Last refreshed', value: r => r.lastRefreshedAt ?? '' },
@@ -225,7 +237,7 @@ export default function KolDirectoryPage({
   const [filtPanel, setFiltPanel] = useState(false)
   const [fpOpen, setFpOpen] = useState<Set<string>>(new Set(['platform']))
   const [cols, setCols] = useState<Record<ColKey, boolean>>({
-    tier: true, reach: true, platform: true, category: false, updated: false,
+    tier: true, growth: true, reach: true, platform: true, category: false, updated: false,
     // Rate card is on by default: it is the column a buyer opens the table for.
     rate: true, agency: false,
   })
@@ -835,10 +847,14 @@ function CreatorCard({
       <div className="w-[60px] h-[60px] rounded-[17px] border-4 border-white -mt-[34px] ml-4 flex items-center justify-center relative overflow-hidden"
         style={{ background: banner, boxShadow: T.shadow }}>
         <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[22px]" />
-        {c.verified && (
-          <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-[2.5px] border-white flex items-center justify-center"
+        {/* Connected — the creator linked the account through OAuth. This is
+            not the platform's blue tick: that badge was dropped from Discovery,
+            so the icon is a link rather than a check to avoid reading as one. */}
+        {c.connected && (
+          <span title="Connected" aria-label="Connected"
+            className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-[2.5px] border-white flex items-center justify-center"
             style={{ background: T.primary }}>
-            <span className="material-symbols-outlined fill text-[11px] text-white">verified</span>
+            <span className="material-symbols-outlined fill text-[11px] text-white">link</span>
           </span>
         )}
       </div>
@@ -855,6 +871,7 @@ function CreatorCard({
 
         <div className="flex gap-1.5 mt-[13px]">
           <Stat label="Followers" value={followersLabel(c.followers)} />
+          <Stat label="Growth" value={growthLabel(c.growthPct)} />
           <Stat label="Eng. Rate" value={erLabel(c.erPct)} />
           <Stat label="Est. Reach" value={reachLabel(c)} />
         </div>
@@ -978,7 +995,8 @@ function DirectoryTable({
                     <div className="min-w-0">
                       <div style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-bold flex items-center gap-1.5 truncate">
                         @{r.username}
-                        {r.verified && <span className="material-symbols-outlined fill text-[13px]" style={{ color: T.primary }}>verified</span>}
+                        {r.connected && <span title="Connected" aria-label="Connected"
+                          className="material-symbols-outlined fill text-[13px]" style={{ color: T.primary }}>link</span>}
                       </div>
                       <div className="text-[10.5px] truncate max-w-[220px]" style={{ color: T.t4 }}>
                         {r.categories.length ? r.categories.join(' · ') : '—'}
