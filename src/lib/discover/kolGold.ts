@@ -241,6 +241,52 @@ export interface KolGold {
   posts: GoldPost[]
   /** Oldest first, one row per format per day. */
   formats: GoldFormatDay[]
+  /**
+   * The format the creator posts most, derived from `formats` -- no second
+   * query and no second rule. Null when the creator has no post in L2.
+   *
+   * The prototype carries a single `format` label per creator but never says
+   * how it is picked, so the only defensible reading is the plain one: the
+   * media type with the most posts. Ties are broken by total engagement and
+   * then by media type name, so the answer never depends on row order.
+   *
+   * The media type is the pipeline's own value ('clips', 'carousel_container',
+   * 'feed', 'VIDEO', ...), NOT remapped to the prototype's Reels/Feed/Carousel
+   * vocabulary -- that mapping is not defined anywhere and inventing it would
+   * put a label on the screen the data does not support.
+   */
+  dominantFormat: GoldDominantFormat | null
+  /**
+   * Posting-time heatmap, read from the feature layer.
+   *
+   * There is no L2 table for this in the KOL database -- `l2_gold` here holds
+   * eight tables and `posting_time_heatmap` is not one of them (it exists only
+   * in the brand warehouse, which this endpoint does not read). Adding one
+   * would be a migration, so the endpoint reads the computed feature directly,
+   * the same way the directory list reads feature engagement rates.
+   *
+   * `dow` is Postgres EXTRACT(DOW): 0 = Sunday .. 6 = Saturday. `hour` is
+   * 0..23. Both are already in Asia/Jakarta -- feature_engagement.py extracts
+   * them with AT TIME ZONE 'Asia/Jakarta'; do not shift them again.
+   */
+  heatmap: GoldHeatmapCell[]
+}
+
+export interface GoldDominantFormat {
+  mediaType: string
+  posts: number
+  /** Share of the creator's posts, 0-100, one decimal. */
+  pct: number
+}
+
+export interface GoldHeatmapCell {
+  platform: string
+  /** 0 = Sunday .. 6 = Saturday, Asia/Jakarta. */
+  dow: number
+  /** 0..23, Asia/Jakarta. */
+  hour: number
+  posts: number
+  avgEngagement: number | null
 }
 
 /**
@@ -335,7 +381,7 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest, posts, formats] =
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, heat] =
     await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
@@ -525,7 +571,69 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         ORDER BY f.metric_date ASC`,
       [kolId],
     ),
+
+    // Posting-time heatmap straight from the feature layer -- see the note on
+    // KolGold.heatmap for why it does not come through L2. One row per account
+    // that has one; the JSONB is unpacked below rather than in SQL so the
+    // shape stays whatever feature_engagement.py wrote.
+    db.query<{ platform: string; cells: unknown }>(
+      `SELECT 'instagram' AS platform, e.best_posting_time_heatmap AS cells
+         FROM public.kol_social_account ksa
+         JOIN feature.ig_engagement_analysis e
+           ON e.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1 AND e.best_posting_time_heatmap IS NOT NULL
+       UNION ALL
+       SELECT 'tiktok', e.best_posting_time_heatmap
+         FROM public.kol_social_account ksa
+         JOIN feature.tt_engagement_analysis e
+           ON e.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1 AND e.best_posting_time_heatmap IS NOT NULL`,
+      [kolId],
+    ),
   ])
+
+  // Dominant format: most posts, ties broken by engagement then by name so the
+  // answer is the same on every run. Built from the rows already fetched.
+  const byFormat = new Map<string, { posts: number; engagement: number }>()
+  for (const f of formats.rows) {
+    const cur = byFormat.get(f.media_type ?? 'unknown') ?? { posts: 0, engagement: 0 }
+    cur.posts += Number(f.post_count ?? 0)
+    cur.engagement += Number(f.engagement_sum ?? 0)
+    byFormat.set(f.media_type ?? 'unknown', cur)
+  }
+  const totalFormatPosts = [...byFormat.values()].reduce((a, v) => a + v.posts, 0)
+  const dominantFormat = totalFormatPosts
+    ? [...byFormat.entries()]
+        .sort((a, b) =>
+          b[1].posts - a[1].posts ||
+          b[1].engagement - a[1].engagement ||
+          a[0].localeCompare(b[0]))
+        .slice(0, 1)
+        .map(([mediaType, v]) => ({
+          mediaType,
+          posts: v.posts,
+          pct: Math.round((v.posts / totalFormatPosts) * 1000) / 10,
+        }))[0]
+    : null
+
+  // The feature column is a JSONB array of {dow, hour, posts, avg_engagement}.
+  // Anything that is not that shape is dropped rather than guessed at.
+  const heatmap: GoldHeatmapCell[] = []
+  for (const row of heat.rows) {
+    if (!Array.isArray(row.cells)) continue
+    for (const cell of row.cells as Record<string, unknown>[]) {
+      const dow = Number(cell?.dow)
+      const hour = Number(cell?.hour)
+      if (!Number.isInteger(dow) || !Number.isInteger(hour)) continue
+      heatmap.push({
+        platform: row.platform,
+        dow,
+        hour,
+        posts: Number(cell.posts ?? 0),
+        avgEngagement: cell.avg_engagement == null ? null : Number(cell.avg_engagement),
+      })
+    }
+  }
 
   const hasAudience =
     gender.rows.length > 0 || age.rows.length > 0 ||
@@ -661,6 +769,9 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       followersDenom: num(r.followers_denom_sum),
       erFollowers: num(r.er_followers_daily),
     })),
+
+    dominantFormat,
+    heatmap,
 
     audience: hasAudience ? buildAudience() : null,
   }

@@ -23,6 +23,13 @@ export interface KolDirectoryRow {
   id: string
   /** The roster has no display-name column; the username is the only identity. */
   username: string
+  /**
+   * The creator's own name, from `l2_gold.kol_profile_card.display_name` — the
+   * roster genuinely has no column for it. Null when the pipeline has no card
+   * for this creator, or when the name merely repeats the handle (printing
+   * "@budi budi" helps nobody).
+   */
+  displayName: string | null
   platform: string | null
   profileUrl: string | null
   avatarUrl: string | null
@@ -43,6 +50,9 @@ export interface KolDirectoryRow {
   growthPct: number | null
   /** Business Connected: platform_user_id AND oauth_token both set. */
   connected: boolean
+  /** Platform badge (blue tick). Separate from `connected` -- never derived
+   *  from it, and never used to mean it. */
+  verified: boolean
   status: KolDataStatus
   lastRefreshedAt: string | null
   /**
@@ -69,6 +79,8 @@ export interface KolDirectoryFacets {
   tiers: { name: string; count: number; min: number; max: number | null }[]
   /** The whole active roster, for the "X of Y creators" line. */
   rosterTotal: number
+  /** Agencies that actually list at least one active creator. */
+  agencies: { name: string; count: number }[]
 }
 
 export interface KolDirectoryPayload {
@@ -107,6 +119,23 @@ export interface KolDirectoryQuery {
   minGrowth?: number | null
   maxGrowth?: number | null
   connectedOnly?: boolean
+  /**
+   * Platform badge only. A SEPARATE axis from `connectedOnly` and never a
+   * stand-in for it: measured 8 Sep, 572 creators carry a badge and 0 are
+   * Connected, so folding either into the other would answer every query
+   * wrongly. Both may be set; they then narrow together.
+   */
+  verifiedOnly?: boolean
+  /**
+   * Refreshed within this many days. The roster carries last_refreshed_at for
+   * 7.497 of 7.721 active creators; the remaining 224 have never been refreshed
+   * and are excluded whenever this filter is set, the same way an absent
+   * follower count is excluded by follMin. 7 is the same boundary the status
+   * chip already calls Live.
+   */
+  updatedWithinDays?: number | null
+  /** Agency name, matched exactly against public.agencies.name. */
+  agency?: string | null
   sort?: string | null
   dir?: string | null
   page?: number
@@ -133,32 +162,59 @@ const SORT_COLUMNS: Record<string, string> = {
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
 /**
- * Scraped creators first, page by page — every list is grouped by provenance
- * before anything else. `status` is 'Live' (refreshed within 7 days),
- * 'Calculated' (an older row that still carries a measured engagement rate)
- * or 'Estimated' (never scraped — the `kol_directory` row has no measurement
- * behind it at all). Live and Calculated both mean "this creator has real
- * data", so they sort ahead of Estimated together; Live leads Calculated
- * because it is the fresher of the two.
+ * The sort the user picked is the first key. Nothing outranks it.
+ *
+ * It used to be outranked. Provenance led every ordering —
+ *
+ *     CASE status WHEN 'Live' THEN 0 WHEN 'Calculated' THEN 1 ELSE 2 END ASC
+ *
+ * — on the reasoning that creators with real measurements behind them should
+ * be shown first. With the distribution that reasoning produced (measured 8
+ * Sep: Live 1, Calculated 27, Estimated 7.693) it meant 28 creators sat on top
+ * of every list no matter what the user asked for, and the answer was wrong in
+ * both directions at once: sorted by followers descending, bobbykertanegara
+ * (948.683) came first and cristiano (679.264.838) second; sorted ascending,
+ * the same row still came first, above sekata_ai on 200. A sort control that
+ * cannot move the first row is not a sort control.
+ *
+ * `status` itself is untouched and still returned — the card and the table draw
+ * it as the Live/Calculated/Estimated chip, and Discover reads it. It just no
+ * longer decides the order. AUTOME_2 has no such rule either.
+ *
+ * TIE-BREAK ends on `id`, which is unique, because `username` is not: 7.721
+ * active rows carry only 7.224 distinct usernames (a creator on two platforms
+ * is two rows), so ordering that stopped at username left up to 497 rows in an
+ * order the planner was free to change between queries. Two pages of the same
+ * list could then repeat a creator and drop another. A unique last key makes
+ * the ordering total, and paging stable.
  */
-const SCRAPED_FIRST = `CASE status WHEN 'Live' THEN 0 WHEN 'Calculated' THEN 1 ELSE 2 END ASC`
-
 function orderBy(key: string, dir: string): string {
   const col = SORT_COLUMNS[key] ?? SORT_COLUMNS.followers
   const direction = dir === 'asc' ? 'ASC' : 'DESC'
   // NULLS LAST in both directions: a creator with no follower count or no
   // measured engagement belongs at the bottom of either ordering, not floated
   // to the top of the ascending one.
-  const rest = col === 'username'
-    ? `username ${direction}`
-    : `${col} ${direction} NULLS LAST, username ASC`
-  return `${SCRAPED_FIRST}, ${rest}`
+  // The username branch needs NULLS LAST spelled out too. Postgres defaults to
+  // NULLS FIRST for DESC, so sorting by name descending used to open with the
+  // rows whose username is null -- blank lines at the top of the list.
+  return col === 'username'
+    ? `username ${direction} NULLS LAST, id ASC`
+    : `${col} ${direction} NULLS LAST, username ASC, id ASC`
 }
 
 const MAX_PAGE_SIZE = 60
 
 /** `%` and `_` typed into the search box are literals, not LIKE wildcards. */
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, c => `\\${c}`)
+
+/**
+ * A name that just repeats the handle is not a display name — rendering it
+ * would print "@budi budi" in the header. Same rule `identity.displayName`
+ * already applies to the agency's label, kept in one place now that the roster
+ * row carries a display name of its own.
+ */
+const cleanDisplayName = (name: string | null, username: string | null): string | null =>
+  name && name.toLowerCase() !== (username ?? '').toLowerCase() ? name : null
 
 /**
  * A creator's row is `active` unless the KOL platform has archived it; the page
@@ -173,17 +229,81 @@ const ACTIVE = `kd.directory_status = 'active'`
  */
 const CATEGORY_IDS = `COALESCE(kd.category_ids, ARRAY[kd.category_id])`
 
+/**
+ * Engagement rate, measured first and rostered only as a fallback.
+ *
+ * `kol_directory.engagement_rate` is the weakest of the two sources available:
+ * measured 8 Sep it holds 1.757 values whose maximum is 223,41% and of which 7
+ * exceed 100% -- numbers an account-level engagement rate cannot take. The
+ * `feature.*_engagement_analysis` tables hold the metric this project actually
+ * computes: engagement over the follower count ON THE POST'S OWN DATE, summed
+ * additively across a creator's posts, with collaboration and likes-hidden
+ * posts excluded (see feature_engagement.py). Its 38 values span 0 to 16,15%.
+ *
+ * Preferring it costs no coverage: every one of those 38 creators is reachable
+ * here, and 10 of them had no roster value at all, so the filter sees 1.767
+ * creators where it used to see 1.757. The roster column stays for the other
+ * 1.729 rather than being dropped, because a weak number the user can still
+ * filter on beats no number.
+ *
+ * Ordered by follower count so a creator with several accounts answers with the
+ * same account that supplies their avatar, bio and growth. Measured today every
+ * creator has exactly one, so the ordering never actually decides anything --
+ * it is there so that stops being true safely.
+ */
+const ER_LATERAL = `
+    LEFT JOIN LATERAL (
+      SELECT fe.engagement_rate
+        FROM public.kol_social_account ksa
+        JOIN (
+          SELECT social_account_id, engagement_rate
+            FROM feature.ig_engagement_analysis
+          UNION ALL
+          SELECT social_account_id, engagement_rate
+            FROM feature.tt_engagement_analysis
+        ) fe ON fe.social_account_id = ksa.social_account_id
+        LEFT JOIN l2_gold.kol_profile_card c
+               ON c.social_account_id = ksa.social_account_id
+       WHERE ksa.kol_id = kd.id
+         AND fe.engagement_rate IS NOT NULL
+       ORDER BY c.followers_count DESC NULLS LAST
+       LIMIT 1
+    ) fer ON TRUE`
+
+/** Measured metric first, roster column as fallback. See ER_LATERAL. */
+const ER_PCT = 'COALESCE(fer.engagement_rate::float, kd.engagement_rate::float)'
+
 const BASE = `
   SELECT kd.id,
          kd.username,
          pl.key                                    AS platform,
          kd.profile_url,
-         kd.avatar_url,
-         kd.bio,
+         -- Identity from L2 first, roster as fallback. kol_profile_card is a
+         -- strict superset here: measured 8 Sep, 1.045 creators have an avatar
+         -- and 973 have a bio in L2 that the roster lacks, and ZERO have one in
+         -- the roster that L2 lacks. COALESCE rather than a straight swap so a
+         -- roster row that gets a value before the pipeline does never regresses.
+         COALESCE(g.avatar_url, kd.avatar_url)     AS avatar_url,
+         COALESCE(g.bio, kd.bio)                   AS bio,
+         -- Aliased away from display_name on purpose: getKolCreator already
+         -- selects agency_kol_accounts.label AS display_name alongside b.*,
+         -- and two columns of the same name in one result set is a trap.
+         g.display_name                            AS card_display_name,
+         -- Verified -- the platform's blue tick, and NOT Connected. The two
+         -- are separate facts and neither stands in for the other: a creator
+         -- can carry a platform badge without ever linking the account, and
+         -- measured 8 Sep every one of the 572 badged accounts is exactly
+         -- that. Sourced from l2_gold.kol_profile_card.is_verified, which
+         -- the gold asset fills from the platform payload (Instagram) and
+         -- the harmonized TikTok column -- see decision #7 in
+         -- gold_profile.py. Comes from the same card the avatar and bio do,
+         -- so a creator with two accounts shows the badge of the larger one.
+         COALESCE(g.is_verified, false)            AS verified,
          kd.creator_city                           AS city,
          cats.names                                AS categories,
+         cats.keys                                 AS category_keys,
          kd.followers_count                        AS followers,
-         kd.engagement_rate::float                 AS er_pct,
+         ${ER_PCT}                                 AS er_pct,
          t.name                                    AS tier,
          -- Connected -- the business definition, not the platform's blue tick.
          -- A creator is Connected when they have actually linked the account
@@ -230,7 +350,23 @@ const BASE = `
            ON kd.followers_count >= t.min_followers
           AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)
     LEFT JOIN LATERAL (
-      SELECT ARRAY_AGG(kc.name ORDER BY kc.name) AS names
+      SELECT ARRAY_AGG(kc.name ORDER BY kc.name) AS names,
+             -- What the category filter matches on. name has 28 values that
+             -- fragment 9 real taxonomies: picking "Dance" answers with 3
+             -- creators when Entertainment holds 501, and "Foodies" with 66
+             -- when Food holds 123. kol_categories.taxonomy_key is the grouping
+             -- the platform actually means, and the sibling implementation
+             -- (db.py in scrapper-project) already filters on it -- this side
+             -- was the odd one out.
+             --
+             -- COALESCE to name because 6 of the 28 rows have no taxonomy_key
+             -- yet; without it those categories, and the 20 creators carrying
+             -- them, would stop being reachable by any chip at all.
+             --
+             -- names is untouched and still what the card and the CSV show,
+             -- so the display stays as specific as it always was. Only the
+             -- filter widens.
+             ARRAY_AGG(DISTINCT COALESCE(kc.taxonomy_key, kc.name)) AS keys
         FROM public.kol_categories kc
        WHERE kc.id = ANY (${CATEGORY_IDS})
     ) cats ON TRUE
@@ -240,16 +376,17 @@ const BASE = `
     -- LATERAL ... LIMIT 1 rather than a plain join so the roster row stays
     -- one row even if a creator ever maps to more than one linked account;
     -- ordered by followers to pick the same account the detail page shows.
-    -- Only followers_growth is read here: followers and tier stay on
-    -- kol_directory, which is the agreed source of truth for both.
+    -- Growth plus the three identity columns L2 holds more of than the roster.
+    -- followers and tier deliberately stay on kol_directory: that is the agreed
+    -- source of truth for both, and reconciling them is a separate decision.
     LEFT JOIN LATERAL (
-      SELECT c.followers_growth
+      SELECT c.followers_growth, c.avatar_url, c.bio, c.display_name, c.is_verified
         FROM public.kol_social_account ksa
         JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
        WHERE ksa.kol_id = kd.id
        ORDER BY c.followers_count DESC NULLS LAST
        LIMIT 1
-    ) g ON TRUE
+    ) g ON TRUE${ER_LATERAL}
    WHERE ${ACTIVE}`
 
 /**
@@ -312,8 +449,10 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
   const { rows } = await kolDb().query<{
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null; city: string | null
+    card_display_name: string | null
     categories: string[] | null; followers: number | null; er_pct: number | null
-    tier: string | null; growth_pct: number | null; connected: boolean; status: KolDataStatus
+    tier: string | null; growth_pct: number | null; connected: boolean
+    verified: boolean; status: KolDataStatus
     last_refreshed_at: Date | string | null; total_count: number
   }>(
     `
@@ -322,10 +461,33 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       SELECT * FROM base b
        WHERE ($1::text     IS NULL OR b.username ILIKE '%' || $1 || '%')
          AND ($2::text     IS NULL OR b.platform = $2)
-         AND ($3::text     IS NULL OR $3 = ANY (b.categories))
+         -- Taxonomy key first; the sub-name is still accepted so a link
+         -- saved before the chips became keys keeps answering. Safe by
+         -- construction: every name maps to its own key, so the rows a name
+         -- matches are a subset of the rows its key matches -- a chip's count
+         -- and its result stay exactly equal, and only a value that is no
+         -- longer a chip (Dance, Foodies, Travel) gains anything from the
+         -- second arm.
+         AND ($3::text     IS NULL OR $3 = ANY (b.category_keys)
+                                   OR $3 = ANY (b.categories))
          AND ($4::text[]   IS NULL OR b.tier = ANY ($4))
          AND ($5::float8   IS NULL OR b.er_pct >= $5)
          AND ($6::boolean  IS NOT TRUE OR b.connected)
+         AND ($14::boolean IS NOT TRUE OR b.verified)
+         -- Last updated. NULL last_refreshed_at never satisfies a "within N
+         -- days" question, so those rows drop out while the filter is on and
+         -- come back the moment it is cleared.
+         AND ($15::int     IS NULL
+              OR b.last_refreshed_at >= now() - ($15::int * INTERVAL '1 day'))
+         -- Agency. EXISTS, not a join: a creator listed by two agencies is one
+         -- creator, and a join here would print them twice and inflate the
+         -- count. Mirrors the pattern the Connected clause already uses.
+         AND ($16::text    IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.agency_kol_accounts a
+                 JOIN public.agencies ag ON ag.id = a.agency_id
+                                        AND ag.deleted_at IS NULL
+                WHERE a.kol_account_id = b.id AND ag.name = $16))
          AND ($9::bigint   IS NULL OR b.followers >= $9)
          AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
          -- Rate card ceiling. EXISTS rather than a join so a creator with three
@@ -361,12 +523,18 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       // exactly at 0.0000%, and eight of them do.
       query.minGrowth ?? null,
       query.maxGrowth ?? null,
+      query.verifiedOnly === true,
+      query.updatedWithinDays != null && Number.isFinite(query.updatedWithinDays)
+        ? Math.trunc(query.updatedWithinDays)
+        : null,
+      query.agency || null,
     ],
   )
 
   const mapped: KolDirectoryRow[] = rows.map(r => ({
       id: r.id,
       username: r.username ?? '—',
+      displayName: cleanDisplayName(r.card_display_name, r.username),
       platform: r.platform,
       profileUrl: r.profile_url,
       avatarUrl: r.avatar_url,
@@ -378,6 +546,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       tier: r.tier,
       growthPct: r.growth_pct,
       connected: r.connected,
+      verified: r.verified,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
       // Filled by attachRosterExtras below; declared here so the row is never
@@ -406,14 +575,20 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
  * make the option list jump around while someone types.
  */
 export async function listKolFacets(): Promise<KolDirectoryFacets> {
-  const [categories, platforms, tiers, roster] = await Promise.all([
+  const [categories, platforms, tiers, roster, agencies] = await Promise.all([
     kolDb().query<{ name: string; count: number }>(`
-      SELECT kc.name, COUNT(*)::int AS count
+      -- The chip value must be the value the filter matches, or the count on
+      -- the chip and the length of the result stop agreeing. Same expression
+      -- as cats.keys in BASE. COUNT(DISTINCT) because several names collapse
+      -- into one key and a creator tagged both "Food" and "Foodies" is one
+      -- creator, not two.
+      SELECT COALESCE(kc.taxonomy_key, kc.name) AS name,
+             COUNT(DISTINCT kd.id)::int         AS count
         FROM public.kol_directory kd
         JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
        WHERE ${ACTIVE}
-       GROUP BY kc.name
-       ORDER BY count DESC, kc.name`),
+       GROUP BY COALESCE(kc.taxonomy_key, kc.name)
+       ORDER BY count DESC, 1`),
     kolDb().query<{ key: string; count: number }>(`
       SELECT pl.key, COUNT(*)::int AS count
         FROM public.kol_directory kd
@@ -433,10 +608,22 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
        ORDER BY t.min_followers DESC`),
     kolDb().query<{ count: number }>(`
       SELECT COUNT(*)::int AS count FROM public.kol_directory kd WHERE ${ACTIVE}`),
+    // Agencies with at least one active creator. COUNT(DISTINCT) because one
+    // creator can be listed by an agency more than once, and the chip has to
+    // agree with what the filter returns.
+    kolDb().query<{ name: string; count: number }>(`
+      SELECT ag.name, COUNT(DISTINCT kd.id)::int AS count
+        FROM public.kol_directory kd
+        JOIN public.agency_kol_accounts a ON a.kol_account_id = kd.id
+        JOIN public.agencies ag ON ag.id = a.agency_id AND ag.deleted_at IS NULL
+       WHERE ${ACTIVE} AND ag.name IS NOT NULL
+       GROUP BY ag.name
+       ORDER BY count DESC, ag.name`),
   ])
 
   return {
     categories: categories.rows,
+    agencies: agencies.rows,
     platforms: platforms.rows,
     tiers: tiers.rows,
     rosterTotal: roster.rows[0]?.count ?? 0,
@@ -556,7 +743,9 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
     er_pct: number | null; tier: string | null; growth_pct: number | null; connected: boolean
+    verified: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
+    card_display_name: string | null
     display_name: string | null; agency: string | null
   }>(`
     WITH base AS (${BASE})
@@ -636,10 +825,10 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     db.query<{
       id: string; platform: string | null; username: string
       profile_url: string | null; followers: number | null
-      er_pct: number | null; connected: boolean
+      er_pct: number | null; connected: boolean; verified: boolean
     }>(`
       SELECT kd.id, pl.key AS platform, kd.username, kd.profile_url,
-             kd.followers_count AS followers, kd.engagement_rate::float AS er_pct,
+             kd.followers_count AS followers, ${ER_PCT} AS er_pct,
              EXISTS (
                SELECT 1
                  FROM public.kol_social_account ksa
@@ -649,7 +838,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
                   AND sa.oauth_token IS NOT NULL
              ) AS connected
         FROM public.kol_directory kd
-        LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
+        LEFT JOIN public.platforms pl ON pl.id = kd.platform_id${ER_LATERAL}
        WHERE ${ACTIVE}
          AND kd.username_normalized = (
            SELECT username_normalized FROM public.kol_directory WHERE id = $1)
@@ -668,13 +857,13 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: number | null; er_pct: number | null; tier: string | null
     }>(`
       SELECT kd.id, kd.username, pl.key AS platform, kd.avatar_url,
-             kd.followers_count AS followers, kd.engagement_rate::float AS er_pct,
+             kd.followers_count AS followers, ${ER_PCT} AS er_pct,
              t.name AS tier
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
         LEFT JOIN public.kol_tiers t
                ON kd.followers_count >= t.min_followers
-              AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)
+              AND (t.max_followers IS NULL OR kd.followers_count <= t.max_followers)${ER_LATERAL}
        WHERE ${ACTIVE}
          AND kd.id <> $1
          AND ($2::text IS NULL OR EXISTS (
@@ -700,6 +889,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     creator: {
       id: r.id,
       username: r.username ?? '—',
+      displayName: cleanDisplayName(r.card_display_name, r.username),
       platform: r.platform,
       profileUrl: r.profile_url,
       avatarUrl: r.avatar_url,
@@ -711,6 +901,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       tier: r.tier,
       growthPct: r.growth_pct,
       connected: r.connected,
+      verified: r.verified,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
       // Already in hand here: the agency comes from the join above and the
@@ -752,6 +943,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: p.followers,
       erPct: p.er_pct,
       connected: p.connected,
+      verified: p.verified,
     })),
     similar: similar.rows.map(s => ({
       id: s.id,

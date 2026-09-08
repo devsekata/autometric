@@ -38,6 +38,10 @@ export interface KolFilters {
    * platform's blue tick — that badge was dropped from Discovery.
    */
   connectedOnly: boolean
+  verifiedOnly: boolean
+  /** Refreshed within N days. 0 = no limit. */
+  updatedWithin: number
+  agency: string
   /**
    * Follower-growth band, as a preset key rather than a slider.
    *
@@ -66,7 +70,7 @@ export type GrowthKey = (typeof GROWTH_PRESETS)[number]['key']
 
 export const KOL_FILTERS_DEFAULT: KolFilters = {
   category: '', platform: '', tier: '', follMin: 0, erMin: 0, maxRate: 0,
-  connectedOnly: false, growth: '',
+  connectedOnly: false, verifiedOnly: false, updatedWithin: 0, agency: '', growth: '',
 }
 
 /**
@@ -105,7 +109,7 @@ export const FOLLOWER_STEPS = [
 export function activeFilterCount(f: KolFilters): number {
   return [
     f.platform !== '', f.tier !== '', f.follMin > 0, f.erMin > 0, f.maxRate > 0,
-    f.connectedOnly, f.growth !== '',
+    f.connectedOnly, f.verifiedOnly, f.updatedWithin > 0, f.agency !== '', f.growth !== '',
   ].filter(Boolean).length
 }
 
@@ -118,6 +122,9 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.erMin > 0) p.minEr = String(f.erMin)
   if (f.maxRate > 0) p.maxRate = String(f.maxRate)
   if (f.connectedOnly) p.connected = '1'
+  if (f.verifiedOnly) p.verified = '1'
+  if (f.updatedWithin > 0) p.updatedWithin = String(f.updatedWithin)
+  if (f.agency) p.agency = f.agency
   if (f.growth) {
     const g = GROWTH_PRESETS.find(x => x.key === f.growth)
     if (g?.min != null) p.growthMin = String(g.min)
@@ -468,6 +475,59 @@ export function KolFilterPanel({
             sampai sekarang masih kosong.
           </Unavailable>
         </Section>
+
+        {/* Agency — the roster's own listing, chips built from the facet so the
+            count beside a name is the number the filter returns. */}
+        <Section id="agency" icon="apartment" label="Agency" open={open.has('agency')}
+          onToggle={onToggleSection} badge={filters.agency || null}>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip label="All" on={!filters.agency} onClick={() => onChange({ agency: '' })} />
+            {(facets?.agencies ?? []).map(a => (
+              <Chip key={a.name} label={`${a.name} (${a.count})`}
+                on={filters.agency === a.name} onClick={() => onChange({ agency: a.name })} />
+            ))}
+          </div>
+        </Section>
+
+        {/* Last updated — how recently the roster row was refreshed. 7 days is
+            the same boundary the Live status chip uses. Creators that were
+            never refreshed carry no date and drop out while this is set. */}
+        <Section id="updated" icon="update" label="Last updated" open={open.has('updated')}
+          onToggle={onToggleSection}
+          badge={filters.updatedWithin ? `${filters.updatedWithin} hari` : null}>
+          <div className="flex flex-wrap gap-1.5">
+            {[[0, 'Kapan saja'], [7, '7 hari'], [30, '30 hari'], [90, '90 hari']].map(
+              ([v, label]) => (
+                <Chip key={String(v)} label={String(label)}
+                  on={filters.updatedWithin === v}
+                  onClick={() => onChange({ updatedWithin: v as number })} />
+              ))}
+          </div>
+        </Section>
+
+        {/* Verified and Connected are two switches on purpose. Verified is the
+            platform's own badge; Connected is whether the creator linked the
+            account to us through OAuth. Measured 8 Sep: 572 creators carry a
+            badge and 0 are Connected, so one has never been a usable stand-in
+            for the other. */}
+        <div className="pt-2.5 px-0.5 pb-0.5">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold">Verified creators only</div>
+              <div className="text-[9.5px] mt-0.5" style={{ color: T.t4 }}>
+                Verified = centang biru dari platform. Bukan Connected.
+                572 creator punya badge ini.
+              </div>
+            </div>
+            <button type="button" role="switch" aria-checked={filters.verifiedOnly}
+              onClick={() => onChange({ verifiedOnly: !filters.verifiedOnly })}
+              className="w-[38px] h-[22px] rounded-xl relative flex-shrink-0 transition-colors"
+              style={{ background: filters.verifiedOnly ? T.gradient : '#d1d5db' }}>
+              <span className="absolute top-0.5 w-[18px] h-[18px] rounded-full bg-white transition-all"
+                style={{ left: filters.verifiedOnly ? 18 : 2, boxShadow: '0 1px 3px rgba(0,0,0,.18)' }} />
+            </button>
+          </div>
+        </div>
 
         <div className="pt-2.5 px-0.5 pb-0.5">
           <div className="flex items-center gap-3">

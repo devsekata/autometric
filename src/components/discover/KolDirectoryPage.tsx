@@ -118,6 +118,20 @@ function sinceLabel(iso: string | null): string {
 const followersLabel = (n: number | null) => (n === null ? '—' : fmtNum(n))
 
 /**
+ * Card and table both lead with the creator's own name when the pipeline knows
+ * it (`l2_gold.kol_profile_card.display_name`), and fall back to the handle
+ * when it does not — roughly 1,774 of the roster carry a real name today.
+ *
+ * The handle never disappears: when a name takes the first line, `@username`
+ * moves to the second one. It is what people search for, paste, and refer to
+ * each other by, so dropping it would cost more than the name gains.
+ */
+const identityOf = (r: KolDirectoryRow): { primary: string; handle: string | null } => ({
+  primary: r.displayName ?? `@${r.username}`,
+  handle: r.displayName ? `@${r.username}` : null,
+})
+
+/**
  * Change in followers since the account's PREVIOUS snapshot — 10-13 days apart
  * today, not a month. Never label this "monthly" or "30d". Null for creators
  * the pipeline has scraped only once, which is most of the roster.
@@ -168,6 +182,7 @@ function pageWindow(current: number, count: number): (number | '…')[] {
 
 const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'username', header: 'Username', value: r => r.username },
+  { key: 'displayName', header: 'Display name', value: r => r.displayName ?? '' },
   { key: 'platform', header: 'Platform', value: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '') },
   { key: 'followers', header: 'Followers', value: r => r.followers ?? '' },
   { key: 'er', header: 'Engagement rate (%)', value: r => r.erPct ?? '' },
@@ -816,7 +831,8 @@ function CreatorCard({
 }) {
   const st = statusOf(c.status)
   const banner = gradOf(bannerFor(c.id))
-  const subtitle = [c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null, c.city]
+  const ident = identityOf(c)
+  const subtitle = [ident.handle, c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null, c.city]
     .filter(Boolean).join(' · ')
 
   return (
@@ -860,7 +876,21 @@ function CreatorCard({
       </div>
 
       <div className="px-4 pt-2 pb-[15px]">
-        <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold truncate">@{c.username}</div>
+        {/* Verified — the platform's blue tick. Deliberately a different mark
+            from Connected above: Connected is a link icon on the avatar and
+            means the creator authorised us through OAuth, this one is a check
+            beside the name and means the platform itself verified them. The
+            two are independent, so a creator can carry either, both, or
+            neither. */}
+        <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold flex items-center gap-1 min-w-0"
+          title={ident.handle ? `${ident.primary} (${ident.handle})` : ident.primary}>
+          <span className="truncate">{ident.primary}</span>
+          {c.verified && (
+            <span title="Verified oleh platform" aria-label="Verified oleh platform"
+              className="material-symbols-outlined fill text-[15px] shrink-0"
+              style={{ color: T.primaryDeep }}>verified</span>
+          )}
+        </div>
         <div className="text-[11.5px] mt-px truncate" style={{ color: T.t4 }}>{subtitle || '—'}</div>
 
         <span className="inline-flex items-center gap-1.5 mt-[9px] rounded-lg px-[9px] py-[3px] text-[10.5px] font-bold max-w-full"
@@ -994,12 +1024,15 @@ function DirectoryTable({
                     </span>
                     <div className="min-w-0">
                       <div style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-bold flex items-center gap-1.5 truncate">
-                        @{r.username}
+                        {identityOf(r).primary}
                         {r.connected && <span title="Connected" aria-label="Connected"
                           className="material-symbols-outlined fill text-[13px]" style={{ color: T.primary }}>link</span>}
+                        {r.verified && <span title="Verified oleh platform" aria-label="Verified oleh platform"
+                          className="material-symbols-outlined fill text-[13px]" style={{ color: T.primaryDeep }}>verified</span>}
                       </div>
                       <div className="text-[10.5px] truncate max-w-[220px]" style={{ color: T.t4 }}>
-                        {r.categories.length ? r.categories.join(' · ') : '—'}
+                        {[identityOf(r).handle, r.categories.length ? r.categories.join(' · ') : null]
+                          .filter(Boolean).join(' · ') || '—'}
                       </div>
                     </div>
                   </div>

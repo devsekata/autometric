@@ -37,7 +37,7 @@ import { measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import type {
   KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
-import type { GoldFormatDay, GoldPost, KolGold } from '@/lib/discover/kolGold'
+import type { GoldFormatDay, GoldHeatmapCell, GoldPost, KolGold } from '@/lib/discover/kolGold'
 
 export interface SectionProps {
   creator: KolDirectoryRow
@@ -724,7 +724,82 @@ function GoldPostsCard({ posts }: { posts: GoldPost[] }) {
  * pipeline makes the same choice for its monthly ER, and keeping the denominator
  * on the row is the only reason this page can repeat it.
  */
-function GoldFormatsCard({ formats }: { formats: GoldFormatDay[] }) {
+/**
+ * Posting-time heatmap, 7 rows x 24 columns, Asia/Jakarta.
+ *
+ * `dow` arrives as Postgres EXTRACT(DOW) — 0 is Sunday — and the hour is
+ * already local, so neither is shifted here. Cells the creator never posted in
+ * are blank rather than zero: "no post at 3am on a Tuesday" and "a post that
+ * got no engagement" are different facts and should not share a shade.
+ */
+const DOW_LABEL = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+
+function HeatmapCard({ cells }: { cells: GoldHeatmapCell[] }) {
+  const { grid, max, total } = useMemo(() => {
+    const g = new Map<string, { posts: number; eng: number | null }>()
+    let mx = 0, tot = 0
+    for (const c of cells) {
+      if (c.dow < 0 || c.dow > 6 || c.hour < 0 || c.hour > 23) continue
+      const key = `${c.dow}-${c.hour}`
+      const cur = g.get(key) ?? { posts: 0, eng: null }
+      cur.posts += c.posts
+      cur.eng = c.avgEngagement === null ? cur.eng : (cur.eng ?? 0) + c.avgEngagement
+      g.set(key, cur)
+      mx = Math.max(mx, cur.posts)
+      tot += c.posts
+    }
+    return { grid: g, max: mx, total: tot }
+  }, [cells])
+
+  if (!total) return null
+
+  return (
+    <VizCard title="Waktu Posting (terukur, Feature)"
+      subtitle={`${total} post · WIB · dari best_posting_time_heatmap`}>
+      <div className="overflow-x-auto">
+        <table className="border-separate" style={{ borderSpacing: 2 }}>
+          <tbody>
+            {DOW_LABEL.map((label, dow) => (
+              <tr key={label}>
+                <td className="text-[9px] pr-1.5 whitespace-nowrap" style={{ color: T.t4 }}>
+                  {label}
+                </td>
+                {Array.from({ length: 24 }, (_, hour) => {
+                  const cell = grid.get(`${dow}-${hour}`)
+                  const ratio = cell && max ? cell.posts / max : 0
+                  return (
+                    <td key={hour} className="w-[11px] h-[11px] rounded-[2px]"
+                      title={cell
+                        ? `${label} ${String(hour).padStart(2, '0')}:00 WIB · ${cell.posts} post`
+                        : `${label} ${String(hour).padStart(2, '0')}:00 WIB · tidak ada post`}
+                      style={{
+                        background: cell
+                          ? `color-mix(in srgb, ${T.primary} ${Math.round(20 + ratio * 80)}%, transparent)`
+                          : T.surfaceVariant,
+                      }} />
+                  )
+                })}
+              </tr>
+            ))}
+            <tr>
+              <td />
+              {Array.from({ length: 24 }, (_, h) => (
+                <td key={h} className="text-[7px] text-center" style={{ color: T.t4 }}>
+                  {h % 6 === 0 ? h : ''}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </VizCard>
+  )
+}
+
+function GoldFormatsCard({ formats, dominant }: {
+  formats: GoldFormatDay[]
+  dominant: KolGold['dominantFormat']
+}) {
   const rows = useMemo(() => {
     const by = new Map<string, {
       posts: number; inSample: number
@@ -763,7 +838,11 @@ function GoldFormatsCard({ formats }: { formats: GoldFormatDay[] }) {
 
   return (
     <VizCard title="Content Format (terukur, L2 Gold)"
-      subtitle={`${totalPosts} post \u00b7 ${days} hari tercatat`}>
+      subtitle={[
+        dominant ? `Dominan: ${dominant.mediaType} (${dominant.pct}%)` : null,
+        `${totalPosts} post`,
+        `${days} hari tercatat`,
+      ].filter(Boolean).join(' · ')}>
       <Bars parts={parts} />
 
       {withEr.length > 0 && (
@@ -897,8 +976,12 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
             {/* One card for one idea: the measured mix replaces the estimated
                 one where L2 has rows, rather than sitting beside it with a
                 second, different number for the same question. */}
+            {/* Measured posting-time heatmap. Renders only when the feature
+                layer actually has cells for this creator; nothing is drawn
+                from an estimate. */}
+            <HeatmapCard cells={gold?.heatmap ?? []} />
             {goldFormats.length > 0 ? (
-              <GoldFormatsCard formats={goldFormats} />
+              <GoldFormatsCard formats={goldFormats} dominant={gold?.dominantFormat ?? null} />
             ) : (
               <VizCard title="Content Format" sample={!intel.real.formats}
                 subtitle={intel.real.formats ? measuredBasis(intel) : undefined}>
