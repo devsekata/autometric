@@ -125,7 +125,9 @@ export function creatorIntel(
    * guards the same class of failure for the same reason.
    */
   const totals = measured.totals ?? {}
-  const averages = measured.averages ?? {}
+  // `measured.averages` is deliberately not destructured any more: its `views`
+  // was the only field read here, and it is now sourced from L2 instead. See
+  // the note on `kpi.avgViews` below.
   const formats = measured.formats ?? []
   const recent = measured.recent ?? []
   const rates = measured.rates ?? []
@@ -154,7 +156,21 @@ export function creatorIntel(
     measured,
     kpi: {
       ...base.kpi,
-      avgViews: averages.views ?? base.kpi.avgViews,
+      // L2 first, and the L1 average is deliberately NOT a fallback behind it.
+      //
+      // `measured.averages.views` divides total views by EVERY harvested post,
+      // including the ones that carry no view count at all. Instagram reports
+      // views for video only, so on a photo-heavy account that denominator is
+      // far too large and the average comes out low — quietly, and by an amount
+      // that varies per creator. `l2_gold.kol_profile_card.avg_views` divides by
+      // the posts that actually carried a view count (`views_analyzed_count`),
+      // which is the figure this metric is defined as.
+      //
+      // Falling back to the L1 number when L2 is null would put that wrong
+      // figure back on screen in exactly the cases L2 declines to answer, so the
+      // fallback goes straight to the modelled value, which the `real` flags
+      // already mark as not measured.
+      avgViews: creator.avgViews ?? base.kpi.avgViews,
       // Reach is never harvested, so it stays modelled — and stays marked.
       avgReach: base.kpi.avgReach,
     },

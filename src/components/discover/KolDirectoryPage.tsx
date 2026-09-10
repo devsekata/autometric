@@ -68,16 +68,33 @@ const SORTOPTS: [SortKey, string][] = [
   ['followers', 'Followers'],
   ['engagement', 'Engagement'],
   ['growth', 'Growth'],
+  // The source's DSORT carries avgviews, medviews and v2f. They were left out
+  // of this port while the roster had no view data behind them; migration 036
+  // and the feature/L2 columns it added are what make them rankable.
+  ['avgviews', 'Avg views'],
+  ['medviews', 'Median views'],
+  ['v2f', 'View-to-follower'],
   ['recent', 'Last updated'],
   ['name', 'Name'],
 ]
-type SortKey = 'followers' | 'engagement' | 'growth' | 'recent' | 'name'
+type SortKey = 'followers' | 'engagement' | 'growth' | 'avgviews' | 'medviews'
+  | 'v2f' | 'recent' | 'name'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' }
 
 /** Optional table columns — the source's COLDEFS. */
 const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => string; sort?: SortKey }> = {
   tier: { label: 'Tier', get: r => r.tier ?? '—' },
   growth: { label: 'Growth', get: r => growthLabel(r.growthPct), sort: 'growth' },
+  // The source's `avgviews2` and `medviews` columns, and its Performance View
+  // preset pairs exactly these two. Shown together on purpose: the gap between
+  // the mean and the median is how much one viral post is carrying the account.
+  avgviews: { label: 'Avg Views', get: r => viewsLabel(r.avgViews), sort: 'avgviews' },
+  medviews: { label: 'Median Views', get: r => viewsLabel(r.medianViews), sort: 'medviews' },
+  // The source exposes these two through its advanced-filter registry rather
+  // than as columns; this port has no such panel yet, so they surface here
+  // under the labels that registry gives them.
+  v2f: { label: 'V2F', get: r => ratioLabel(r.v2fPct), sort: 'v2f' },
+  l2v: { label: 'L2V', get: r => ratioLabel(r.l2vPct) },
   reach: { label: 'Est. Reach', get: r => reachLabel(r) },
   platform: { label: 'Platform', get: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '—') },
   category: { label: 'Category', get: r => (r.categories.length ? r.categories.join(' · ') : '—') },
@@ -167,6 +184,26 @@ function reachLabel(r: KolDirectoryRow): string {
   return r.followers === null || r.erPct === null ? '—' : fmtNum((r.followers * r.erPct) / 100)
 }
 
+/**
+ * Views, mean or median. Rounded for display only — the warehouse keeps two
+ * decimals because an even number of posts puts the median between two values,
+ * and a table cell is not the place to spend them.
+ *
+ * An em dash, never a zero: a creator whose posts carry no view count has not
+ * been measured, and "0 views" would say the opposite. Instagram reports views
+ * for video only, so this is the common case, not the edge one.
+ */
+const viewsLabel = (n: number | null) => (n === null ? '—' : fmtNum(Math.round(n)))
+
+/**
+ * V2F and L2V, both percentages straight from the warehouse.
+ *
+ * NOT clamped at 100. V2F above 100% is ordinary — one video reaching past a
+ * small account's following — and capping it would hide exactly the creators
+ * the metric exists to find.
+ */
+const ratioLabel = (n: number | null) => (n === null ? '—' : `${n.toFixed(2)}%`)
+
 /** 1 … 4 5 [6] 7 8 … 644 — the roster is far too long for a button per page. */
 function pageWindow(current: number, count: number): (number | '…')[] {
   if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1)
@@ -189,6 +226,14 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'tier', header: 'Tier', value: r => r.tier ?? '' },
   { key: 'growth', header: 'Growth % (sejak snapshot terakhir)',
     value: r => (r.growthPct === null ? '' : r.growthPct) },
+  // Raw numbers, not the table's rounded labels: a spreadsheet is where someone
+  // recomputes things, and '1,2 rb' cannot be recomputed. Null exports as an
+  // empty cell rather than 0, the same choice `growth` above makes.
+  { key: 'avgViews', header: 'Avg views', value: r => r.avgViews ?? '' },
+  { key: 'medianViews', header: 'Median views', value: r => r.medianViews ?? '' },
+  { key: 'v2f', header: 'V2F (%)', value: r => r.v2fPct ?? '' },
+  { key: 'l2v', header: 'L2V (%)', value: r => r.l2vPct ?? '' },
+  { key: 'viewsBasis', header: 'Posts with views (basis)', value: r => r.viewsAnalyzedCount ?? '' },
   { key: 'categories', header: 'Categories', value: r => r.categories.join(' · ') },
   { key: 'status', header: 'Data status', value: r => r.status },
   { key: 'updated', header: 'Last refreshed', value: r => r.lastRefreshedAt ?? '' },

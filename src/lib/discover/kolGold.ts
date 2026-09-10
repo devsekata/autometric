@@ -110,6 +110,32 @@ export interface GoldProfileCard {
    * Null when the account has only ever been scraped once.
    */
   followersGrowth: number | null
+  /**
+   * Posts behind `avgViews` and `medianViews` — those that actually carried a
+   * view count, not every post analysed. Instagram reports views for video
+   * only, so on a photo-heavy account the two numbers are far apart, and
+   * dividing by the larger one would count "never measured" as zero.
+   */
+  viewsAnalyzedCount: number | null
+  /** Mean views over the posts that carried one. Null when none did. */
+  avgViews: number | null
+  /**
+   * Median views over the same posts. Interpolated on an even count, so it can
+   * carry a half. Worth showing next to the mean: the distance between them is
+   * how much one viral post is doing the work.
+   */
+  medianViews: number | null
+  /**
+   * V2F, percent. Views over the follower count on each post's OWN date, summed
+   * across posts — the additive rule `erFollowers` already uses, not today's
+   * follower count applied to last year's video. Above 100 is ordinary.
+   */
+  v2fPct: number | null
+  /**
+   * L2V, percent — likes over views, equal to average likes over average views.
+   * Posts with zero or unknown views sit out of both sides of the fraction.
+   */
+  l2vPct: number | null
   /** When the pipeline took this snapshot — the honest "last refreshed". */
   snapshotDate: string | null
 }
@@ -390,12 +416,18 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       followers_count: string | null; following_count: string | null
       media_count: string | null; tier: string | null
       followers_growth: string | null
+      views_analyzed_count: number | null
+      avg_views: string | null; median_views: string | null
+      view_to_follower_ratio: string | null; like_to_view_ratio: string | null
       profile_snapshot_date: Date | string | null
     }>(
       `SELECT c.platform, c.username, c.display_name, c.avatar_url, c.profile_url,
               c.bio, c.website, c.is_verified, c.is_private,
               c.followers_count, c.following_count, c.media_count, c.tier,
-              c.followers_growth, c.profile_snapshot_date
+              c.followers_growth,
+              c.views_analyzed_count, c.avg_views, c.median_views,
+              c.view_to_follower_ratio, c.like_to_view_ratio,
+              c.profile_snapshot_date
          FROM public.kol_social_account ksa
          JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
         WHERE ksa.kol_id = $1
@@ -706,6 +738,11 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       mediaCount: num(r.media_count),
       tier: r.tier,
       followersGrowth: num(r.followers_growth),
+      viewsAnalyzedCount: r.views_analyzed_count,
+      avgViews: num(r.avg_views),
+      medianViews: num(r.median_views),
+      v2fPct: num(r.view_to_follower_ratio),
+      l2vPct: num(r.like_to_view_ratio),
       snapshotDate: toDateOnly(r.profile_snapshot_date),
     })),
 

@@ -48,6 +48,50 @@ export interface KolDirectoryRow {
    * Null for creators scraped only once, which is most of the roster.
    */
   growthPct: number | null
+  /**
+   * How many of the creator's harvested posts actually carried a view count —
+   * the denominator behind `avgViews` and `medianViews`, and the basis the UI
+   * prints beside them.
+   *
+   * NOT the number of posts analysed. Instagram only reports views for video,
+   * so a creator who mostly posts photos has far fewer posts with views than
+   * posts harvested, and averaging over the larger number would be treating
+   * "never measured" as zero. Zero here means the pipeline looked and found no
+   * post carrying a view count; null means it has not looked yet.
+   */
+  viewsAnalyzedCount: number | null
+  /**
+   * Mean views across the posts that carried one, from
+   * `l2_gold.kol_profile_card.avg_views` — computed in
+   * `feature.*_engagement_analysis` and carried through untouched.
+   * Null when no harvested post has a view count.
+   */
+  avgViews: number | null
+  /**
+   * Median views over the same posts `avgViews` covers. Interpolated for an
+   * even number of them, so it can carry a half — the column keeps two decimals
+   * rather than rounding the answer away.
+   *
+   * Shown beside the mean rather than instead of it: one viral post drags the
+   * mean a long way and barely moves the median, and the gap between the two is
+   * itself the signal.
+   */
+  medianViews: number | null
+  /**
+   * V2F — views over followers, as a percentage. The follower count is the one
+   * on each post's OWN date, summed across posts, not the creator's following
+   * today; the same additive rule `erPct` already uses.
+   *
+   * Routinely exceeds 100: one video reaching well past a small account's
+   * following is ordinary, not an error, so never clamp it for display.
+   */
+  v2fPct: number | null
+  /**
+   * L2V — likes over views, as a percentage. Equivalent to average likes over
+   * average views. Posts with zero or unknown views are excluded from both
+   * sides of the fraction rather than counted as zero.
+   */
+  l2vPct: number | null
   /** Business Connected: platform_user_id AND oauth_token both set. */
   connected: boolean
   /** Platform badge (blue tick). Separate from `connected` -- never derived
@@ -158,6 +202,15 @@ const SORT_COLUMNS: Record<string, string> = {
   name: 'username',
   // Percentage change in followers since the account's previous snapshot.
   growth: 'growth_pct',
+  // The three view rankings the source's DSORT carries. Ranking on the median
+  // is not the same question as ranking on the mean — the mean finds accounts
+  // with a viral hit, the median finds accounts that land consistently — so
+  // both are offered rather than one standing in for the other.
+  // L2V has no ranking here because the source has none either; it is a filter
+  // there, and this port has no advanced-filter panel yet.
+  avgviews: 'avg_views',
+  medviews: 'median_views',
+  v2f: 'v2f_pct',
 }
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
@@ -336,6 +389,15 @@ const BASE = `
            ELSE 'Estimated'
          END                                       AS status,
          g.followers_growth::float                 AS growth_pct,
+         -- The four view metrics, straight from L2. The float casts are there
+         -- for the same reason growth_pct needs one: node-pg hands numeric back
+         -- as a string because it will not promise the value fits a JS number,
+         -- and these all do. NULL survives the cast and stays NULL.
+         g.views_analyzed_count                    AS views_analyzed_count,
+         g.avg_views::float                        AS avg_views,
+         g.median_views::float                     AS median_views,
+         g.view_to_follower_ratio::float           AS v2f_pct,
+         g.like_to_view_ratio::float               AS l2v_pct,
          kd.last_refreshed_at,
          -- Not mapped onto the row; carried so the list can be ordered by when
          -- a creator was added, which is what the Discovery landing's "Recently
@@ -380,7 +442,13 @@ const BASE = `
     -- followers and tier deliberately stay on kol_directory: that is the agreed
     -- source of truth for both, and reconciling them is a separate decision.
     LEFT JOIN LATERAL (
-      SELECT c.followers_growth, c.avatar_url, c.bio, c.display_name, c.is_verified
+      SELECT c.followers_growth, c.avatar_url, c.bio, c.display_name, c.is_verified,
+             -- Avg/Median Views, V2F and L2V. Same card, same account, so they
+             -- describe the same profile the avatar and growth already do —
+             -- no second lateral, and no chance of two joins disagreeing about
+             -- which of a creator's accounts answered.
+             c.views_analyzed_count, c.avg_views, c.median_views,
+             c.view_to_follower_ratio, c.like_to_view_ratio
         FROM public.kol_social_account ksa
         JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
        WHERE ksa.kol_id = kd.id
@@ -452,6 +520,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     card_display_name: string | null
     categories: string[] | null; followers: number | null; er_pct: number | null
     tier: string | null; growth_pct: number | null; connected: boolean
+    views_analyzed_count: number | null; avg_views: number | null
+    median_views: number | null; v2f_pct: number | null; l2v_pct: number | null
     verified: boolean; status: KolDataStatus
     last_refreshed_at: Date | string | null; total_count: number
   }>(
@@ -545,6 +615,13 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       erPct: r.er_pct,
       tier: r.tier,
       growthPct: r.growth_pct,
+      // Straight through, null included. A creator the pipeline has no view
+      // data for shows nothing rather than a zero — the rule erPct follows.
+      viewsAnalyzedCount: r.views_analyzed_count,
+      avgViews: r.avg_views,
+      medianViews: r.median_views,
+      v2fPct: r.v2f_pct,
+      l2vPct: r.l2v_pct,
       connected: r.connected,
       verified: r.verified,
       status: r.status,
@@ -743,6 +820,8 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
     er_pct: number | null; tier: string | null; growth_pct: number | null; connected: boolean
+    views_analyzed_count: number | null; avg_views: number | null
+    median_views: number | null; v2f_pct: number | null; l2v_pct: number | null
     verified: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
     card_display_name: string | null
@@ -900,6 +979,13 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       erPct: r.er_pct,
       tier: r.tier,
       growthPct: r.growth_pct,
+      // Straight through, null included. A creator the pipeline has no view
+      // data for shows nothing rather than a zero — the rule erPct follows.
+      viewsAnalyzedCount: r.views_analyzed_count,
+      avgViews: r.avg_views,
+      medianViews: r.median_views,
+      v2fPct: r.v2f_pct,
+      l2vPct: r.l2v_pct,
       connected: r.connected,
       verified: r.verified,
       status: r.status,
