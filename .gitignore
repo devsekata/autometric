@@ -33,3 +33,8 @@ autometric_dashboard/
 
 # Screenshot kerja lokal, jangan ikut di-commit
 Screenshot*.png
+
+# Brand Match population snapshot — 5,8 MB, regenerable with `npm run brandmatch:population`
+# (office VPN). The 24-creator roster.json IS committed: it is small and it is the
+# frozen input behind the published comparison workbook.
+scripts/brand-match/population.json

@@ -17,10 +17,22 @@
     "verify:fpk": "dotenv -e .env.local -- node scripts/verify-fpk-wiring.js",
     "verify:creators": "dotenv -e .env.local -- npx tsx scripts/verify-creator-intake.ts",
     "verify:filters": "dotenv -e .env.local -- npx tsx scripts/verify-discovery-filters.ts",
+    "verify:kol-filters": "dotenv -e .env.local -- npx tsx scripts/verify-kol-filters.ts",
     "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
     "verify:nav-roles": "npx tsx scripts/verify-nav-roles.ts",
     "verify:persistence": "dotenv -e .env.local -- npx tsx scripts/verify-discover-persistence.ts",
+    "verify:links": "dotenv -e .env.local -- npx tsx scripts/verify-creator-links.ts",
+    "taxonomy:fetch": "dotenv -e .env.local -- node scripts/fetch-kol-categories.mjs",
+    "brandmatch:fetch": "dotenv -e .env.local -- node scripts/brand-match/roster-fetch.mjs",
+    "brandmatch:comparison": "node scripts/build-brand-match-comparison.mjs",
+    "brandmatch:comparison:verify": "node scripts/verify-brand-match-comparison.mjs",
+    "brandmatch:port:verify": "node scripts/verify-scoring-port.mjs",
+    "brandmatch:population": "dotenv -e .env.local -- node scripts/brand-match/population-fetch.mjs",
+    "brandmatch:distribution": "node scripts/build-brand-match-distribution.mjs",
+    "brandmatch:build": "node scripts/build-brand-match-workbook.mjs",
+    "brandmatch:verify": "node scripts/verify-brand-match-workbook.mjs",
     "migrate:052": "dotenv -e .env.local -- node scripts/apply-migration-052.js",
+    "migrate:053": "dotenv -e .env.local -- node scripts/apply-migration-053.js",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],
@@ -57,6 +69,8 @@
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
-    "dotenv-cli": "^11.0.0"
+    "dotenv-cli": "^11.0.0",
+    "exceljs": "^4.4.0",
+    "hyperformula": "^3.4.0"
   }
 }
