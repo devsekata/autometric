@@ -49,7 +49,11 @@
     "whatmatters:port:verify": "npx tsx scripts/verify-what-matters-port.ts",
     "verify:what-matters": "dotenv -e .env.local -- npx tsx scripts/verify-what-matters.ts",
     "verify:ui-integration": "dotenv -e .env.local -- npx tsx scripts/verify-ui-integration.ts",
-    "brandmatch:validation": "node scripts/build-brand-match-validation.mjs"
+    "brandmatch:validation": "node scripts/build-brand-match-validation.mjs",
+    "verify:brand-fit-poc": "npx tsx scripts/verify-brand-fit-poc.ts",
+    "brandfit:db-validation": "dotenv -e .env.local -- npx tsx scripts/build-brand-fit-db-validation.ts",
+    "brandfit:real-creator-poc": "dotenv -e .env.local -- npx tsx scripts/build-brand-fit-real-creator-poc.ts",
+    "verify:brand-fit": "dotenv -e .env.local -- npx tsx scripts/verify-brand-fit.ts"
   },
   "keywords": [],
   "author": "",

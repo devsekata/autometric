@@ -54,6 +54,18 @@ export interface BrandProfile {
   targetCity: string | null
   audienceInterests: string[]
 
+  /* Brand Fit inputs — added by `migrations/kol/002_brand-fit-inputs.sql`.
+   *
+   * Stored here and NOT in a second table, because this is already the brand
+   * side of the same server. Brand Match ignores all four: `toScoringBrand()`
+   * does not read them and no Match Score component changes because they exist.
+   * `feature.brand_fit_analysis` is the only thing downstream of them. */
+  brandTone: string[]
+  targetAgeMin: number | null
+  targetAgeMax: number | null
+  /** Metric -> target value. Brand Fit decides which keys it recognises. */
+  performanceTargets: Record<string, number>
+
   /* Ideal Creator Profile — eligibility, not score */
   preferredCategories: string[]
   preferredPlatforms: string[]
@@ -93,6 +105,10 @@ export function emptyProfile(organizationId: string): BrandProfile {
     targetCountry: null,
     targetCity: null,
     audienceInterests: [],
+    brandTone: [],
+    targetAgeMin: null,
+    targetAgeMax: null,
+    performanceTargets: {},
     preferredCategories: [],
     preferredPlatforms: [],
     preferredTiers: [],
@@ -136,6 +152,10 @@ interface Row {
   target_country: string | null
   target_city: string | null
   audience_interests: string[]
+  brand_tone: string[] | null
+  target_age_min: number | null
+  target_age_max: number | null
+  performance_targets: Record<string, unknown> | null
   preferred_categories: string[]
   preferred_platforms: string[]
   preferred_tiers: string[]
@@ -151,6 +171,7 @@ const COLUMNS = `
   organization_id, brand_id, brand_name, brand_description, brand_category,
   brand_personality, brand_keywords, brand_hashtags, caption_terms,
   gender_majority, target_country, target_city, audience_interests,
+  brand_tone, target_age_min, target_age_max, performance_targets,
   preferred_categories, preferred_platforms, preferred_tiers, content_styles,
   min_followers, min_er_pct, require_category, verified_only, updated_at`
 
@@ -170,6 +191,10 @@ function fromRow(r: Row): BrandProfile {
     targetCountry: r.target_country,
     targetCity: r.target_city,
     audienceInterests: r.audience_interests ?? [],
+    brandTone: r.brand_tone ?? [],
+    targetAgeMin: r.target_age_min === null ? null : Number(r.target_age_min),
+    targetAgeMax: r.target_age_max === null ? null : Number(r.target_age_max),
+    performanceTargets: cleanTargets(r.performance_targets),
     preferredCategories: r.preferred_categories ?? [],
     preferredPlatforms: r.preferred_platforms ?? [],
     preferredTiers: r.preferred_tiers ?? [],
@@ -243,7 +268,88 @@ function bound(v: unknown): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
+/**
+ * Keeps only positive, finite numeric targets.
+ *
+ * Which METRIC NAMES count is Brand Fit's decision, not this file's —
+ * `brandFit/records.ts` filters to the five it recognises when it reads. This
+ * only guarantees the column holds numbers, so an unrecognised key is stored
+ * and ignored rather than rejected here and duplicated as a second vocabulary.
+ */
+function cleanTargets(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, number> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>).slice(0, 20)) {
+    const n = Number(value)
+    if (Number.isFinite(n) && n > 0) out[key.trim()] = n
+  }
+  return out
+}
+
+/** An age bound, or null. Rejects nonsense rather than storing it. */
+function age(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0 || n > 120) {
+    throw new BrandProfileError('target age must be a number between 0 and 120')
+  }
+  return Math.round(n)
+}
+
 export class BrandProfileError extends Error {}
+
+/**
+ * Resolves the `public.brand` row this profile points at, creating one the
+ * first time a workspace names its brand.
+ *
+ * This is the join that makes Brand Fit reachable. Its grain is
+ * `(agency_kol_account_id, brand_id)` with `brand_id` a FK to `public.brand`, so
+ * a profile whose `brand_id` is null can be scored by Brand Match but never by
+ * Brand Fit — there is no brand to be a fit FOR.
+ *
+ *   named brand, no link yet  -> INSERT one `public.brand`, link it
+ *   caller supplied a brandId -> verify it exists, then link it
+ *   already linked            -> keep it
+ *
+ * `public.brand` is written with identity only — name and category — and only
+ * on creation. Later profile edits do not rewrite it: six other modules read
+ * that table for identity, and Brand Fit prefers `brand_profile.brand_name`
+ * anyway, so a renamed profile costs nothing and touches nothing.
+ *
+ * A non-existent `brandId` is rejected rather than stored. The column has no FK
+ * of its own, so an unchecked id would sit there looking valid and produce a
+ * 404 from the Brand Fit route much later, far from the cause.
+ */
+async function resolveBrandLink(
+  input: BrandProfileInput,
+  current: BrandProfile,
+  name: string | null,
+  category: string | null,
+): Promise<string | null> {
+  if ('brandId' in input) {
+    const wanted = str(input.brandId)
+    if (!wanted) return null
+    const { rows } = await kolDb().query<{ id: string }>(
+      'SELECT id FROM public.brand WHERE id = $1', [wanted])
+    if (!rows[0]) {
+      throw new BrandProfileError(`No brand with id ${wanted} exists on the KOL server.`)
+    }
+    return rows[0].id
+  }
+
+  if (current.brandId) return current.brandId
+  if (!name) return null
+
+  // First save that names a brand. Two workspaces naming the same brand get a
+  // row each, which is correct: they are different workspaces' brands, and
+  // `public.brand` is keyed by agency, not by name.
+  const { rows } = await kolDbWrite().query<{ id: string }>(
+    `INSERT INTO public.brand (name, category, is_active, created_at, updated_at)
+     VALUES ($1, $2, TRUE, NOW(), NOW())
+     RETURNING id`,
+    [name, category])
+  return rows[0].id
+}
 
 /**
  * Saves the profile and returns what was stored.
@@ -275,9 +381,20 @@ export async function saveBrandProfile(
       `genderMajority must be one of: ${GENDER_MAJORITIES.join(', ')}`)
   }
 
+  const name = has('brandName') ? str(input.brandName) : current.brandName
+
+  // Resolved BEFORE the upsert so a bad brandId fails without writing anything.
+  const brandId = await resolveBrandLink(input, current, name, category)
+
+  const ageMin = has('targetAgeMin') ? age(input.targetAgeMin) : current.targetAgeMin
+  const ageMax = has('targetAgeMax') ? age(input.targetAgeMax) : current.targetAgeMax
+  if (ageMin !== null && ageMax !== null && ageMin > ageMax) {
+    throw new BrandProfileError('targetAgeMin cannot be greater than targetAgeMax')
+  }
+
   const next = {
-    brandId: has('brandId') ? (str(input.brandId) ?? null) : current.brandId,
-    brandName: has('brandName') ? str(input.brandName) : current.brandName,
+    brandId,
+    brandName: name,
     brandDescription: has('brandDescription') ? str(input.brandDescription) : current.brandDescription,
     brandCategory: category,
     brandPersonality: has('brandPersonality') ? cleanList(input.brandPersonality) : current.brandPersonality,
@@ -295,6 +412,11 @@ export async function saveBrandProfile(
     targetCity: has('targetCity') ? str(input.targetCity) : current.targetCity,
     audienceInterests: has('audienceInterests')
       ? cleanEnum(input.audienceInterests, INTEREST_KEYS) : current.audienceInterests,
+    brandTone: has('brandTone') ? cleanList(input.brandTone) : current.brandTone,
+    targetAgeMin: ageMin,
+    targetAgeMax: ageMax,
+    performanceTargets: has('performanceTargets')
+      ? cleanTargets(input.performanceTargets) : current.performanceTargets,
     preferredCategories: has('preferredCategories')
       ? cleanEnum(input.preferredCategories, CANONICAL_CATEGORIES) : current.preferredCategories,
     preferredPlatforms: has('preferredPlatforms')
@@ -315,9 +437,11 @@ export async function saveBrandProfile(
       organization_id, brand_id, brand_name, brand_description, brand_category,
       brand_personality, brand_keywords, brand_hashtags, caption_terms,
       gender_majority, target_country, target_city, audience_interests,
+      brand_tone, target_age_min, target_age_max, performance_targets,
       preferred_categories, preferred_platforms, preferred_tiers, content_styles,
       min_followers, min_er_pct, require_category, verified_only, updated_by, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+            $21,$22,$23,$24,$25,$26,NOW())
     ON CONFLICT (organization_id) DO UPDATE SET
       brand_id = EXCLUDED.brand_id,
       brand_name = EXCLUDED.brand_name,
@@ -331,6 +455,10 @@ export async function saveBrandProfile(
       target_country = EXCLUDED.target_country,
       target_city = EXCLUDED.target_city,
       audience_interests = EXCLUDED.audience_interests,
+      brand_tone = EXCLUDED.brand_tone,
+      target_age_min = EXCLUDED.target_age_min,
+      target_age_max = EXCLUDED.target_age_max,
+      performance_targets = EXCLUDED.performance_targets,
       preferred_categories = EXCLUDED.preferred_categories,
       preferred_platforms = EXCLUDED.preferred_platforms,
       preferred_tiers = EXCLUDED.preferred_tiers,
@@ -346,6 +474,8 @@ export async function saveBrandProfile(
     organizationId, next.brandId, next.brandName, next.brandDescription, next.brandCategory,
     next.brandPersonality, next.brandKeywords, next.brandHashtags, next.captionTerms,
     next.genderMajority, next.targetCountry, next.targetCity, next.audienceInterests,
+    next.brandTone, next.targetAgeMin, next.targetAgeMax,
+    JSON.stringify(next.performanceTargets),
     next.preferredCategories, next.preferredPlatforms, next.preferredTiers, next.contentStyles,
     next.minFollowers, next.minErPct, next.requireCategory, next.verifiedOnly, updatedBy,
   ])
