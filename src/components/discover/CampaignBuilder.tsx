@@ -39,6 +39,7 @@ import type { KolProfile } from '@/lib/discover/profile'
 import type { DiscoverContentPayload, DiscoverPost } from '@/lib/discover/types'
 import {
   estimateCampaign, optimiseSelection, predictSuccess, reachFor, engagementFor,
+  type SuccessConfidence,
   type SelectedKol,
 } from '@/lib/discover/campaign'
 import { DELIVERABLES, type Deliverable } from '@/lib/discover/vocab'
@@ -525,7 +526,9 @@ export default function CampaignBuilder({
           <Card>
             <CardHead title="Predicted success" sub="Diperbarui otomatis dari pilihan KOL" />
             <div className="px-4 pb-4">
-              <SuccessGauge rate={prediction.rate} band={prediction.band} />
+              <SuccessGauge rate={prediction.rate} band={prediction.band}
+            coverage={prediction.coverage} confidence={prediction.confidence}
+            bandIsMeaningful={prediction.bandIsMeaningful} />
             </div>
           </Card>
 
@@ -579,23 +582,59 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   )
 }
 
-export function SuccessGauge({ rate, band }: { rate: number; band: string }) {
-  const color = rate >= 80 ? '#3d8a5f' : rate >= 65 ? '#4E96AC' : rate >= 50 ? '#e0a458' : '#c2553f'
+/**
+ * `rate` is nullable: `predictSuccess` returns null when too little of the
+ * model could be computed to state a number (see MIN_COVERAGE there). The dial
+ * is drawn empty and the band carries the explanation, rather than showing 0% -
+ * which would read as "predicted to fail" instead of "not enough data".
+ */
+/** Shown wherever reach or a factor has no reading. Never '0'. */
+const NOT_MEASURED = 'Belum terukur'
+
+export function SuccessGauge({
+  rate, band, coverage, confidence, bandIsMeaningful,
+}: {
+  rate: number | null; band: string
+  coverage?: number
+  confidence?: SuccessConfidence
+  /**
+   * False below 60% coverage, where one surviving factor can carry two thirds
+   * of the weight. The performance band is then suppressed entirely rather
+   * than shown with a caveat beside it: a reader who sees "Excellent" takes it
+   * as the headline no matter what is printed underneath.
+   */
+  bandIsMeaningful?: boolean
+}) {
+  const showBand = bandIsMeaningful !== false
+  const color = rate === null || !showBand ? '#9ca3af'
+    : rate >= 80 ? '#3d8a5f' : rate >= 65 ? '#4E96AC' : rate >= 50 ? '#e0a458' : '#c2553f'
+  const note = confidence === 'limited' ? 'Limited confidence'
+    : confidence === 'limited-data' || confidence === 'insufficient' ? 'Limited data'
+      : null
   return (
     <div className="flex items-center gap-3">
       <div className="relative w-16 h-16 flex-shrink-0">
         <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
           <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" strokeWidth="3.4" />
           <circle cx="18" cy="18" r="15.9" fill="none" stroke={color} strokeWidth="3.4"
-            strokeDasharray={`${Math.max(0, Math.min(100, rate))} 100`} strokeLinecap="round" />
+            strokeDasharray={`${rate === null ? 0 : Math.max(0, Math.min(100, rate))} 100`} strokeLinecap="round" />
         </svg>
         <span style={PJ}
           className="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold text-[#111827]">
-          {rate}%
+          {rate === null ? '—' : `${rate}%`}
         </span>
       </div>
       <div>
-        <div style={{ ...PJ, color }} className="text-[13px] font-extrabold">{band}</div>
+        <div style={{ ...PJ, color }} className="text-[13px] font-extrabold">
+          {showBand ? band : (note ?? 'Limited data')}
+        </div>
+        {/* Coverage travels with the score wherever it is shown. It describes
+            what has been MEASURED about these creators, not how good they are. */}
+        {coverage !== undefined && (
+          <div className="text-[10px] text-[#9ca3af] mt-0.5">
+            Coverage: {coverage}% faktor terukur{showBand && note ? ` · ${note}` : ''}
+          </div>
+        )}
         <div className="text-[10.5px] text-[#9ca3af]">Predicted success rate</div>
       </div>
     </div>
@@ -705,10 +744,15 @@ function CreatorSelectionStep({
                 <div className="flex items-center gap-1 text-[10.5px] text-[#9ca3af] flex-wrap">
                   <span className="material-symbols-outlined text-[12px]">{PLATFORM_ICON[p.account.platform]}</span>
                   <span className="capitalize">{p.account.platform}</span>
+                  {/* "fit NN" removed - generated, no real source for tracked
+                      accounts. ER is the strongest thing actually measured
+                      about this account and it fits the same slot. */}
                   <span className="text-[#d1d5db]">·</span>
-                  <span>fit {p.brandFit.value}</span>
+                  <span>ER {p.erPct.value.toFixed(2)}%</span>
                   <span className="text-[#d1d5db]">·</span>
-                  <span>reach/post {fmtNum(p.estimatedReach.value)}</span>
+                  <span>
+                    reach/post {p.estimatedReach.value === null ? NOT_MEASURED : fmtNum(p.estimatedReach.value)}
+                  </span>
                   <span className="text-[#d1d5db]">·</span>
                   <span>rate {idr(p.baseRate)}</span>
                 </div>
@@ -717,7 +761,13 @@ function CreatorSelectionStep({
                 <div className="text-right">
                   <div style={PJ} className="text-[13px] font-extrabold text-[#285D6E] tabular-nums">{idr(mine.cost)}</div>
                   <div className="text-[9.5px] text-[#9ca3af]">
-                    {fmtNum(reachFor(p, mine.units))} reach · {fmtNum(engagementFor(p, mine.units))} eng
+                    {(() => {
+                      const r = reachFor(p, mine.units)
+                      const e = engagementFor(p, mine.units)
+                      return r === null || e === null
+                        ? `reach ${NOT_MEASURED}`
+                        : `${fmtNum(r)} reach · ${fmtNum(e)} eng`
+                    })()}
                   </div>
                 </div>
               )}
@@ -1030,12 +1080,14 @@ function CampaignTargets({
                       </select>
                     </td>
                     <td className="px-3 py-2">
-                      <input type="number" min={0} value={t?.reach || ''} placeholder={fmtNum(reachFor(s.profile, s.units))}
+                      <input type="number" min={0} value={t?.reach || ''}
+                        placeholder={(() => { const r = reachFor(s.profile, s.units); return r === null ? NOT_MEASURED : fmtNum(r) })()}
                         onChange={e => setTarget(id, { reach: Number(e.target.value) || 0 })}
                         className="w-32 h-7 px-2 rounded-lg border border-[#e5e7eb] text-[11.5px] tabular-nums text-[#374151] focus:outline-none focus:border-[#327488]" />
                     </td>
                     <td className="px-3 py-2">
-                      <input type="number" min={0} value={t?.engagement || ''} placeholder={fmtNum(engagementFor(s.profile, s.units))}
+                      <input type="number" min={0} value={t?.engagement || ''}
+                        placeholder={(() => { const e = engagementFor(s.profile, s.units); return e === null ? NOT_MEASURED : fmtNum(e) })()}
                         onChange={e => setTarget(id, { engagement: Number(e.target.value) || 0 })}
                         className="w-32 h-7 px-2 rounded-lg border border-[#e5e7eb] text-[11.5px] tabular-nums text-[#374151] focus:outline-none focus:border-[#327488]" />
                     </td>
@@ -1085,7 +1137,11 @@ function OrderSummaryStep({
   // "target adjustment" never silently becomes money.
   const targetDelta = selected.reduce((n, s) => {
     const t = draft.targets[s.profile.account.id]
-    return n + (t?.reach ? Math.max(0, t.reach - reachFor(s.profile, s.units)) : 0)
+    if (!t?.reach) return n
+    // No projection to measure the uplift against: the whole stated target is
+    // the delta, rather than silently treating the baseline as zero reach.
+    const base = reachFor(s.profile, s.units)
+    return n + (base === null ? t.reach : Math.max(0, t.reach - base))
   }, 0)
 
   const promoRate = PROMOS[draft.promoCode.trim().toUpperCase()] ?? 0
@@ -1186,18 +1242,47 @@ function OrderSummaryStep({
       </Card>
 
       <Card>
+        {/* The subtitle is derived from what `predictSuccess` actually returned,
+            not written by hand: the old one went on naming Brand fit and
+            audience quality long after both had stopped contributing.
+            It also states what the number IS - a weighted score over measured
+            factors, not a probability that the campaign will succeed. */}
         <CardHead title="Predicted campaign success rate"
-          sub="Brand fit, audience quality, engagement, riwayat, demografi, performa konten berbayar" />
+          sub={prediction.factors.length
+            ? `Skor model berbobot dari faktor terukur — bukan probabilitas hasil campaign.`
+              + ` Terhitung: ${prediction.factors.filter(f => f.score !== null).map(f => f.label).join(', ') || 'belum ada'}`
+              + ` · coverage ${prediction.coverage}%`
+            : 'Pilih KOL untuk menghitung'} />
         <div className="px-4 pb-4 flex items-center gap-6 flex-wrap">
-          <SuccessGauge rate={prediction.rate} band={prediction.band} />
+          <SuccessGauge rate={prediction.rate} band={prediction.band}
+            coverage={prediction.coverage} confidence={prediction.confidence}
+            bandIsMeaningful={prediction.bandIsMeaningful} />
           <div className="flex-1 min-w-[220px] flex flex-col gap-1.5">
+            {/* Each factor says whether it could be measured at all. An
+                unmeasured one is marked and given its reason, never drawn as a
+                zero-width bar: it contributed nothing and the surviving weights
+                grew to cover it, which is a different thing from scoring 0. */}
             {prediction.factors.map(f => (
-              <div key={f.key} className="flex items-center gap-2">
-                <span className="text-[10.5px] text-[#6b7280] w-44">{f.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-[#f3f4f6] overflow-hidden">
-                  <div className="h-full rounded-full bg-[#4E96AC]" style={{ width: `${f.score}%` }} />
-                </div>
-                <b style={PJ} className="text-[10.5px] tabular-nums text-[#374151] w-7 text-right">{f.score}</b>
+              <div key={f.key} className="flex items-start gap-2">
+                <span
+                  className="material-symbols-outlined text-[13px] mt-px"
+                  style={{ color: f.score === null ? '#9ca3af' : '#3d8a5f' }}
+                >
+                  {f.score === null ? 'remove' : 'check'}
+                </span>
+                <span className="text-[10.5px] text-[#6b7280] w-40 shrink-0" title={f.detail}>{f.label}</span>
+                {f.score === null ? (
+                  <span className="flex-1 text-[10px] text-[#9ca3af] leading-snug">
+                    <b style={PJ}>Belum terukur</b> — {f.unavailable}
+                  </span>
+                ) : (
+                  <>
+                    <div className="flex-1 h-1.5 rounded-full bg-[#f3f4f6] overflow-hidden mt-1.5">
+                      <div className="h-full rounded-full bg-[#4E96AC]" style={{ width: `${f.score}%` }} />
+                    </div>
+                    <b style={PJ} className="text-[10.5px] tabular-nums text-[#374151] w-7 text-right">{f.score}</b>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -1225,7 +1310,7 @@ function SelectedTable({ selected }: { selected: SelectedKol[] }) {
       <table className="w-full min-w-[640px]">
         <thead>
           <tr className="border-b border-[#e5e7eb]">
-            {['KOL', 'Deliverable', 'Est. reach', 'Est. engagement', 'Brand fit', 'Biaya'].map((h, i) => (
+            {['KOL', 'Deliverable', 'Est. reach', 'Est. engagement', 'ER', 'Biaya'].map((h, i) => (
               <th key={h} style={PJ}
                 className={`text-[10px] font-bold uppercase tracking-wider text-[#9ca3af] px-3 py-2 ${i >= 2 ? 'text-right' : 'text-left'}`}>
                 {h}
@@ -1246,9 +1331,10 @@ function SelectedTable({ selected }: { selected: SelectedKol[] }) {
                 </div>
               </td>
               <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151]">{s.units}</td>
-              <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151] text-right tabular-nums">{fmtNum(reachFor(s.profile, s.units))}</td>
-              <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151] text-right tabular-nums">{fmtNum(engagementFor(s.profile, s.units))}</td>
-              <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151] text-right tabular-nums">{s.profile.brandFit.value}</td>
+              <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151] text-right tabular-nums">{(() => { const r = reachFor(s.profile, s.units); return r === null ? NOT_MEASURED : fmtNum(r) })()}</td>
+              <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151] text-right tabular-nums">{(() => { const e = engagementFor(s.profile, s.units); return e === null ? NOT_MEASURED : fmtNum(e) })()}</td>
+              {/* Was the generated brand-fit score. ER is measured. */}
+              <td style={PJ} className="px-3 py-2 text-[11.5px] font-bold text-[#374151] text-right tabular-nums">{s.profile.erPct.value.toFixed(2)}%</td>
               <td style={PJ} className="px-3 py-2 text-[11.5px] font-extrabold text-[#111827] text-right tabular-nums">{idr(s.cost)}</td>
             </tr>
           ))}

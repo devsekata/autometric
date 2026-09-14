@@ -47,8 +47,6 @@ export interface DirectoryFilters {
   followersMin: number
   erMin: number
   reachMin: number
-  authMin: number
-  brandFitMin: number
   paidMax: number
   verifiedOnly: boolean
   ratedOnly: boolean
@@ -65,25 +63,34 @@ export interface DirectoryFilters {
 /**
  * The table's column catalogue — the source platform's column chooser, whose
  * point is that a directory serves several jobs. Someone sizing a budget wants
- * EMV and rate; someone vetting quality wants authenticity and paid ratio; both
- * on screen at once is a wall of numbers.
+ * EMV and rate; someone vetting reach wants posts and paid ratio; both on screen
+ * at once is a wall of numbers.
+ *
+ * `Auth`, `Fit` and `Aud. quality` used to live here. All three were generated
+ * from a hash of the account id with no real source for this population, so they
+ * are gone rather than re-badged — a column of invented numbers is worse in a
+ * table than anywhere else, because a table invites comparison down the column.
  */
 const TABLE_COLUMNS: {
   id: string; label: string; right?: boolean; defaultOff?: boolean
   cell: (p: KolProfile) => string
 }[] = [
-  { id: 'category',  label: 'Kategori',  cell: p => p.category.value },
-  { id: 'location',  label: 'Lokasi',    cell: p => p.location.value },
-  { id: 'tier',      label: 'Tier',      cell: p => p.tier.value },
-  { id: 'followers', label: 'Followers', right: true, cell: p => fmtNum(p.followers.value) },
+
+  // Real now, and nullable. An em dash rather than 0 or "Unknown": the column
+  // is a measurement, and the absence of one is not a small number.
+  { id: 'location',  label: 'Lokasi',    cell: p => p.location.value ?? '—' },
+  { id: 'tier',      label: 'Tier',      cell: p => p.tier.value ?? '—' },
+  { id: 'followers', label: 'Followers', right: true,
+    cell: p => (p.followers.value === null ? '—' : fmtNum(p.followers.value)) },
   { id: 'er',        label: 'ER',        right: true, cell: p => `${p.erPct.value.toFixed(2)}%` },
-  { id: 'reach',     label: 'Reach',     right: true, cell: p => fmtNum(p.estimatedReach.value) },
-  { id: 'auth',      label: 'Auth',      right: true, cell: p => String(p.authenticity.value) },
-  { id: 'fit',       label: 'Fit',       right: true, cell: p => String(p.brandFit.value) },
+  { id: 'reach',     label: 'Reach',     right: true,
+    cell: p => (p.estimatedReach.value === null ? '—' : fmtNum(p.estimatedReach.value)) },
   { id: 'paid',      label: 'Paid %',    right: true, cell: p => `${p.paidRatio.value.toFixed(0)}%` },
-  { id: 'emv',       label: 'EMV',       right: true, cell: p => fmtNum(p.emv.value) },
+  // EMV has no real source; the column stays so the layout is stable and says
+  // so per row rather than printing an invented rupiah figure.
+  { id: 'emv',       label: 'EMV',       right: true,
+    cell: p => (p.emv.value === null ? '—' : fmtNum(p.emv.value)) },
   // Off by default — useful, but only to some of the jobs above.
-  { id: 'quality',   label: 'Aud. quality', right: true, defaultOff: true, cell: p => String(p.audienceQuality.value) },
   { id: 'posts',     label: 'Posts',     right: true, defaultOff: true, cell: p => fmtNum(p.posts.value) },
   { id: 'campaign',  label: 'Campaign',  right: true, defaultOff: true,
     cell: p => (p.campaignPosts.value === 0 ? '—' : `${p.campaignPosts.value} post`) },
@@ -95,17 +102,15 @@ const TABLE_COLUMNS: {
 const DEFAULT_HIDDEN = TABLE_COLUMNS.filter(c => c.defaultOff).map(c => c.id)
 
 type SortKey =
-  | 'brandFit' | 'followers' | 'er' | 'reach' | 'auth' | 'emv' | 'posts' | 'name'
+  | 'followers' | 'er' | 'reach' | 'emv' | 'posts' | 'name'
   | 'campaignBest' | 'campaignWorst'
 
 const SORTS: { id: SortKey; label: string }[] = [
   { id: 'campaignBest', label: 'Best in campaign' },
   { id: 'campaignWorst', label: 'Least in campaign' },
-  { id: 'brandFit', label: 'Best brand fit' },
+  { id: 'er', label: 'Highest ER' },
   { id: 'followers', label: 'Most followers' },
   { id: 'reach', label: 'Highest reach' },
-  { id: 'er', label: 'Highest ER' },
-  { id: 'auth', label: 'Most authentic' },
   { id: 'emv', label: 'Highest EMV' },
   { id: 'posts', label: 'Most posts' },
   { id: 'name', label: 'Name A–Z' },
@@ -114,8 +119,13 @@ const SORTS: { id: SortKey; label: string }[] = [
 export const DEFAULT_FILTERS: DirectoryFilters = {
   q: '', platform: 'all', relation: 'all', category: 'all', lifestyle: 'all',
   location: 'all', tier: 'all', age: 'all', gender: 'all', format: 'all',
-  followersMin: 0, erMin: 0, reachMin: 0, authMin: 0, brandFitMin: 0, paidMax: 100,
-  verifiedOnly: false, ratedOnly: false, sort: 'brandFit', view: 'card',
+  followersMin: 0, erMin: 0, reachMin: 0, paidMax: 100,
+  // Was `brandFit`. That sort ranked the list by a number generated from a hash
+  // of the account id, so the default order of this directory was noise.
+  // Engagement rate is the strongest measurement every account on this list
+  // actually carries, and it was already an offered sort — so the default moves
+  // to a real metric without introducing a new concept.
+  verifiedOnly: false, ratedOnly: false, sort: 'er', view: 'card',
   hiddenColumns: DEFAULT_HIDDEN,
 }
 
@@ -193,14 +203,6 @@ const REACH_OPTS = [
   { label: 'Semua reach', value: 0 }, { label: '≥ 50K', value: 50_000 },
   { label: '≥ 250K', value: 250_000 }, { label: '≥ 1M', value: 1_000_000 },
 ]
-const AUTH_OPTS = [
-  { label: 'Semua autentisitas', value: 0 }, { label: '≥ 75%', value: 75 },
-  { label: '≥ 85%', value: 85 }, { label: '≥ 90%', value: 90 },
-]
-const FIT_OPTS = [
-  { label: 'Semua brand fit', value: 0 }, { label: '≥ 50', value: 50 },
-  { label: '≥ 65', value: 65 }, { label: '≥ 80', value: 80 },
-]
 const PAID_OPTS = [
   { label: 'Semua rasio paid', value: 100 }, { label: 'Paid ≤ 25%', value: 25 },
   { label: 'Paid ≤ 50%', value: 50 }, { label: 'Paid ≤ 75%', value: 75 },
@@ -251,28 +253,57 @@ export default function DiscoverDirectoryView({
       const a = p.account
       if (filters.platform !== 'all' && a.platform !== filters.platform) return false
       if (filters.relation !== 'all' && a.relation !== filters.relation) return false
-      if (filters.category !== 'all' && p.category.value !== filters.category) return false
-      if (filters.lifestyle !== 'all' && p.lifestyle.value !== filters.lifestyle) return false
+      // `category` / `lifestyle` clauses removed with the chips - see FilterPanel.
       if (filters.location !== 'all' && p.location.value !== filters.location) return false
       if (filters.tier !== 'all' && p.tier.value !== filters.tier) return false
       if (filters.format !== 'all' && p.topFormat.value !== filters.format) return false
+      // `topAge` is the real largest band, or null when unreported. A null
+      // never equals a chosen band, so unmeasured accounts drop out when the
+      // filter is on - consistent with gender above.
       if (filters.age !== 'all' && p.topAge.value !== filters.age) return false
-      if (filters.gender === 'female' && p.genderSplit.value.female < 50) return false
-      if (filters.gender === 'male' && p.genderSplit.value.male < 50) return false
-      if (p.followers.value < filters.followersMin) return false
+      /*
+       * Real audience gender, from platform insights - was `genderSplit`, a
+       * random female share hashed from the account id, so this filter used to
+       * partition the directory on noise.
+       *
+       * An account with no reported demographics is EXCLUDED when the filter is
+       * on, the same rule the follower and reach floors already use: "audience
+       * is mostly female" is not satisfied by "nobody has measured it". It is
+       * never defaulted to 50.
+       */
+      if (filters.gender === 'female'
+        && (p.femalePct.value === null || p.femalePct.value < 50)) return false
+      if (filters.gender === 'male'
+        && (p.femalePct.value === null || 100 - p.femalePct.value < 50)) return false
+      // Unmeasured followers are excluded when a floor is set, for the same
+      // reason the roster's rate ceiling excludes the unpriced: "at least X" is
+      // not satisfied by "unknown". With no floor set (0) they stay.
+      if (filters.followersMin > 0
+        && (p.followers.value === null || p.followers.value < filters.followersMin)) return false
       if (p.erPct.value < filters.erMin) return false
-      if (p.estimatedReach.value < filters.reachMin) return false
-      if (p.authenticity.value < filters.authMin) return false
-      if (p.brandFit.value < filters.brandFitMin) return false
+      // Unmeasured reach is excluded when a floor is set, exactly as the
+      // follower floor treats an unmeasured follower count: "at least X" is not
+      // satisfied by "unknown". With no floor set (0) these rows stay.
+      if (filters.reachMin > 0
+        && (p.estimatedReach.value === null || p.estimatedReach.value < filters.reachMin)) return false
       if (p.paidRatio.value > filters.paidMax) return false
-      if (filters.verifiedOnly && !p.verified.value) return false
+      /*
+       * `verified` used to be `rnd(seed) > 0.35` — a coin flip. It is real now,
+       * and real means only TikTok publishes it: Instagram and Facebook return
+       * nothing, so those accounts carry null.
+       *
+       * Null is excluded when the filter is on, for the same reason the follower
+       * floor excludes the unmeasured: "only verified" is not satisfied by
+       * "unknown". The toggle's label says so, so the empty result is legible
+       * rather than mysterious.
+       */
+      if (filters.verifiedOnly && p.verified.value !== true) return false
       if (filters.ratedOnly && !p.hasRate) return false
       if (needle && !(
         a.username.toLowerCase().includes(needle) ||
         (a.brandName ?? '').toLowerCase().includes(needle) ||
-        p.category.value.toLowerCase().includes(needle) ||
-        p.location.value.toLowerCase().includes(needle) ||
-        p.lifestyle.value.toLowerCase().includes(needle)
+
+        (p.location.value ?? '').toLowerCase().includes(needle)
       )) return false
       return true
     })
@@ -295,12 +326,12 @@ export default function DiscoverDirectoryView({
     const cmp: Record<SortKey, (x: KolProfile, y: KolProfile) => number> = {
       campaignBest: (x, y) => byLift(x, y, 1),
       campaignWorst: (x, y) => byLift(x, y, -1),
-      brandFit: (x, y) => y.brandFit.value - x.brandFit.value,
-      followers: (x, y) => y.followers.value - x.followers.value,
+      // Unmeasured sorts last rather than as 0 — see `byLift` above for the
+      // same rule applied to campaign lift.
+      followers: (x, y) => (y.followers.value ?? -1) - (x.followers.value ?? -1),
       er: (x, y) => y.erPct.value - x.erPct.value,
-      reach: (x, y) => y.estimatedReach.value - x.estimatedReach.value,
-      auth: (x, y) => y.authenticity.value - x.authenticity.value,
-      emv: (x, y) => y.emv.value - x.emv.value,
+      reach: (x, y) => (y.estimatedReach.value ?? -1) - (x.estimatedReach.value ?? -1),
+      emv: (x, y) => (y.emv.value ?? -1) - (x.emv.value ?? -1),
       posts: (x, y) => y.posts.value - x.posts.value,
       name: (x, y) => x.account.username.localeCompare(y.account.username),
     }
@@ -315,8 +346,8 @@ export default function DiscoverDirectoryView({
 
   const activeCount = useMemo(() => {
     const d = DEFAULT_FILTERS
-    return (['platform', 'relation', 'category', 'lifestyle', 'location', 'tier', 'age',
-      'gender', 'format', 'followersMin', 'erMin', 'reachMin', 'authMin', 'brandFitMin',
+    return (['platform', 'relation', 'location', 'tier', 'age',
+      'gender', 'format', 'followersMin', 'erMin', 'reachMin',
       'paidMax', 'verifiedOnly', 'ratedOnly'] as const)
       .filter(k => filters[k] !== d[k]).length
   }, [filters])
@@ -338,18 +369,21 @@ export default function DiscoverDirectoryView({
     { key: 'username', header: 'Akun', value: p => p.account.username },
     { key: 'platform', header: 'Platform', value: p => p.account.platform },
     { key: 'relation', header: 'Tipe', value: p => (p.account.relation === 'owned' ? 'Brand' : 'Kompetitor') },
-    { key: 'category', header: 'Kategori (est)', value: p => p.category.value },
-    { key: 'lifestyle', header: 'Lifestyle (est)', value: p => p.lifestyle.value },
-    { key: 'location', header: 'Lokasi (est)', value: p => p.location.value },
-    { key: 'tier', header: 'Tier', value: p => p.tier.value },
-    { key: 'followers', header: 'Followers (est)', value: p => p.followers.value },
+
+    // Blank, not 0, where unmeasured: a spreadsheet cell holding 0 is a claim,
+    // an empty one is the absence of one.
+    { key: 'location', header: 'Kota audiens teratas (live)', value: p => p.location.value ?? '' },
+    { key: 'tier', header: 'Tier', value: p => p.tier.value ?? '' },
+    { key: 'followers', header: 'Followers (live)', value: p => p.followers.value ?? '' },
+    { key: 'topAge', header: 'Kelompok umur audiens teratas (live)', value: p => p.topAge.value ?? '' },
+    { key: 'female', header: 'Audiens perempuan % (live)', value: p => p.femalePct.value ?? '' },
     { key: 'posts', header: 'Posts (live)', value: p => p.posts.value },
     { key: 'views', header: 'Total views (live)', value: p => p.totalViews.value },
     { key: 'er', header: 'ER % (live)', value: p => p.erPct.value.toFixed(2) },
-    { key: 'reach', header: 'Est. reach (calc)', value: p => p.estimatedReach.value },
-    { key: 'auth', header: 'Authenticity (est)', value: p => p.authenticity.value },
-    { key: 'quality', header: 'Audience quality (calc)', value: p => p.audienceQuality.value },
-    { key: 'fit', header: 'Brand fit (calc)', value: p => p.brandFit.value },
+    // Header no longer says "(calc)": reach is `live` for the accounts whose
+    // platform reports it. Blank, not 0, where nothing was measured.
+    { key: 'reach', header: 'Reach / post', value: p => p.estimatedReach.value ?? '' },
+    { key: 'reachBasis', header: 'Sumber reach', value: p => p.estimatedReach.confidence },
     { key: 'paid', header: 'Paid ratio % (live)', value: p => p.paidRatio.value.toFixed(1) },
     { key: 'campaignPosts', header: 'Post campaign (live)', value: p => String(p.campaignPosts.value) },
     { key: 'campaignEr', header: 'ER campaign % (live)', value: p => (p.campaignErPct.value === null ? '' : p.campaignErPct.value.toFixed(2)) },
@@ -545,7 +579,13 @@ export default function DiscoverDirectoryView({
           <FilterPanel filters={filters} update={update} onReset={reset}
             onClose={() => setPanelOpen(false)}
             formats={[...new Set(profiles.map(p => p.topFormat.value))]}
-            platforms={[...new Set(profiles.map(p => p.account.platform))]} />
+            platforms={[...new Set(profiles.map(p => p.account.platform))]}
+            locations={[...new Set(profiles
+              .map(p => p.location.value)
+              .filter((v): v is string => v !== null))].sort()}
+            ages={[...new Set(profiles
+              .map(p => p.topAge.value)
+              .filter((v): v is string => v !== null))].sort()} />
         )}
       </div>
     </div>
@@ -555,10 +595,20 @@ export default function DiscoverDirectoryView({
 /* ── filter panel ─────────────────────────────────────────────────────────── */
 
 function FilterPanel({
-  filters, update, onReset, onClose, formats, platforms,
+  filters, update, onReset, onClose, formats, platforms, locations, ages,
 }: {
   filters: DirectoryFilters; update: (p: Partial<DirectoryFilters>) => void
   onReset: () => void; onClose: () => void; formats: string[]; platforms: string[]
+  /**
+   * Derived from the loaded profiles, not from a fixed vocabulary - the same
+   * pattern `formats` and `platforms` already use.
+   *
+   * This is a correction, not a preference. `LOCATIONS` lists 'Jakarta' while
+   * the platform reports 'Jakarta, Jakarta'; `AGE_BANDS` ends at '55+' while
+   * the platform emits '55-64' and '65+'. Both chips were therefore unmatchable
+   * against real data - the filters looked fine and returned nothing.
+   */
+  locations: string[]; ages: string[]
 }) {
   return (
     <aside className="bg-white border border-[#e5e7eb] rounded-xl p-3 sticky top-4 self-start">
@@ -585,25 +635,22 @@ function FilterPanel({
           ))}
         </Group>
 
-        <Group title="Kategori" icon="category" estimated>
-          <Chip label="Semua" on={filters.category === 'all'} onClick={() => update({ category: 'all' })} />
-          {CATEGORIES.map(c => (
-            <Chip key={c} label={c} on={filters.category === c} onClick={() => update({ category: c })} />
-          ))}
-        </Group>
+        {/* Kategori and Lifestyle are gone. Both were `pick(seed, ...)` over a
+            fixed list - a 7-way and a 6-way coin flip per account - so the two
+            chips partitioned the directory at random. Neither has a real source:
+            the nearest candidate for Kategori is
+            `l1_silver.unified_post.content_pillar`, which is free text (it holds
+            values like 'tesyun') and filled for 3 of 42 accounts. Filing that
+            under a category chip would be the same mistake with a citation. */}
 
-        <Group title="Lifestyle" icon="diversity_3" estimated>
-          <Chip label="Semua" on={filters.lifestyle === 'all'} onClick={() => update({ lifestyle: 'all' })} />
-          {LIFESTYLES.map(c => (
-            <Chip key={c} label={c} on={filters.lifestyle === c} onClick={() => update({ lifestyle: c })} />
-          ))}
-        </Group>
-
-        <Group title="Lokasi" icon="location_on" estimated>
+        <Group title="Lokasi audiens" icon="location_on">
           <Chip label="Semua" on={filters.location === 'all'} onClick={() => update({ location: 'all' })} />
-          {LOCATIONS.map(c => (
+          {locations.map(c => (
             <Chip key={c} label={c} on={filters.location === c} onClick={() => update({ location: c })} />
           ))}
+          {locations.length === 0 && (
+            <span className="text-[10px] text-[#9ca3af]">Belum ada demografi lokasi terukur</span>
+          )}
         </Group>
 
         <Group title="Tier" icon="workspace_premium">
@@ -613,14 +660,17 @@ function FilterPanel({
           ))}
         </Group>
 
-        <Group title="Umur dominan" icon="cake" estimated>
+        <Group title="Umur dominan" icon="cake">
           <Chip label="Semua" on={filters.age === 'all'} onClick={() => update({ age: 'all' })} />
-          {AGE_BANDS.map(c => (
+          {ages.map(c => (
             <Chip key={c} label={c} on={filters.age === c} onClick={() => update({ age: c })} />
           ))}
+          {ages.length === 0 && (
+            <span className="text-[10px] text-[#9ca3af]">Belum ada demografi umur terukur</span>
+          )}
         </Group>
 
-        <Group title="Gender mayoritas" icon="wc" estimated>
+        <Group title="Gender mayoritas" icon="wc">
           {([['all', 'Semua'], ['female', 'Perempuan'], ['male', 'Laki-laki']] as const).map(([v, l]) => (
             <Chip key={v} label={l} on={filters.gender === v} onClick={() => update({ gender: v })} />
           ))}
@@ -645,17 +695,13 @@ function FilterPanel({
               options={ER_OPTS} onChange={v => update({ erMin: v })} />
             <SelectPill icon="visibility" label="Est. reach" value={filters.reachMin}
               options={REACH_OPTS} onChange={v => update({ reachMin: v })} />
-            <SelectPill icon="verified_user" label="Authenticity" value={filters.authMin}
-              options={AUTH_OPTS} onChange={v => update({ authMin: v })} />
-            <SelectPill icon="handshake" label="Brand fit" value={filters.brandFitMin}
-              options={FIT_OPTS} onChange={v => update({ brandFitMin: v })} />
             <SelectPill icon="sell" label="Rasio paid" value={filters.paidMax}
               options={PAID_OPTS} onChange={v => update({ paidMax: v })} />
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Toggle label="Hanya terverifikasi" on={filters.verifiedOnly}
+          <Toggle label="Hanya terverifikasi (TikTok)" on={filters.verifiedOnly}
             onClick={() => update({ verifiedOnly: !filters.verifiedOnly })} />
           <Toggle label="Hanya yang punya rate card" on={filters.ratedOnly}
             onClick={() => update({ ratedOnly: !filters.ratedOnly })} />
@@ -764,23 +810,42 @@ function KolCard({
           <span className="material-symbols-outlined text-[12px]">{PLATFORM_ICON[a.platform] ?? 'public'}</span>
           <span className="capitalize">{a.platform}</span>
           <span className="text-[#d1d5db]">·</span>
-          <span>{p.category.value}</span>
-          <span className="text-[#d1d5db]">·</span>
-          <span>{p.location.value}</span>
+          {/* Generated `category` removed; the real tier takes the slot. */}
+          <span>{p.tier.value ?? 'Tier belum terukur'}</span>
+          {/* Real - the audience's largest city from platform insights.
+              Omitted entirely when unmeasured, rather than printing a dash into
+              the middle of a sentence. */}
+          {p.location.value && (
+            <>
+              <span className="text-[#d1d5db]">·</span>
+              <span>{p.location.value}</span>
+            </>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-1 mt-2.5 pt-2.5 border-t border-[#f3f4f6]">
-          <Stat label="Followers" node={<MetricValue metric={p.followers} format={fmtNum} />} />
+          <Stat label="Followers" node={
+            p.followers.value === null
+              ? <NotMeasured />
+              : <MetricValue metric={{ ...p.followers, value: p.followers.value }} format={fmtNum} />
+          } />
           <Stat label="ER" node={<MetricValue metric={p.erPct} format={v => `${v.toFixed(1)}%`} />} />
-          <Stat label="Est. reach" node={<MetricValue metric={p.estimatedReach} format={fmtNum} />} />
+          <Stat label="Reach" node={
+            p.estimatedReach.value === null
+              ? <NotMeasured />
+              : <MetricValue metric={{ ...p.estimatedReach, value: p.estimatedReach.value }} format={fmtNum} />
+          } />
         </div>
 
         <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-[#f3f4f6]">
+          {/* The generated "Brand fit NN" chip that used to sit here is gone.
+              Brand matching is the Brand Match Engine's, and it scores roster
+              creators — a tracked account is not in `public.kol_directory`, so
+              there is no honest score to put here at all. Tier is a real fact
+              about this account, from its real follower count. */}
           <span className="inline-flex items-center gap-1 text-[10.5px] text-[#9ca3af]">
-            <span className="material-symbols-outlined text-[13px]">handshake</span>
-            Brand fit
-            <b style={PJ} className="text-[12px] text-[#285D6E]">{p.brandFit.value}</b>
-            <ConfidenceBadge confidence={p.brandFit.confidence} basis={p.brandFit.basis} compact />
+            <span className="material-symbols-outlined text-[13px]">workspace_premium</span>
+            {p.tier.value ?? 'Tier belum terukur'}
           </span>
           <span className="text-[10.5px] text-[#9ca3af]">
             {p.hasRate ? idr(p.baseRate) : <span className="text-[#b5761f]">no rate</span>}
@@ -859,6 +924,16 @@ function IconBtn({ on, onClick, icon, title }: { on: boolean; onClick: () => voi
       <span className="material-symbols-outlined text-[14px]">{icon}</span>
     </button>
   )
+}
+
+/**
+ * The honest stand-in for a figure the database does not hold.
+ *
+ * Deliberately words rather than a dash or a zero: a dash in a numeric slot
+ * reads as "nothing to report", and the point is that nobody has looked yet.
+ */
+function NotMeasured() {
+  return <span className="text-[10px] font-semibold text-[#9ca3af]">Belum terukur</span>
 }
 
 function Stat({ label, node }: { label: string; node: React.ReactNode }) {

@@ -9,10 +9,18 @@
  * are tracked (with their verification state), which content pillars and
  * hashtags exist in the corpus, and which platforms are connected.
  *
- * It is intentionally read-only, and says so. The source's toggles were
- * decorative — they flipped a CSS class and fired a toast. Wiring fake switches
- * to real infrastructure settings would be worse than not shipping them, so
- * each section links to the page in autometric that actually owns that setting.
+ * Those sections are intentionally read-only, and say so. The source's toggles
+ * were decorative — they flipped a CSS class and fired a toast. Wiring fake
+ * switches to real infrastructure settings would be worse than not shipping
+ * them, so each links to the page in autometric that actually owns that setting.
+ *
+ * **Brand Profile is the exception, and it is why this screen now writes.** It
+ * is the source's `Connected Brands` / `Keywords & Hashtags` / `Recommendation
+ * Rules` tabs made real: instead of decorative switches over invented rules, one
+ * form that states what the brand is and what it wants, feeding
+ * `@/lib/discover/brandMatch` — the engine that scores every creator in the
+ * Creator Database. Nothing else in autometric owns that configuration, so
+ * unlike every other tab here there is no page to link to.
  */
 
 import { useEffect, useState } from 'react'
@@ -22,12 +30,22 @@ import {
   Btn, DiscoverHeader, EmptyState, ErrorState, PJ, PLATFORM_ICON, Spinner,
   TabStrip, fmtNum, gradientFor,
 } from './ui'
+import BrandProfileForm from './BrandProfileForm'
 import type { DirectoryAccount, DirectoryPayload } from '@/lib/discover/types'
 import type { DiscoverSummaryPayload } from '@/lib/discover/summary'
 
-type Tab = 'accounts' | 'competitors' | 'pillars' | 'platforms'
+type Tab = 'brand' | 'accounts' | 'competitors' | 'pillars' | 'platforms'
 
+/**
+ * Brand Profile leads, and is the one tab here that WRITES.
+ *
+ * Everything else on this screen is a read-out of configuration autometric owns
+ * elsewhere. The brand profile is owned here and nowhere else, and it is the
+ * input to every match score in the module — so it sits first rather than being
+ * filed behind the data sources it has nothing to do with.
+ */
 const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: 'brand', label: 'Brand Profile', icon: 'handshake' },
   { id: 'accounts', label: 'Akun Brand', icon: 'storefront' },
   { id: 'competitors', label: 'Kompetitor', icon: 'group' },
   { id: 'pillars', label: 'Content Pillars', icon: 'tag' },
@@ -37,7 +55,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 export default function DiscoverSettings({
   orgId, orgSlug, embedded = false,
 }: { orgId: string; orgSlug: string; embedded?: boolean }) {
-  const [tab, setTab] = useState<Tab>('accounts')
+  const [tab, setTab] = useState<Tab>('brand')
   const [dir, setDir] = useState<DirectoryPayload | null>(null)
   const [summary, setSummary] = useState<DiscoverSummaryPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -63,7 +81,7 @@ export default function DiscoverSettings({
     <div className={embedded ? '' : 'p-5 max-w-[1200px] mx-auto'}>
       <DiscoverHeader
         title="Discover Settings"
-        subtitle="Sumber data yang dipakai modul Discover. Hanya-baca — setiap bagian menautkan ke halaman yang mengatur setelan itu."
+        subtitle="Brand profile yang dipakai Brand Match Engine, plus sumber data modul Discover. Tab selain Brand Profile bersifat hanya-baca dan menautkan ke halaman yang mengatur setelan itu."
         actions={
           <Link href={`/organizations/${orgSlug}/brands`}>
             <Btn variant="primary">
@@ -76,6 +94,8 @@ export default function DiscoverSettings({
       <TabStrip tabs={TABS} value={tab} onChange={setTab} />
 
       <div className="mt-4">
+        {tab === 'brand' && <BrandProfileForm orgId={orgId} />}
+
         {tab === 'accounts' && (
           <Card className="overflow-hidden">
             <CardHead title="Akun brand" sub={`${owned.length} akun yang datanya masuk ke Discover`} />

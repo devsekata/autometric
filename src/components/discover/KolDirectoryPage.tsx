@@ -26,26 +26,28 @@ import { PJ, TOKENS as T, fmtNum, initialsOf, RosterAvatar } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import AddKolDirectoryModal from './AddKolDirectoryModal'
 import {
-  KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, filtersToParams,
+  KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, appliedFilters, filtersToParams,
   normalizeKolFilters,
   type KolFilters,
 } from './KolDirectoryFilters'
 import { useDiscoverCart } from './useDiscoverCart'
 import CreatorQuickInsight from './CreatorQuickInsight'
+import { useCreatorLinks } from './useCreatorLinks'
 import {
-  CREATOR_PRESETS, creatorBadges, creatorSignals, hasCriteria, matchScore,
-  presetById, relaxSuggestions,
-  type CreatorBadge, type CreatorSignals, type MatchCriteria, type MatchResult,
-  type PresetId,
+  CREATOR_PRESETS, creatorBadges, creatorSignals, presetById, relaxSuggestions,
+  type CreatorBadge, type CreatorSignals, type MatchCriteria, type PresetId,
 } from '@/lib/discover/creatorMatch'
 import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import { useDiscoverFavorites } from './useDiscoverFavorites'
 import { useSavedLists } from './useSavedLists'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
-  KolDataStatus, KolDirectoryFacets, KolDirectoryPayload, KolDirectoryRow,
+  KolDataStatus, KolDirectoryFacets, KolDirectoryMatch, KolDirectoryPayload, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
+import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+import { MatchBadge, NoBrandProfileNotice } from './MatchBadge'
 import type { Deliverable, RosterRateCard } from '@/lib/discover/vocab'
+import type { TrackingStatus } from '@/lib/discover/types'
 
 /* ── tokens & vocabulary ──────────────────────────────────────────────────── */
 
@@ -90,7 +92,7 @@ const SECTION_TABS: { id: string; label: string; icon: string; sort: SortKey; hi
 ]
 
 /** The source's SORTOPTS, minus the keys this roster cannot rank on. */
-const SORTOPTS: [SortKey, string][] = [
+export const SORTOPTS: [SortKey, string][] = [
   ['followers', 'Followers'],
   ['engagement', 'Engagement'],
   ['recent', 'Last updated'],
@@ -98,14 +100,53 @@ const SORTOPTS: [SortKey, string][] = [
   // page shipped — it was simply never offered, so "who is new here" could only
   // be asked from the Discovery landing's shelf.
   ['created', 'Recently added'],
+  ['growth', 'Growth'],
   ['name', 'Name'],
+  /**
+   * Brand Match. The label names its own scope on purpose.
+   *
+   * The score is computed for the creators on the loaded page and the page is
+   * re-ranked by it, so this orders ~20 creators, not the 7.432-row roster.
+   * Calling it plain "Match Score" beside "Followers" — which really does rank
+   * the whole directory — would read as a roster-wide ranking, and the top of
+   * the list would look like "the best match in the database" when it is only
+   * the best match among the twenty that happened to load.
+   */
+  ['match', 'Match Score · halaman ini'],
 ]
-type SortKey = 'followers' | 'engagement' | 'recent' | 'created' | 'name'
+export type SortKey =
+  'followers' | 'engagement' | 'recent' | 'created' | 'growth' | 'name' | 'match'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' }
+
+/**
+ * Whether the directory should adopt Match Score as its ordering by itself.
+ *
+ * Three conditions, and each one is a rule the product asked for:
+ *
+ *   scoreable    There is a saved Brand Profile, so there are scores to order
+ *                by. Without one the route returns before it computes anything
+ *                and the ordering would be over a page of nulls.
+ *   !userPicked  Nobody has chosen an ordering yet. A default may fill a blank;
+ *                it may never overrule a choice. This is what stops a workspace
+ *                with a profile from snapping back to Match Score every time a
+ *                response lands, which would make "Sort: Followers" look broken.
+ *   != 'match'   Already there — nothing to do, and re-setting it would loop.
+ *
+ * Pure and exported so `verify:match-sort` can pin the latch without mounting
+ * React, following `normalizeKolFilters` in `KolDirectoryFilters`.
+ */
+export function shouldDefaultToMatch(
+  scoreable: boolean,
+  userPicked: boolean,
+  current: SortKey,
+): boolean {
+  return scoreable && !userPicked && current !== 'match'
+}
 
 /** Optional table columns — the source's COLDEFS. */
 const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => string; sort?: SortKey }> = {
   tier: { label: 'Tier', get: r => r.tier ?? '—' },
+  growth: { label: 'Growth', get: r => growthLabel(r.growthPct), sort: 'growth' },
   reach: { label: 'Est. Reach', get: r => reachLabel(r) },
   platform: { label: 'Platform', get: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '—') },
   category: { label: 'Category', get: r => (r.categories.length ? r.categories.join(' · ') : '—') },
@@ -144,6 +185,14 @@ function sinceLabel(iso: string | null): string {
 }
 
 const followersLabel = (n: number | null) => (n === null ? '—' : fmtNum(n))
+
+/**
+ * Change in followers since the account's PREVIOUS snapshot — 10-13 days apart
+ * today, not a month. Never label this "monthly" or "30d". Null for creators
+ * the pipeline has scraped only once, which is most of the roster.
+ */
+const growthLabel = (n: number | null) =>
+  (n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(2)}%`)
 const erLabel = (er: number | null) => (er === null ? '—' : `${er.toFixed(2)}%`)
 
 /**
@@ -216,6 +265,10 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'followers', header: 'Followers', value: r => r.followers ?? '' },
   { key: 'er', header: 'Engagement rate (%)', value: r => r.erPct ?? '' },
   { key: 'tier', header: 'Tier', value: r => r.tier ?? '' },
+  // The header carries the window because the number cannot: an export outlives
+  // the screen that explained it.
+  { key: 'growth', header: 'Growth % (sejak snapshot terakhir)',
+    value: r => (r.growthPct === null ? '' : r.growthPct) },
   { key: 'categories', header: 'Categories', value: r => r.categories.join(' · ') },
   { key: 'status', header: 'Data status', value: r => r.status },
   { key: 'updated', header: 'Last refreshed', value: r => r.lastRefreshedAt ?? '' },
@@ -280,13 +333,27 @@ export default function KolDirectoryPage({
   /** Which creator's quick-insight panel is open, if any. */
   const [insightId, setInsightId] = useState<string | null>(null)
   const [sort, setSort] = useState<SortState>({ key: 'followers', dir: 'desc' })
+  /**
+   * Whether the ordering on screen is the user's choice or ours.
+   *
+   * A workspace with a Brand Profile opens on Match Score (see the effect below),
+   * but that is a DEFAULT and not a preference: the moment someone picks an
+   * ordering — from the Sort dropdown, a column header, or a section tab — this
+   * latches and the default never reasserts itself. Without it, choosing
+   * "Followers" would be undone by the next response that carries scores, and
+   * the control would look broken.
+   *
+   * A ref rather than state: nothing renders from it, and it must not schedule a
+   * render of its own.
+   */
+  const sortPicked = useRef(false)
   const [view, setView] = useState<'card' | 'table'>('card')
   const [page, setPage] = useState(1)
 
   const [filtPanel, setFiltPanel] = useState(false)
   const [fpOpen, setFpOpen] = useState<Set<string>>(new Set(['platform']))
   const [cols, setCols] = useState<Record<ColKey, boolean>>({
-    tier: true, reach: true, platform: true, category: false, updated: false,
+    tier: true, growth: true, reach: true, platform: true, category: false, updated: false,
     // Rate card is on by default: it is the column a buyer opens the table for.
     rate: true, agency: false,
   })
@@ -297,6 +364,18 @@ export default function KolDirectoryPage({
   const [rows, setRows] = useState<KolDirectoryRow[]>([])
   const [total, setTotal] = useState(0)
   const [facets, setFacets] = useState<KolDirectoryFacets | null>(null)
+  /**
+   * The real Brand Match for this page, from `@/lib/discover/brandMatch`.
+   *
+   * Server-computed and carried on the payload rather than derived here: the
+   * engine reads six medallion tables the browser has no access to, and the
+   * score has to be the same number Compare and the creator report show.
+   *
+   * `null` until the first response. `match.scoreable === false` means the
+   * workspace has not saved a Brand Profile, which is a different state from
+   * "this creator could not be scored" and is drawn differently.
+   */
+  const [match, setMatch] = useState<KolDirectoryMatch | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   /** Bumped by the retry button — the KOL host is remote and can blip. */
@@ -322,6 +401,15 @@ export default function KolDirectoryPage({
    */
   const favorites = useDiscoverFavorites(orgId)
   const compare = useDiscoverSelection(orgId, 'compare')
+  /**
+   * My Creators and tracking — the two decisions the whole workspace shares.
+   *
+   * Beside `compare` (this sitting) and `favorites` (this person) rather than
+   * folded into either: adopting a creator into the org's roster and putting
+   * them under monitoring are things a colleague sees, and the grid has to draw
+   * all three states on one card.
+   */
+  const links = useCreatorLinks(orgId)
   const cart = useDiscoverCart(orgId)
   /**
    * Prices this org has stated for roster creators, keyed by creator id.
@@ -404,6 +492,15 @@ export default function KolDirectoryPage({
     })
     if (search) params.set('q', search)
     if (facetsFor.current !== filters.platform) params.set('facets', '1')
+    /**
+     * Ask for the real Brand Match alongside the page.
+     *
+     * Always, rather than only when a profile exists: the client cannot know
+     * whether one does without asking, and the route returns early — before it
+     * queries anything — for a workspace that has not saved one. So the cost is
+     * a boolean for those orgs, and the scores for the rest.
+     */
+    params.set('match', '1')
 
     let cancelled = false
     setLoading(true)
@@ -421,6 +518,7 @@ export default function KolDirectoryPage({
         if (cancelled) return
         setRows(d.rows)
         setTotal(d.total)
+        setMatch(d.match ?? null)
         if (d.facets) { setFacets(d.facets); facetsFor.current = filters.platform }
       })
       .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
@@ -449,12 +547,52 @@ export default function KolDirectoryPage({
 
   /* ── intelligence over the loaded page ───────────────────────────────── */
 
-  /** Everything the user has asked for, as one object the scorer understands. */
-  const criteria = useMemo<MatchCriteria>(
-    () => ({ ...filters, preset }),
-    [filters, preset],
-  )
-  const scored = hasCriteria(criteria)
+  /**
+   * Whether this page carries real match scores.
+   *
+   * It used to be `hasCriteria(filters)` — "has the user set any filter" — back
+   * when the score measured the filters. It now asks the only question that
+   * matters for a brand match: has this workspace said who it is? A filtered
+   * list with no Brand Profile has no scores, and an unfiltered list with one
+   * has a score for every creator on it.
+   */
+  const scored = !!match?.scoreable
+
+  /**
+   * A workspace that has said who it is opens on Match Score, High to Low.
+   *
+   * Why it happens here and not in `useState`: whether an organization has a
+   * saved Brand Profile is only known once the first response comes back —
+   * `match.scoreable` is the answer, and the client cannot have it before it
+   * asks. So the page opens on the follower ordering and moves to match as soon
+   * as it learns there is something to match against.
+   *
+   * That costs exactly one refetch, once per mount, and only for workspaces with
+   * a profile. It is not a wasted page: `SORT_COLUMNS.match` aliases to
+   * `followers`, so the second request runs the SAME `ORDER BY` and returns the
+   * SAME creators — the page does not change, only its order does. Re-ranking
+   * the rows already in hand would mean a second copy of the ordering living in
+   * the client, and two orderings are how a card grid and a table start
+   * disagreeing about one page. One implementation, in `rankByMatch`, applied by
+   * the route.
+   *
+   * Runs at most once: `sortPicked` latches on the first deliberate choice, and
+   * the `sort.key` guard stops it re-firing on later responses.
+   */
+  useEffect(() => {
+    if (!shouldDefaultToMatch(scored, sortPicked.current, sort.key)) return
+    setSort({ key: 'match', dir: 'desc' })
+  }, [scored, sort.key])
+
+  /**
+   * The active filters, in the shape `relaxSuggestions` reads.
+   *
+   * All that survives of the old criteria scorer, and the one job it was
+   * genuinely right for: when a filter set returns nothing, naming which clause
+   * to loosen is a question about the FILTERS, not about any creator. It scores
+   * nothing and is not passed to the match engine.
+   */
+  const criteria = useMemo<MatchCriteria>(() => ({ ...filters, preset }), [filters, preset])
 
   /**
    * Signals per row, computed once per page.
@@ -464,9 +602,14 @@ export default function KolDirectoryPage({
    */
   const signals = useMemo(() => {
     const map = new Map<string, CreatorSignals>()
-    for (const r of rows) map.set(r.id, creatorSignals(r))
+    // `match.measured` is what the server read out of the medallion tables for
+    // this exact page. Absent while the first response is in flight, which
+    // leaves every measured field null — the same thing the UI draws for a
+    // creator nobody has analysed, and the correct thing to draw before the
+    // answer arrives.
+    for (const r of rows) map.set(r.id, creatorSignals(r, match?.measured[r.id] ?? null))
     return map
-  }, [rows])
+  }, [rows, match])
 
   const badgesOf = useCallback(
     (id: string): CreatorBadge[] => {
@@ -476,35 +619,70 @@ export default function KolDirectoryPage({
     [signals],
   )
 
+  /**
+   * The authoritative brand match for one row.
+   *
+   * This used to be `matchScore(row, signals, criteria)` — a score for how well
+   * a creator answered the FILTERS the user had just set, which is a restatement
+   * of the query rather than a judgement about the creator, and which drew part
+   * of its number from figures `kolSample` invents. It is gone.
+   *
+   * What replaces it is the Brand Match Engine's Final Match Score: the creator
+   * against the workspace's saved Brand Profile, computed on the server from
+   * `public.kol_directory` and the medallion tables, by the same model the
+   * published comparison workbook runs. `null` means either no profile is saved
+   * or this creator was not in the scored set — `match.scoreable` tells the UI
+   * which, and the two are drawn differently.
+   */
   const matchOf = useCallback(
-    (r: KolDirectoryRow): MatchResult | null => {
-      const s = signals.get(r.id)
-      return s ? matchScore(r, s, criteria) : null
-    },
-    [signals, criteria],
+    (r: KolDirectoryRow): MatchExplanation | null => match?.rows[r.id] ?? null,
+    [match],
   )
 
   /**
-   * The page, re-ranked by how well each row answers the criteria.
+   * Match ordering is no longer applied here.
    *
-   * Deliberately a re-rank of the *loaded page* and not a re-query: the roster
-   * pages server-side and most of these signals have no column to sort on, so
-   * ordering the whole 7,700 by brand fit is not something this can honestly
-   * offer. The results header says which it is, so the ordering is never
-   * mistaken for a global ranking.
+   * The card grid used to re-rank itself by match score on every render where a
+   * Brand Profile existed, which silently overrode the sort the user had
+   * picked: choosing "Sort: Followers" changed the table and left the cards
+   * ranked by match, and the two views disagreed about the same page. It also
+   * had no way to express "lowest match first".
+   *
+   * It is now the `match` entry in `SORTOPTS` — one ordering, chosen by the
+   * user, applied once by the route right after the scores are computed, and
+   * shared by both views. `rows` therefore arrives in the order it should be
+   * rendered in, whichever sort is active.
    */
-  const rankedRows = useMemo(() => {
-    if (!scored) return rows
-    return [...rows].sort((a, b) => (matchOf(b)?.overall ?? 0) - (matchOf(a)?.overall ?? 0))
-  }, [rows, scored, matchOf])
 
-  /** Applying a preset sets its real filters and turns on its ranking. */
+  /**
+   * Applying a preset narrows what is already on screen — it does not replace
+   * it.
+   *
+   * This used to reset the panel to defaults and keep only category and
+   * platform, so picking `High Engagement` silently threw away a follower
+   * range or a tier the user had set. A preset is one more clause, so
+   * `High Engagement` + `Beauty` + `Macro` now means all three, which is what
+   * the chip beside a filled-in panel looks like it should mean.
+   *
+   * Where both name the same field, the preset wins — it is the thing just
+   * pressed — but only upward: a preset asking for ER ≥ 3% cannot loosen a
+   * panel already asking for ER ≥ 5%.
+   */
   const applyPreset = (id: PresetId) => {
     if (preset === id) { setPreset(null); setPage(1); return }
     const def = presetById(id)
-    if (!def) return
+    if (!def || def.unavailable) return
     setPreset(id)
-    setFilters(f => ({ ...KOL_FILTERS_DEFAULT, categories: f.categories, platform: f.platform, ...def.filters }))
+    setFilters(f => {
+      const next = { ...f, ...def.filters }
+      // Keep the stricter bound wherever the two overlap.
+      if (def.filters.erMin != null) next.erMin = Math.max(f.erMin, def.filters.erMin)
+      if (def.filters.follMin != null) next.follMin = Math.max(f.follMin, def.filters.follMin)
+      if (def.filters.follMax != null) {
+        next.follMax = f.follMax > 0 ? Math.min(f.follMax, def.filters.follMax) : def.filters.follMax
+      }
+      return next
+    })
     setPage(1)
   }
 
@@ -518,6 +696,7 @@ export default function KolDirectoryPage({
 
   /** Header sort: same key flips the direction, a new key starts at its default. */
   const sortBy = (key: SortKey) => {
+    sortPicked.current = true
     setSort(s => s.key === key
       ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
       : { key, dir: key === 'name' ? 'asc' : 'desc' })
@@ -544,6 +723,47 @@ export default function KolDirectoryPage({
     compare.setIds(next)
     flash(`${selected.size} creator ditambahkan ke compare`)
   }
+
+  /**
+   * The two org-wide decisions, applied to a selection.
+   *
+   * Sequential rather than `Promise.all`: each write returns the whole link set
+   * and the hook settles on the last response it sees, so firing twenty at once
+   * would have nineteen of them racing to be the one that lands. Twenty
+   * sequential writes to a database is also the honest cost of the button.
+   *
+   * Creators that already hold the state are skipped rather than re-sent — the
+   * count in the toast then means "this many changed", which is what a bulk
+   * action is being asked.
+   */
+  const bulkLink = useCallback(async (
+    apply: (r: KolDirectoryRow) => Promise<boolean> | null,
+    done: (n: number, skipped: number) => string,
+  ) => {
+    const rows = [...selected.values()]
+    let changed = 0
+    let skipped = 0
+    for (const r of rows) {
+      const call = apply(r)
+      if (!call) { skipped += 1; continue }
+      if (await call) changed += 1
+    }
+    flash(done(changed, skipped))
+  }, [selected, flash])
+
+  const bulkRoster = () => bulkLink(
+    r => (links.inRoster('roster', r.id) ? null : links.setRoster('roster', r.id, true)),
+    (n, skipped) => skipped
+      ? `${n} creator ditambahkan ke My Creators · ${skipped} sudah ada di sana`
+      : `${n} creator ditambahkan ke My Creators`,
+  )
+
+  const bulkTrack = () => bulkLink(
+    r => (links.trackingOf('roster', r.id) === 'active' ? null : links.setTracking('roster', r.id, 'active')),
+    (n, skipped) => skipped
+      ? `${n} creator mulai dipantau · ${skipped} sudah dipantau`
+      : `${n} creator mulai dipantau — lihat di Tracked Accounts`,
+  )
   /**
    * Adds one unit of the platform's headline deliverable to the real cart.
    *
@@ -603,6 +823,9 @@ export default function KolDirectoryPage({
     badges: badgesOf(r.id),
     match: matchOf(r),
     fav: favorites.has('roster', r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
+    inRoster: links.inRoster('roster', r.id),
+    tracking: links.trackingOf('roster', r.id),
+    linkBusy: links.busy.has(selectionKey('roster', r.id)),
     // Opening the panel rather than the profile: the list is for narrowing, and
     // a navigation per creator is the wrong cost for a decision this small. The
     // panel carries "View Full Profile" for when it is the right cost.
@@ -615,13 +838,62 @@ export default function KolDirectoryPage({
     onCompare: () => toggleCompare(r),
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
     onSimilar: onFindSimilar ? () => onFindSimilar(r.id) : null,
+    onRoster: () => toggleRoster(r),
+    onTracking: () => cycleTracking(r),
   })
+
+  /**
+   * Save to, or remove from, My Creators.
+   *
+   * Removing does not touch the creator: they stay in the Creator Database,
+   * which is the whole point of My Creators being a link and not a copy. The
+   * toast says so, because "remove" on a directory screen otherwise reads as a
+   * deletion.
+   */
+  const toggleRoster = useCallback(async (r: KolDirectoryRow) => {
+    const was = links.inRoster('roster', r.id)
+    const ok = await links.setRoster('roster', r.id, !was)
+    if (!ok) { flash('Gagal memperbarui My Creators'); return }
+    flash(was
+      ? `@${r.username} dikeluarkan dari My Creators — creator-nya tetap ada di Creator Database`
+      : `@${r.username} ditambahkan ke My Creators`)
+  }, [links, flash])
+
+  /**
+   * Start, pause or resume monitoring.
+   *
+   * One button rather than three because the three states form a cycle a reader
+   * already holds in their head: not watching → watching → paused → watching.
+   * Stopping outright lives on the Tracked Accounts screen, where the list of
+   * what you are watching is in front of you and removing one from it is the
+   * obvious act.
+   */
+  const cycleTracking = useCallback(async (r: KolDirectoryRow) => {
+    const now = links.trackingOf('roster', r.id)
+    const next = now === 'active' ? 'paused' : 'active'
+    const ok = await links.setTracking('roster', r.id, next)
+    if (!ok) { flash('Gagal memperbarui tracking'); return }
+    flash(next === 'active'
+      ? (now === 'paused'
+          ? `Tracking @${r.username} dilanjutkan`
+          : `@${r.username} mulai dipantau — lihat di Tracked Accounts`)
+      : `Tracking @${r.username} dijeda`)
+  }, [links, flash])
+
+  /** Active filters as removable chips. Cheap — six comparisons over one object. */
+  const applied = useMemo(() => appliedFilters(filters), [filters])
 
   const topCategories = (facets?.categories ?? []).slice(0, 6)
 
   return (
     <div className={embedded ? '' : 'min-h-full'} style={embedded ? undefined : { background: T.surfaceLow }}>
       <div className={embedded ? '' : 'max-w-[1280px] mx-auto px-5 py-5'}>
+
+        {/* Nothing is broken — something has not been said yet. Shown once, above
+            the list, rather than as an empty badge on every card. */}
+        {match && !match.scoreable && (
+          <NoBrandProfileNotice href={`${tabHref(orgSlug, 'settings')}&view=discover`} />
+        )}
 
         {/* ── page head ── */}
         <div className="flex items-end justify-between gap-4 flex-wrap mb-1.5">
@@ -637,14 +909,24 @@ export default function KolDirectoryPage({
                   {total.toLocaleString('id-ID')} of {rosterTotal.toLocaleString('id-ID')} creators
                   {fCount > 0 && ` · ${fCount} filter${fCount > 1 ? 's' : ''} applied`}
                   {/*
-                    Only the card grid renders `rankedRows`; the table keeps the
-                    column sort the user picked, which is its own control and must
-                    not be silently overridden. So the claim is made per view —
-                    stating it in table view described an ordering that was not
+                    Claimed only when the match ordering is the one actually in
+                    effect, and in both views, because both now render the same
+                    order. It used to be claimed in card view on every page with
+                    a Brand Profile — including pages the user had sorted by
+                    followers — which described an ordering that was not the one
                     on screen.
+
+                    "halaman ini" is load-bearing: the scores rank the ~20
+                    creators that loaded, not the roster.
                   */}
-                  {scored && view === 'card' && ' · diurutkan dari yang paling cocok'}
+                  {scored && sort.key === 'match' && (
+                    match?.brandCategory
+                      ? ` · halaman ini diurutkan dari yang paling cocok untuk brand ${match.brandCategory}`
+                      : ' · halaman ini diurutkan dari yang paling cocok'
+                  )}
                   {` · ${favorites.keys.size} favorites · ${compare.ids.size} in compare`}
+                  {links.counts.roster > 0 && ` · ${links.counts.roster} in My Creators`}
+                  {links.counts.tracked > 0 && ` · ${links.counts.tracked} tracked`}
                 </>
               )}
             </p>
@@ -673,22 +955,26 @@ export default function KolDirectoryPage({
           <div className="flex items-center gap-1.5 flex-wrap">
             {CREATOR_PRESETS.map(p => {
               const on = preset === p.id
+              const off = !!p.unavailable
               return (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => applyPreset(p.id)}
-                  title={p.desc}
+                  disabled={off}
+                  title={off ? `${p.label} — belum bisa dipakai. ${p.unavailable}` : p.desc}
                   style={{
                     ...PJ,
-                    background: on ? T.primary : '#fff',
-                    color: on ? '#fff' : T.t3,
-                    borderColor: on ? T.primary : T.outline,
+                    background: off ? '#f5f6f7' : on ? T.primary : '#fff',
+                    color: off ? T.t4 : on ? '#fff' : T.t3,
+                    borderColor: off ? T.outlineSoft : on ? T.primary : T.outline,
+                    cursor: off ? 'not-allowed' : 'pointer',
                   }}
                   className="inline-flex items-center gap-1 rounded-full border px-2.5 h-[28px] text-[11px] font-bold transition-colors"
                 >
                   <span className="material-symbols-outlined text-[13px]">{p.icon}</span>
                   {p.label}
+                  {off && <span className="material-symbols-outlined text-[12px]">block</span>}
                 </button>
               )
             })}
@@ -696,9 +982,14 @@ export default function KolDirectoryPage({
           {preset && (
             <p className="text-[10.5px] mt-1.5 leading-relaxed" style={{ color: T.t4 }}>
               {presetById(preset)?.desc}{' '}
-              <span style={{ color: '#b5761f' }}>
-                Peringkat dihitung pada {rows.length} creator di halaman ini, bukan seluruh
-                {' '}{rosterTotal.toLocaleString('id-ID')} — sebagian sinyalnya belum ada kolomnya di database.
+              {/* Every surviving preset now filters and ranks on the same
+                  measured column, so the caveat this used to carry — a ranking
+                  computed over one page from signals the database does not
+                  hold — no longer applies to any of them. The ones it did
+                  apply to are disabled instead. */}
+              <span style={{ color: T.t4 }}>
+                Difilter di server pada seluruh {rosterTotal.toLocaleString('id-ID')} creator;
+                peringkat memakai kolom yang sama dengan filternya.
               </span>
             </p>
           )}
@@ -722,7 +1013,13 @@ export default function KolDirectoryPage({
             const on = sectionTab === t.id
             return (
               <button key={t.id} type="button"
-                onClick={() => { setSort({ key: t.sort, dir: 'desc' }); setPage(1) }}
+                onClick={() => {
+                  // Picking a section tab IS picking an ordering — it sets the
+                  // sort — so it latches the same way the dropdown does.
+                  sortPicked.current = true
+                  setSort({ key: t.sort, dir: 'desc' })
+                  setPage(1)
+                }}
                 title={t.hint}
                 style={{
                   ...PJ,
@@ -875,18 +1172,33 @@ export default function KolDirectoryPage({
             </Pill>
             {sortOpen && (
               <Popover onClose={() => setSortOpen(false)} width={200}>
-                {SORTOPTS.map(([key, label]) => (
-                  <div key={key} onClick={() => { sortBy(key); setSortOpen(false) }}
-                    className="flex items-center gap-2 px-2 py-[7px] rounded-lg cursor-pointer hover:bg-[#f7fafc]">
-                    <span style={{ ...PJ, color: sort.key === key ? T.primaryDeep : T.t2 }}
-                      className="flex-1 text-[12px] font-bold">{label}</span>
-                    {sort.key === key && (
-                      <span className="material-symbols-outlined text-[15px]" style={{ color: T.primary }}>
-                        {sort.dir === 'asc' ? 'arrow_upward' : 'arrow_downward'}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                {SORTOPTS.map(([key, label]) => {
+                  /**
+                   * Match ordering needs a saved Brand Profile — with none there
+                   * is no score to order by, and the route returns before it
+                   * computes one. Offered disabled WITH the reason rather than
+                   * hidden or silently inert, which is how this page already
+                   * treats every control its data cannot answer (see the
+                   * disabled sections in `KolDirectoryFilters`).
+                   */
+                  const off = key === 'match' && !scored
+                  return (
+                    <div key={key}
+                      onClick={() => { if (off) return; sortBy(key); setSortOpen(false) }}
+                      title={off ? 'Atur Brand Profile dulu untuk mengurutkan berdasarkan match score' : undefined}
+                      style={off ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+                      className={`flex items-center gap-2 px-2 py-[7px] rounded-lg ${
+                        off ? '' : 'cursor-pointer hover:bg-[#f7fafc]'}`}>
+                      <span style={{ ...PJ, color: sort.key === key ? T.primaryDeep : T.t2 }}
+                        className="flex-1 text-[12px] font-bold">{label}</span>
+                      {sort.key === key && !off && (
+                        <span className="material-symbols-outlined text-[15px]" style={{ color: T.primary }}>
+                          {sort.dir === 'asc' ? 'arrow_upward' : 'arrow_downward'}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
               </Popover>
             )}
           </div>
@@ -929,6 +1241,36 @@ export default function KolDirectoryPage({
           </div>
         </div>
 
+        {/* ── applied filters ──
+            One removable chip per active filter, so what is narrowing the list
+            is readable without opening the panel and removable without
+            rebuilding the rest. The preset rides along as a chip of its own —
+            it is a filter now that it composes with the panel rather than
+            replacing it. */}
+        {(applied.length > 0 || preset) && (
+          <div className="flex items-center gap-1.5 flex-wrap mb-3.5">
+            <span style={{ ...PJ, color: T.t4 }}
+              className="text-[10px] font-bold uppercase tracking-[.06em] mr-0.5">
+              Applied
+            </span>
+            {preset && (
+              <FilterChip
+                label={presetById(preset)?.label ?? preset}
+                icon={presetById(preset)?.icon}
+                onRemove={() => { setPreset(null); setPage(1) }} />
+            )}
+            {applied.map(a => (
+              <FilterChip key={a.key} label={a.label}
+                onRemove={() => patchFilters(a.clear)} />
+            ))}
+            <button type="button" onClick={() => { clearFilters(); flash('Filters cleared') }}
+              style={{ ...PJ, color: T.t3 }}
+              className="text-[10.5px] font-bold underline underline-offset-2 hover:opacity-80 ml-0.5">
+              Clear all
+            </button>
+          </div>
+        )}
+
         {/* ── content + filter sidebar ── */}
         <div style={{
           display: 'grid',
@@ -959,7 +1301,7 @@ export default function KolDirectoryPage({
               <div style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 120ms' }}>
                 {view === 'card' ? (
                   <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${filtPanel ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
-                    {rankedRows.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
+                    {rows.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
                   </div>
                 ) : (
                   <DirectoryTable
@@ -970,6 +1312,10 @@ export default function KolDirectoryPage({
                     onCart={r => (inCart(r.id) ? removeFromCart(r) : addToCart(r))}
                     onOpen={openProfile}
                     onSimilar={onFindSimilar ? r => onFindSimilar(r.id) : null}
+                    inRoster={id => links.inRoster('roster', id)}
+                    trackingOf={id => links.trackingOf('roster', id)}
+                    onRoster={toggleRoster}
+                    onTracking={cycleTracking}
                   />
                 )}
 
@@ -996,6 +1342,8 @@ export default function KolDirectoryPage({
                     <b style={PJ} className="text-[12.5px]">{selected.size} selected</b>
                     <div className="flex-1" />
                     <BulkBtn icon="compare" onClick={bulkCompare}>Add to Compare</BulkBtn>
+                    <BulkBtn icon="create_new_folder" onClick={bulkRoster}>Add to My Creators</BulkBtn>
+                    <BulkBtn icon="monitor_heart" onClick={bulkTrack}>Start Tracking</BulkBtn>
                     <BulkBtn icon="add_shopping_cart" onClick={bulkCart}>Add to Cart</BulkBtn>
                     <BulkBtn icon="ios_share" onClick={() => { exportCsv(selectedRows, EXPORT_COLUMNS, 'kol-directory'); flash(`Exporting ${selected.size} creators as CSV`) }}>
                       CSV
@@ -1047,8 +1395,16 @@ export default function KolDirectoryPage({
         <CreatorQuickInsight
           creator={insightRow}
           match={matchOf(insightRow)}
+          measured={match?.measured[insightRow.id] ?? null}
           inShortlist={favorites.has('roster', insightRow.id)}
           inCompare={inCompare(insightRow.id)}
+          inRoster={links.inRoster('roster', insightRow.id)}
+          tracking={links.trackingOf('roster', insightRow.id)}
+          linkBusy={links.busy.has(selectionKey('roster', insightRow.id))}
+          onRoster={() => toggleRoster(insightRow)}
+          // The panel offers the same cycle the card does, so it hands the row
+          // to the same writer rather than carrying its own copy of the rule.
+          onTracking={() => cycleTracking(insightRow)}
           onClose={() => setInsightId(null)}
           onShortlist={() => {
             const was = favorites.has('roster', insightRow.id)
@@ -1066,11 +1422,22 @@ export default function KolDirectoryPage({
       {addOpen && (
         <AddKolDirectoryModal
           onClose={() => setAddOpen(false)}
-          onKolAdded={() => {
+          onKolAdded={kolId => {
             setAddOpen(false)
             // Same trigger the retry button uses — re-runs the list fetch so
             // the newly added row shows up once its scrape has caught up.
             setReload(n => n + 1)
+            /**
+             * A creator this workspace went to the trouble of adding is a
+             * creator it works with, so it lands in My Creators as well as in
+             * the database — which is what "Add KOL" is read as meaning, and
+             * the reason the two screens felt disconnected before. It is a
+             * link, so taking it back out from My Creators costs one press and
+             * leaves the creator in the database where they now belong.
+             */
+            void links.setRoster('roster', kolId, true).then(ok => {
+              if (ok) flash('Creator ditambahkan ke Creator Database dan My Creators')
+            })
           }}
         />
       )}
@@ -1089,18 +1456,30 @@ export default function KolDirectoryPage({
 
 function CreatorCard({
   creator: c, signals, badges, match,
-  fav, inCompare, inCart, onOpen, onFav, onCompare, onCart, onSimilar,
+  fav, inCompare, inCart, inRoster, tracking, linkBusy,
+  onOpen, onFav, onCompare, onCart, onSimilar, onRoster, onTracking,
 }: {
   creator: KolDirectoryRow
   /** Derived intelligence for this row; null only while the page is loading. */
   signals: CreatorSignals | null
   badges: CreatorBadge[]
-  /** How well this row answers the active criteria, or null when there are none. */
-  match: MatchResult | null
+  /**
+   * The Brand Match Engine's verdict on this creator, or null when the
+   * workspace has no saved Brand Profile to compare them against.
+   */
+  match: MatchExplanation | null
   fav: boolean; inCompare: boolean; inCart: boolean
+  /** In this organization's My Creators — an org-wide state, unlike `fav`. */
+  inRoster: boolean
+  /** Whether this organization monitors the creator, and how. */
+  tracking: TrackingStatus
+  /** A roster or tracking write is in flight for this creator. */
+  linkBusy: boolean
   onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void
   /** Null when the page was mounted without a Smart Discovery destination. */
   onSimilar: (() => void) | null
+  onRoster: () => void
+  onTracking: () => void
 }) {
   const st = statusOf(c.status)
   const banner = gradOf(bannerFor(c.id))
@@ -1129,6 +1508,22 @@ function CreatorCard({
             activeColor={T.primary} solid />
           <IconToggle on={inCart} onClick={onCart} icon={inCart ? 'shopping_cart_checkout' : 'add_shopping_cart'}
             title={inCart ? 'In cart' : 'Add to cart'} activeColor="#3d8a5f" solid />
+          {/* The two organization-wide states, beside the personal ones. Save
+              puts the creator in My Creators without copying them out of the
+              database; Track starts monitoring and is what fills Tracked
+              Accounts — neither happens merely by the creator existing here. */}
+          <IconToggle on={inRoster} onClick={linkBusy ? () => {} : onRoster}
+            icon={inRoster ? 'folder_shared' : 'create_new_folder'}
+            title={inRoster ? 'Di My Creators — klik untuk mengeluarkan' : 'Add to My Creators'}
+            activeColor={T.primaryDeep} solid />
+          <IconToggle on={tracking !== 'none'} onClick={linkBusy ? () => {} : onTracking}
+            icon={tracking === 'active' ? 'monitor_heart' : tracking === 'paused' ? 'pause_circle' : 'radar'}
+            title={
+              tracking === 'active' ? 'Dipantau — klik untuk menjeda'
+                : tracking === 'paused' ? 'Pemantauan dijeda — klik untuk melanjutkan'
+                : 'Start Tracking'
+            }
+            activeColor={tracking === 'paused' ? '#b5761f' : '#3d8a5f'} solid />
           {/* Find Similar sits with the other per-row actions rather than inside
               the opened profile, so "more like this one" is answerable while
               scanning the list — which is when the thought occurs. */}
@@ -1142,10 +1537,14 @@ function CreatorCard({
       <div className="w-[60px] h-[60px] rounded-[17px] border-4 border-white -mt-[34px] ml-4 flex items-center justify-center relative overflow-hidden"
         style={{ background: banner, boxShadow: T.shadow }}>
         <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[22px]" />
-        {c.verified && (
-          <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-[2.5px] border-white flex items-center justify-center"
+        {/* Connected — the creator linked the account through OAuth. Not the
+            platform's blue tick: that badge was dropped from Discovery, so the
+            glyph is a link rather than a check to avoid reading as one. */}
+        {c.connected && (
+          <span title="Connected" aria-label="Connected"
+            className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-[2.5px] border-white flex items-center justify-center"
             style={{ background: T.primary }}>
-            <span className="material-symbols-outlined fill text-[11px] text-white">verified</span>
+            <span className="material-symbols-outlined fill text-[11px] text-white">link</span>
           </span>
         )}
       </div>
@@ -1154,14 +1553,12 @@ function CreatorCard({
           ranked, "how well does this answer my question" is the first thing to
           read, before the name. */}
       {match && (
-        <div className="absolute top-[9px] left-[9px] z-[3] inline-flex items-baseline gap-1 rounded-lg px-2 py-1"
+        <div className="absolute top-[9px] left-[9px] z-[3] rounded-lg"
           style={{ background: 'rgba(255,255,255,.92)', boxShadow: T.shadow }}>
-          <b style={{ ...PJ, color: T.primaryDeep }} className="text-[13px] font-extrabold tabular-nums">
-            {match.overall}%
-          </b>
-          <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: T.t4 }}>
-            match
-          </span>
+          {/* Score AND status, not a bare percentage. "63" alone invites the
+              reader to invent their own threshold; "63 Moderate" is the band the
+              engine actually assigned. Hovering gives the sentence behind it. */}
+          <MatchBadge match={match} size="sm" />
         </div>
       )}
 
@@ -1200,6 +1597,10 @@ function CreatorCard({
 
         <div className="flex gap-1.5 mt-[13px]">
           <Stat label="Followers" value={followersLabel(c.followers)} />
+          {/* Measured, unlike the growth figure that used to sit in the row
+              below: this one comes from l2_gold and is '—' when the pipeline
+              has only ever seen this account once. */}
+          <Stat label="Growth" value={growthLabel(c.growthPct)} />
           <Stat label="Eng. Rate" value={<ErValue row={c} />} />
           <Stat label="Est. Reach" value={reachLabel(c)} />
         </div>
@@ -1212,15 +1613,18 @@ function CreatorCard({
               <span className="material-symbols-outlined text-[12px]">verified_user</span>
               {signals.audienceQuality}
             </span>
-            <span style={{ color: '#d1d5db' }}>·</span>
-            <span className="inline-flex items-center gap-0.5" title="Pertumbuhan follower per bulan (estimasi)">
-              <span className="material-symbols-outlined text-[12px]">trending_up</span>
-              {signals.growthMonthly > 0 ? '+' : ''}{signals.growthMonthly.toFixed(1)}%
-            </span>
-            <span style={{ color: '#d1d5db' }}>·</span>
-            <span className="truncate" title="Segmen audiens terbesar (estimasi)">
-              {signals.topAudience ?? '—'}
-            </span>
+            {/* The generated fallback that used to sit here is gone. When a
+                creator has no growth reading the card now shows nothing in this
+                slot, because most of the roster was scraped once and a number
+                invented to fill the gap is worse than the gap. */}
+            {signals.topAudience && (
+              <>
+                <span style={{ color: '#d1d5db' }}>·</span>
+                <span className="truncate" title="Kota audiens terbesar yang terukur">
+                  {signals.topAudience}
+                </span>
+              </>
+            )}
           </div>
         )}
 
@@ -1271,6 +1675,7 @@ function CreatorCard({
 
 function DirectoryTable({
   rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, onOpen, onSimilar,
+  inRoster, trackingOf, onRoster, onTracking,
 }: {
   rows: KolDirectoryRow[]
   cols: Record<ColKey, boolean>
@@ -1285,6 +1690,11 @@ function DirectoryTable({
   onOpen: (r: KolDirectoryRow) => void
   /** Null when the page was mounted without a Smart Discovery destination. */
   onSimilar: ((r: KolDirectoryRow) => void) | null
+  /** The same two org-wide states the cards draw, asked per row. */
+  inRoster: (id: string) => boolean
+  trackingOf: (id: string) => TrackingStatus
+  onRoster: (r: KolDirectoryRow) => void
+  onTracking: (r: KolDirectoryRow) => void
 }) {
   const active = (Object.keys(COLDEFS) as ColKey[]).filter(c => cols[c])
   const arrow = (key: SortKey) => sort.key === key
@@ -1343,7 +1753,8 @@ function DirectoryTable({
                     <div className="min-w-0">
                       <div style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-bold flex items-center gap-1.5 truncate">
                         {r.displayName ?? `@${r.username}`}
-                        {r.verified && <span className="material-symbols-outlined fill text-[13px]" style={{ color: T.primary }}>verified</span>}
+                        {r.connected && <span title="Connected" aria-label="Connected"
+                          className="material-symbols-outlined fill text-[13px]" style={{ color: T.primary }}>link</span>}
                       </div>
                       <div className="text-[10.5px] truncate max-w-[220px]" style={{ color: T.t4 }}>
                         {[r.displayName ? `@${r.username}` : null,
@@ -1372,6 +1783,26 @@ function DirectoryTable({
                         auto_awesome
                       </span>
                     )}
+                    <span onClick={e => { e.stopPropagation(); onRoster(r) }}
+                      title={inRoster(r.id) ? 'Di My Creators — klik untuk mengeluarkan' : 'Add to My Creators'}
+                      className="material-symbols-outlined text-[18px] cursor-pointer"
+                      style={{ color: inRoster(r.id) ? T.primaryDeep : T.t4 }}>
+                      {inRoster(r.id) ? 'folder_shared' : 'create_new_folder'}
+                    </span>
+                    <span onClick={e => { e.stopPropagation(); onTracking(r) }}
+                      title={
+                        trackingOf(r.id) === 'active' ? 'Dipantau — klik untuk menjeda'
+                          : trackingOf(r.id) === 'paused' ? 'Pemantauan dijeda — klik untuk melanjutkan'
+                          : 'Start Tracking'
+                      }
+                      className="material-symbols-outlined text-[18px] cursor-pointer"
+                      style={{
+                        color: trackingOf(r.id) === 'active' ? '#3d8a5f'
+                          : trackingOf(r.id) === 'paused' ? '#b5761f' : T.t4,
+                      }}>
+                      {trackingOf(r.id) === 'active' ? 'monitor_heart'
+                        : trackingOf(r.id) === 'paused' ? 'pause_circle' : 'radar'}
+                    </span>
                     <span onClick={e => { e.stopPropagation(); onCart(r) }}
                       title={inCart(r.id) ? 'In cart' : 'Add to cart'}
                       className="material-symbols-outlined text-[18px] cursor-pointer"
@@ -1428,6 +1859,27 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
       <div style={{ ...PJ, color: T.t1 }} className="text-[13.5px] font-extrabold tabular-nums">{value}</div>
       <div className="text-[9px] mt-0.5 uppercase tracking-[.03em] font-semibold" style={{ color: T.t4 }}>{label}</div>
     </div>
+  )
+}
+
+/**
+ * One applied filter. Deliberately not `Chip`: that one is a toggle that shows
+ * a filter's state, and this is a statement of an applied filter with a way to
+ * take it off — the affordance is the ×, not the whole body.
+ */
+function FilterChip({
+  label, icon, onRemove,
+}: { label: string; icon?: string; onRemove: () => void }) {
+  return (
+    <span style={{ ...PJ, background: T.surfaceVariant, borderColor: '#A7C8D4', color: T.primaryDeep }}
+      className="inline-flex items-center gap-1 rounded-full border pl-2 pr-1 h-[24px] text-[10.5px] font-bold">
+      {icon && <span className="material-symbols-outlined text-[12px]">{icon}</span>}
+      {label}
+      <button type="button" onClick={onRemove} title={`Remove ${label}`} aria-label={`Remove ${label}`}
+        className="w-[15px] h-[15px] rounded-full inline-flex items-center justify-center hover:bg-white/70">
+        <span className="material-symbols-outlined text-[12px]">close</span>
+      </button>
+    </span>
   )
 }
 

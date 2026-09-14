@@ -1,5 +1,6 @@
 import { listDirectory } from './directory'
 import { listRateCards } from './rates'
+import { accountFactsFor, femaleShare, NO_FACTS, type Breakdown } from './accountFacts'
 import pool from '@/lib/db'
 import { toIso } from './util'
 import type { DirectoryAccount, DiscoverPlatform } from './types'
@@ -7,23 +8,39 @@ import type { DirectoryAccount, DiscoverPlatform } from './types'
 /**
  * Enriched KOL profiles for the Directory and detail workspace.
  *
- * The Directory needs attributes autometric's warehouse does not store —
- * audience demographics, location, lifestyle, authenticity, brand fit. Rather
- * than pretend they are measured, every value carries a `Confidence`:
+ * Every value carries a `Confidence` that travels with it to the screen:
  *
- *   live       measured from this account's own posts (views, ER, formats,
- *              paid/organic split, posting cadence). These are facts.
- *   calculated derived from live values by an explicit formula stated in the
- *              UI (estimated reach, EMV, audience quality, brand fit).
- *   estimated  modelled, because no source exists yet (age/gender split,
- *              location, lifestyle, authenticity). Deterministic per account,
- *              never random per render — a number that changes on refresh is
- *              worse than no number.
+ *   live       measured from this account's own posts or profile snapshots
+ *              (followers, views, ER, formats, paid/organic split, cadence,
+ *              audience demographics). These are facts.
+ *   calculated derived from live values by an explicit formula stated in the UI.
+ *   estimated  modelled, because no source exists. Deterministic per account,
+ *              never random per render.
  *
- * Nothing here is presented as measured when it is not: the badge travels with
- * the value all the way to the screen. When a real source arrives (an audience
- * insights sync, a brand-fit model), the `estimated` fields are the list of
- * things to replace, and their formulas are the fallback.
+ * ── What changed, and why ──────────────────────────────────────────────────
+ * The `estimated` badge was doing too much work. A reader comparing two accounts
+ * reads the numbers, not the badges, and several of these were not derived from
+ * anything — they were a hash of the account id mapped onto a plausible range.
+ *
+ * **Followers and tier are now real.** `followers` was `avgViews × between(4,7)`
+ * and `tier` was derived from that invention, so the Tier badge on every Tracked
+ * Account was a guess about a guess. Both now come from
+ * `l0_raw.{ig,tt,fb}_profile_snapshots` via `@/lib/discover/accountFacts` —
+ * measured for 41 of 54 accounts, and `null` for the rest.
+ *
+ * **Age, gender and location are now real where they exist.** The platform
+ * insights API answers only for accounts you hold a token for, so these are
+ * populated for owned accounts and structurally absent for competitors. Null
+ * where unmeasured; the UI prints an unavailable state rather than a band.
+ *
+ * **`growthPct` is gone.** It was `between(seed,-2,12)` and had no consumer.
+ *
+ * **`authenticity`, `audienceQuality`, `brandFit`, `ageSplit` and `genderSplit`
+ * are gone entirely** — they had no real source and, since Phase 2A, no
+ * consumer either. See the note in the type body.
+ *
+ * **`category`, `lifestyle` and `emv` are gone or null** — same reason. EMV in
+ * particular was a real engagement count times a CPM drawn from a hash.
  */
 
 export {
@@ -64,28 +81,84 @@ const between = (seed: string, salt: string, lo: number, hi: number) =>
 export interface KolProfile {
   account: DirectoryAccount
 
-  /* identity — modelled */
-  category: Metric<Category>
-  lifestyle: Metric<Lifestyle>
-  location: Metric<string>
-  tier: Metric<Tier>
-  verified: Metric<boolean>
+  /*
+   * identity
+   *
+   * `category` and `lifestyle` used to live here. Both were `pick(seed, ...)`
+   * over a fixed list - a 7-way and a 6-way coin flip per account - and neither
+   * has a real source. The nearest candidate for category,
+   * `l1_silver.unified_post.content_pillar`, is free text (it holds values like
+   * 'tesyun') filled for 3 of 42 accounts, which is not a taxonomy. Lifestyle
+   * is an audience psychographic the warehouse has no reading of at all.
+   */
+  /**
+   * The audience's largest city, from the platform's own insights. Null when
+   * this account has no demographics reading — which is every competitor, by
+   * construction, and any owned account below the platform's reporting
+   * threshold. Was `pick(seed, 'loc', LOCATIONS)`.
+   */
+  location: Metric<string | null>
+  /** Derived from the REAL follower count. Null when followers are unmeasured. */
+  tier: Metric<Tier | null>
+  /** TikTok publishes this; the other platforms do not. Null means unknown. */
+  verified: Metric<boolean | null>
 
-  /* audience — modelled */
-  followers: Metric<number>
-  ageSplit: Metric<{ band: AgeBand; pct: number }[]>
-  topAge: Metric<AgeBand>
-  generation: Metric<string>
-  genderSplit: Metric<{ female: number; male: number }>
-  authenticity: Metric<number>
-  audienceQuality: Metric<number>
+  /* audience */
+  /** Real, from the newest profile snapshot. Null when never synced. */
+  followers: Metric<number | null>
+  /**
+   * The real audience age distribution, largest band first. Empty array when
+   * unmeasured — the UI checks `.length`, and an empty chart is drawn as an
+   * unavailable state rather than as six zero-height bars.
+   */
+  ageBands: Metric<Breakdown>
+  topAge: Metric<string | null>
+  /** Real gender split. Empty when unmeasured. */
+  genderBands: Metric<Breakdown>
+  /** Female share 0–100, or null when unmeasured. Never defaulted to 50. */
+  femalePct: Metric<number | null>
+
+  /*
+   * `authenticity`, `audienceQuality`, `brandFit`, `ageSplit` and `genderSplit`
+   * were quarantined here through Phases 1 and 2A: removed from every screen,
+   * but kept alive because `predictSuccess()` and `optimiseSelection()` still
+   * read them.
+   *
+   * Phase 2A replaced the last of those reads. A search across `src/` found
+   * zero consumers of any of the five, so they are deleted rather than left as
+   * dead generated code - which is the state in which a future change quietly
+   * starts using one again.
+   *
+   * The OLD model that did use them is still reproducible: the before/after
+   * harness in `scripts/verify-optimizer-regression.ts` restates each formula
+   * locally, the same way it already restates the old reach formula. The
+   * reconstruction lives with the comparison, not in the production type.
+   */
 
   /* performance — measured or derived from measurements */
   posts: Metric<number>
   totalViews: Metric<number>
   avgViews: Metric<number>
   erPct: Metric<number>
-  estimatedReach: Metric<number>
+  /**
+   * Audience reached per post. **Nullable, and three different things.**
+   *
+   * Read `confidence` before using it, and never present it as measured reach
+   * without checking:
+   *
+   *   `live`       the platform's own per-post `reach`, averaged over the posts
+   *                that carry one. A real measurement. 19 of 42 accounts.
+   *   `calculated` derived from measured VIEWS because no reach was reported.
+   *                Views are a real measurement but a different one - a view is
+   *                not a person, and on video the two diverge badly. 20 of 42.
+   *   `null`       neither exists. 3 of 42, plus every account with no posts.
+   *
+   * It was `avgViews x between(seed, 'reach', 0.55, 0.85)` - a measured number
+   * multiplied by a hash of the account id. That is why the ladder is explicit
+   * now: the difference between "we measured reach", "we measured something
+   * adjacent" and "we know nothing" was previously invisible.
+   */
+  estimatedReach: Metric<number | null>
   paidRatio: Metric<number>
   organicRatio: Metric<number>
   paidErPct: Metric<number>
@@ -107,9 +180,26 @@ export interface KolProfile {
   campaignLift: Metric<number | null>
   topFormat: Metric<string>
   postFrequency: Metric<number>
-  growthPct: Metric<number>
-  emv: Metric<number>
-  brandFit: Metric<number>
+  /**
+   * Earned Media Value. **Always null.**
+   *
+   * It was `(likes + comments + shares) / 1000 x between(seed, 'cpm', 22000, 46000)`
+   * - a real engagement count multiplied by a CPM drawn from a hash of the
+   * account id. The engagement half was measured; the price half was invented,
+   * and EMV is a money figure, so the invented half is the whole point of it.
+   *
+   * Nothing in autometric holds a real CPM or rate benchmark: searched across
+   * `lib/dashboard`, `lib/reports` and `lib/metrics`, the only other EMV in the
+   * codebase is `discover_orders.est_emv`, which is this same generated value
+   * frozen at checkout. So there is no approved calculation to reuse, and a new
+   * formula invented here to keep the tiles populated would be the same failure
+   * with a fresh comment on top.
+   *
+   * Kept as a null-valued field rather than deleted so the shape of a profile
+   * is stable for callers, and so the day a rate-card benchmark exists there is
+   * an obvious place to put it. Every surface renders it as unavailable.
+   */
+  emv: Metric<number | null>
 
   /* commercial */
   baseRate: number
@@ -135,6 +225,16 @@ interface Aggregates {
   /** Null, not zero: an account with no campaign posts has no campaign rate. */
   campaignEr: number | null
   nonCampaignEr: number | null
+  /**
+   * Mean of the platform-reported `reach` over the posts that carry one.
+   *
+   * Null when this account has no post with a positive reach - which is 23 of
+   * the 42 accounts that have posts, and every competitor, because reach is an
+   * insights metric and insights need an access token.
+   */
+  avgReach: number | null
+  /** Mean of `views` over the posts that carry one. Null when none do. */
+  avgViewsPos: number | null
   topFormat: string
   spanDays: number
   lastPostAt: string | null
@@ -153,6 +253,7 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
              COALESCE(p.views,0)::bigint AS views, COALESCE(p.likes,0)::bigint AS likes,
              COALESCE(p.comments,0)::bigint AS comments, COALESCE(p.shares,0)::bigint AS shares,
              (COALESCE(p.er_reach,p.er_views,p.er_followers,0)*100)::float AS er_pct,
+             COALESCE(p.reach,0)::bigint AS reach,
              (COALESCE(p.is_boosted,false) OR COALESCE(p.is_campaign,false)) AS sponsored,
              COALESCE(p.is_campaign,false) AS is_campaign,
              COALESCE(NULLIF(p.format,''), NULLIF(p.post_type,''), 'Post') AS fmt,
@@ -168,6 +269,9 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
              CASE WHEN COALESCE(cp.view_count,0)>0
                   THEN ((COALESCE(cp.like_count,0)+COALESCE(cp.comment_count,0)+COALESCE(cp.share_count,0))::numeric/cp.view_count*100)::float
                   ELSE 0 END,
+             -- A scraped competitor post has no reach column and never will:
+             -- reach is an insights metric, and insights need a token.
+             0::bigint,
              false,
              -- A scraped competitor post carries no campaign tag and never can.
              false,
@@ -181,6 +285,12 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
     SELECT account_id, relation,
            COUNT(*)::text                                                        AS posts,
            COALESCE(SUM(views),0)::text                                          AS views,
+           -- Real per-post reach, from the platform's own insights.
+           -- FILTERed on > 0 rather than COALESCEd: reach is non-null on every
+           -- row but zero on the 1.316 of 1.842 the platform never reported,
+           -- and averaging those zeros in would halve a real figure.
+           (AVG(reach)  FILTER (WHERE reach  > 0))::text                          AS avg_reach,
+           (AVG(views)  FILTER (WHERE views  > 0))::text                          AS avg_views_pos,
            COALESCE(SUM(likes),0)::text                                          AS likes,
            COALESCE(SUM(comments),0)::text                                       AS comments,
            COALESCE(SUM(shares),0)::text                                         AS shares,
@@ -222,6 +332,9 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
       paidEr: Number(r.paid_er ?? 0),
       organicEr: Number(r.organic_er ?? 0),
       campaignPosts: Number(r.campaign_posts ?? 0),
+      avgReach: r.avg_reach === null || r.avg_reach === undefined ? null : Number(r.avg_reach),
+      avgViewsPos: r.avg_views_pos === null || r.avg_views_pos === undefined
+        ? null : Number(r.avg_views_pos),
       campaignEr: r.campaign_er === null || r.campaign_er === undefined ? null : Number(r.campaign_er),
       nonCampaignEr: r.non_campaign_er === null || r.non_campaign_er === undefined
         ? null : Number(r.non_campaign_er),
@@ -234,25 +347,15 @@ async function loadAggregates(orgId: string): Promise<Map<string, Aggregates>> {
   return map
 }
 
-/**
- * Age distribution as six bands summing to exactly 100.
- * The remainder is folded into the largest band so the chart never shows 99% or
- * 101% — a demographic split that does not add up reads as a bug.
- */
-function ageSplitFor(seed: string): { band: AgeBand; pct: number }[] {
-  const weights = AGE_BANDS.map((b, i) => between(seed, `age${i}`, 0.4, 1) * (i === 1 || i === 2 ? 3 : 1))
-  const sum = weights.reduce((a, b) => a + b, 0)
-  const raw = weights.map(w => Math.round((w / sum) * 100))
-  const drift = 100 - raw.reduce((a, b) => a + b, 0)
-  const biggest = raw.indexOf(Math.max(...raw))
-  raw[biggest] += drift
-  return AGE_BANDS.map((band, i) => ({ band, pct: raw[i] }))
-}
-
 export async function listKolProfiles(orgId: string): Promise<KolProfile[]> {
   const [dir, rates, aggs] = await Promise.all([
     listDirectory(orgId), listRateCards(orgId), loadAggregates(orgId),
   ])
+
+  // Real follower counts and audience demographics for every account on the
+  // list, in one query. Fetched after `listDirectory` because it is the thing
+  // that decides which accounts this caller may see.
+  const facts = await accountFactsFor(dir.accounts.map(a => a.id))
 
   return dir.accounts.map(account => {
     const key = `${account.relation}:${account.id}`
@@ -263,10 +366,19 @@ export async function listKolProfiles(orgId: string): Promise<KolProfile[]> {
     const avgViews = posts > 0 ? Math.round(views / posts) : 0
     const erPct = a?.erPct ?? account.avgErPct
 
-    // Followers are not synced for these accounts, so they are inferred from
-    // reach: average views sit at roughly a fifth of an account's following for
-    // this kind of content. Stated plainly rather than dressed as measured.
-    const followers = Math.max(1000, Math.round(avgViews * between(seed, 'foll', 4, 7)))
+    /*
+     * Followers, measured.
+     *
+     * This used to be `avgViews × between(seed, 'foll', 4, 7)` — a follower
+     * count inferred from view counts by a ratio nobody measured, for accounts
+     * whose real follower count was sitting unread in `l0_raw`. `tier` was then
+     * derived from it, so the Tier badge was a guess about a guess.
+     *
+     * Null when this account has never been snapshotted. Not 0, and not a floor
+     * of 1.000 as the old code used: a floor turns "unknown" into "small".
+     */
+    const f = facts.get(account.id) ?? NO_FACTS
+    const followers = f.followers
 
     const paidPosts = a?.paidPosts ?? 0
     const paidRatio = posts > 0 ? (paidPosts / posts) * 100 : 0
@@ -277,56 +389,78 @@ export async function listKolProfiles(orgId: string): Promise<KolProfile[]> {
       ? a.campaignEr / a.nonCampaignEr
       : null
 
-    // Estimated reach: average views discounted by a per-account factor.
-    const estimatedReach = Math.round(avgViews * between(seed, 'reach', 0.55, 0.85))
+    /*
+     * Reach per post, down the honest ladder. See the field's note.
+     *
+     * No branch here invents anything: tier 1 is the platform's reach column,
+     * tier 2 is the platform's views column stated as what it is, and tier 3 is
+     * null rather than a number.
+     */
+    const measuredReach = a?.avgReach ?? null
+    const measuredViews = a?.avgViewsPos ?? null
+    const estimatedReach = measuredReach !== null ? Math.round(measuredReach)
+      : measuredViews !== null ? Math.round(measuredViews)
+        : null
 
-    // EMV at a modelled Indonesian CPM. Engagement-weighted, not view-weighted,
-    // because engagement is what brands actually pay against.
-    const engagement = (a?.likes ?? 0) + (a?.comments ?? 0) + (a?.shares ?? 0)
-    const emv = Math.round((engagement / 1000) * between(seed, 'cpm', 22_000, 46_000))
 
-    const authenticity = Math.round(between(seed, 'auth', 68, 96))
-    // Audience quality blends a measured signal (ER) with a modelled one, so it
-    // is 'calculated' rather than 'estimated'.
-    const audienceQuality = Math.round(
-      Math.min(99, 45 + Math.min(30, erPct * 6) + (authenticity - 68) * 0.5))
 
     const postFrequency = a && a.spanDays > 0
       ? Number(((posts / a.spanDays) * 30).toFixed(1)) : 0
 
-    // Brand fit blends four inputs; the same formula is shown on the Brand Fit
-    // tab so a user can see why a number is what it is.
-    const brandFit = Math.round(Math.min(99,
-      audienceQuality * 0.35 + authenticity * 0.3 +
-      Math.min(100, erPct * 12) * 0.2 + Math.min(100, postFrequency * 6) * 0.15))
 
-    const ageSplit = ageSplitFor(seed)
-    const topAge = ageSplit.reduce((x, y) => (y.pct > x.pct ? y : x)).band
-    const female = Math.round(between(seed, 'gender', 28, 74))
+    /*
+     * Audience demographics, measured.
+     *
+     * Empty arrays and nulls where the platform has not reported a breakdown —
+     * which is every competitor account by construction, because the insights
+     * API only answers for an account you hold a token for. The UI draws an
+     * unavailable state off `.length`, never a chart of zeroes.
+     */
+    const topAge = f.age[0]?.label ?? null
+    const female = femaleShare(f.gender)
+    const topCity = f.city[0]?.label ?? null
 
     const rate = rates[account.id]
 
     return {
       account,
-      category: est(pick<Category>(seed, 'cat', [...CATEGORIES]), 'Belum ada klasifikasi konten — dimodelkan'),
-      lifestyle: est(pick<Lifestyle>(seed, 'life', [...LIFESTYLES]), 'Belum ada data lifestyle audiens — dimodelkan'),
-      location: est(pick(seed, 'loc', [...LOCATIONS]), 'Belum ada data lokasi — dimodelkan'),
-      tier: calc(tierOf(followers), 'Dari perkiraan jumlah follower'),
-      verified: est(rnd(seed, 'ver') > 0.35, 'Status verifikasi belum disinkronkan'),
+      location: topCity === null
+        ? est(null, 'Demografi lokasi audiens belum dilaporkan platform untuk akun ini')
+        : live(topCity, 'Kota audiens terbesar dari platform insights'),
+      tier: followers === null
+        ? est(null, 'Jumlah follower belum tersinkron, jadi tier belum bisa ditentukan')
+        : calc(tierOf(followers), 'Dari jumlah follower asli pada snapshot terakhir'),
+      verified: f.verified === null
+        ? est(null, 'Platform ini tidak mempublikasikan status verifikasi')
+        : live(f.verified, 'Status verifikasi dari profile snapshot'),
 
-      followers: est(followers, 'Diperkirakan dari rata-rata views (follower belum disinkronkan)'),
-      ageSplit: est(ageSplit, 'Demografi umur belum tersedia — dimodelkan'),
-      topAge: est(topAge, 'Dari distribusi umur yang dimodelkan'),
-      generation: est(GENERATION[topAge], 'Dari kelompok umur dominan'),
-      genderSplit: est({ female, male: 100 - female }, 'Demografi gender belum tersedia — dimodelkan'),
-      authenticity: est(authenticity, 'Deteksi follower palsu belum tersedia — dimodelkan'),
-      audienceQuality: calc(audienceQuality, 'Gabungan engagement rate terukur dan skor autentisitas'),
+      followers: followers === null
+        ? est(null, 'Akun ini belum pernah tersinkron, jadi jumlah follower belum terukur')
+        : live(followers, 'Jumlah follower dari profile snapshot terakhir'),
+      ageBands: f.age.length
+        ? live(f.age, 'Demografi umur audiens dari platform insights')
+        : est([], 'Demografi umur belum dilaporkan platform untuk akun ini'),
+      topAge: topAge === null
+        ? est(null, 'Demografi umur belum dilaporkan platform untuk akun ini')
+        : live(topAge, 'Kelompok umur audiens terbesar'),
+      genderBands: f.gender.length
+        ? live(f.gender, 'Demografi gender audiens dari platform insights')
+        : est([], 'Demografi gender belum dilaporkan platform untuk akun ini'),
+      femalePct: female === null
+        ? est(null, 'Demografi gender belum dilaporkan platform untuk akun ini')
+        : live(female, 'Bagian audiens perempuan dari platform insights'),
+
 
       posts: live(posts, 'Dihitung dari post yang tersinkron'),
       totalViews: live(views, 'Dijumlahkan dari post yang tersinkron'),
       avgViews: live(avgViews, 'Total views dibagi jumlah post'),
       erPct: live(erPct, 'Rata-rata engagement rate per post'),
-      estimatedReach: calc(estimatedReach, 'Rata-rata views dikali faktor reach per akun'),
+      estimatedReach: measuredReach !== null
+        ? live(Math.round(measuredReach), 'Rata-rata reach per post dari platform insights')
+        : measuredViews !== null
+          ? calc(Math.round(measuredViews),
+            'PERKIRAAN dari rata-rata views terukur — platform tidak melaporkan reach untuk akun ini. Views bukan reach: satu orang bisa menonton berkali-kali.')
+          : est(null, 'Platform belum melaporkan reach maupun views untuk akun ini'),
       paidRatio: live(paidRatio, 'Bagian post bertanda campaign atau boosted'),
       organicRatio: live(100 - paidRatio, 'Sisa dari post berbayar'),
       paidErPct: live(a?.paidEr ?? 0, 'Rata-rata ER pada post berbayar'),
@@ -341,9 +475,7 @@ export async function listKolProfiles(orgId: string): Promise<KolProfile[]> {
       ),
       topFormat: live(a?.topFormat ?? 'Post', 'Format yang paling sering dipakai'),
       postFrequency: live(postFrequency, 'Post per 30 hari pada rentang data'),
-      growthPct: est(Number(between(seed, 'growth', -2, 12).toFixed(1)), 'Riwayat follower belum tersedia — dimodelkan'),
-      emv: calc(emv, 'Engagement terukur dikali CPM pasar yang dimodelkan'),
-      brandFit: calc(brandFit, 'Audience quality 35% + autentisitas 30% + ER 20% + konsistensi 15%'),
+      emv: est(null, 'Belum ada benchmark CPM/rate yang terukur, jadi EMV belum bisa dihitung'),
 
       baseRate: rate?.baseRate ?? 0,
       hasRate: (rate?.baseRate ?? 0) > 0,

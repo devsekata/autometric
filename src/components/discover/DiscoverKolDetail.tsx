@@ -28,7 +28,7 @@ import {
 } from './ui'
 import RateOrderSection from './RateOrderSection'
 import ContentAnalytics from './ContentAnalytics'
-import { AiInsightsSection, BrandFitSection, KolReportSection } from './KolInsightSections'
+import { AiInsightsSection, AccountSignalsSection, KolReportSection } from './KolInsightSections'
 import { DataSourceStrip } from './credibility'
 import { tabHref } from '@/lib/discover/tabs'
 import type { KolProfile } from '@/lib/discover/profile'
@@ -190,7 +190,7 @@ export default function DiscoverKolDetail({
           {section === 'campaigns' && <CampaignSection data={data} />}
           {section === 'content' && <ContentAnalytics orgId={orgId} data={data} />}
           {section === 'brandfit' && (profile
-            ? <BrandFitSection profile={profile} />
+            ? <AccountSignalsSection profile={profile} />
             : <Spinner />)}
           {section === 'ai' && (profile
             ? <AiInsightsSection profile={profile} data={data} />

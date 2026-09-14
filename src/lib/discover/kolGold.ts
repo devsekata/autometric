@@ -101,6 +101,15 @@ export interface GoldProfileCard {
   following: number | null
   mediaCount: number | null
   tier: string | null
+  /**
+   * Percentage change in followers between this snapshot and the account's
+   * previous one — `l1_silver.sp_build_unified_profile()` computes it and
+   * `kol_profile_card` carries it through unchanged. NOT a 30-day or monthly
+   * figure: the gap between snapshots is whatever the scraper produced (10-13
+   * days today), so it must be labelled "since last snapshot", never "monthly".
+   * Null when the account has only ever been scraped once.
+   */
+  followersGrowth: number | null
   /** When the pipeline took this snapshot — the honest "last refreshed". */
   snapshotDate: string | null
 }
@@ -219,6 +228,44 @@ export interface GoldFormatDay {
   erFollowers: number | null
 }
 
+/**
+ * The three audience-quality scores, from `feature.{ig,tt}_audience_analysis`.
+ *
+ * ── These are DERIVED, and the derivation is real ──────────────────────────
+ * They are not a platform report and not a vendor score. `skor_kualitas()` in
+ * `pipeline/audience_inference.py` computes them from the ~100 real followers
+ * the scraper samples per account, over attributes the platform actually
+ * returned for those followers:
+ *
+ *   followerQuality  share of sampled followers that look like accounts a
+ *                    person uses: they have a name, are not private, and carry
+ *                    a bio or a profile picture.
+ *   authenticity     share that do NOT match the bulk-account pattern -
+ *                    following more than 5x their own followers AND under 100
+ *                    followers themselves.
+ *   audienceQuality  the mean of the two. **Falls back to `followerQuality`
+ *                    alone when authenticity could not be computed**, so on any
+ *                    account in that state the two numbers are the same figure
+ *                    printed twice. Worth knowing before reading them as
+ *                    independent signals.
+ *
+ * So: category B, transparently derived from measured inputs - not the seeded
+ * `between(68, 96)` that `kolSample` used to produce for the same tiles.
+ *
+ * Every field is nullable and the pipeline means it: it returns `None` rather
+ * than 0 wherever the signal was unavailable, precisely so a zero is not read
+ * as "bad" when it means "not known".
+ *
+ * It is a SAMPLE of followers, not a census, and the UI says so.
+ */
+export interface GoldAudienceQuality {
+  followerQuality: number | null
+  authenticity: number | null
+  audienceQuality: number | null
+  /** Which platform's analysis row this came from, for the caveat line. */
+  platform: string | null
+}
+
 export interface KolGold {
   /** One card per account the creator owns; empty when L2 has none. */
   cards: GoldProfileCard[]
@@ -228,6 +275,8 @@ export interface KolGold {
   monthly: GoldMonthlyPoint[]
   /** Null when no audience inference exists for any of the creator's accounts. */
   audience: GoldAudience | null
+  /** Null when no `feature.*_audience_analysis` row exists for this creator. */
+  audienceQuality: GoldAudienceQuality | null
   /** Newest first, capped — see the query. Empty for a creator with no posts. */
   posts: GoldPost[]
   /** Oldest first, one row per format per day. */
@@ -326,7 +375,7 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest, posts, formats] =
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality] =
     await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
@@ -334,12 +383,13 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       website: string | null; is_verified: boolean | null; is_private: boolean | null
       followers_count: string | null; following_count: string | null
       media_count: string | null; tier: string | null
+      followers_growth: string | null
       profile_snapshot_date: Date | string | null
     }>(
       `SELECT c.platform, c.username, c.display_name, c.avatar_url, c.profile_url,
               c.bio, c.website, c.is_verified, c.is_private,
               c.followers_count, c.following_count, c.media_count, c.tier,
-              c.profile_snapshot_date
+              c.followers_growth, c.profile_snapshot_date
          FROM public.kol_social_account ksa
          JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
         WHERE ksa.kol_id = $1
@@ -515,6 +565,38 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         ORDER BY f.metric_date ASC`,
       [kolId],
     ),
+
+    /*
+     * The audience-quality scores. See `GoldAudienceQuality` for what they are
+     * and how the pipeline derives them.
+     *
+     * Instagram and TikTok keep separate analysis tables with identical score
+     * columns, so they are unioned and the newest row wins. `updated_at DESC`
+     * rather than a per-platform preference: whichever analysis ran most
+     * recently describes the creator's audience best, and preferring one
+     * platform would silently pick a stale reading over a fresh one.
+     */
+    db.query<{
+      follower_quality_score: string | null; authenticity_score: string | null
+      audience_quality_score: string | null; platform: string | null
+    }>(
+      `SELECT q.follower_quality_score, q.authenticity_score,
+              q.audience_quality_score, q.platform
+         FROM (
+           SELECT a.social_account_id, a.follower_quality_score, a.authenticity_score,
+                  a.audience_quality_score, 'instagram' AS platform, a.updated_at
+             FROM feature.ig_audience_analysis a
+            UNION ALL
+           SELECT a.social_account_id, a.follower_quality_score, a.authenticity_score,
+                  a.audience_quality_score, 'tiktok', a.updated_at
+             FROM feature.tt_audience_analysis a
+         ) q
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = q.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY q.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
   ])
 
   const hasAudience =
@@ -587,6 +669,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       following: num(r.following_count),
       mediaCount: num(r.media_count),
       tier: r.tier,
+      followersGrowth: num(r.followers_growth),
       snapshotDate: toDateOnly(r.profile_snapshot_date),
     })),
 
@@ -652,5 +735,20 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
     })),
 
     audience: hasAudience ? buildAudience() : null,
+
+    /*
+     * One row per creator, not per account. A creator holding both an Instagram
+     * and a TikTok account has two analyses; the newest wins rather than the two
+     * being averaged, because these are shares of two different follower
+     * samples and a mean of them describes no real audience.
+     */
+    audienceQuality: quality.rows.length
+      ? {
+        followerQuality: num(quality.rows[0].follower_quality_score),
+        authenticity: num(quality.rows[0].authenticity_score),
+        audienceQuality: num(quality.rows[0].audience_quality_score),
+        platform: quality.rows[0].platform,
+      }
+      : null,
   }
 }

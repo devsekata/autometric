@@ -1,32 +1,46 @@
 import type { KolDirectoryRow } from './kolDirectory'
 import type { KolMeasured } from './kolMeasured'
-import { sampleIntel, type SampleContentItem, type SampleIntel } from './kolSample'
 
 /**
- * One creator's intelligence, measured where the warehouse can measure it and
- * estimated everywhere else.
+ * One creator's intelligence — measured, or explicitly absent.
  *
- * `@/lib/discover/kolSample` used to be the whole answer: the roster carried
- * identity only, so every figure past follower count and engagement rate was
- * generated. That is no longer true — `l1_silver.unified_post` and
- * `l1_silver.unified_rate_card` hold real numbers for part of the roster (see
- * `@/lib/discover/kolMeasured`). This module is the seam between the two.
+ * ── What this module used to be ────────────────────────────────────────────
+ * An overlay. `sampleIntel()` generated a complete workspace payload and the
+ * measured values were written over the fields they covered, so a creator the
+ * warehouse had never harvested still got nine content cards, a six-month
+ * trend, likes, comments, views, shares and saves — each carrying an estimate
+ * marker. The marker was true and it was not enough: a reader comparing two
+ * creators reads the numbers, and the generated ones sat in the same grid, in
+ * the same type face, as the real ones.
  *
- * It works as an overlay rather than a replacement, and that is the important
- * part. The sample generator still runs first and fills the whole shape, so no
- * screen can end up with a hole in it; measured values are then written over the
- * fields they cover. A creator with ten harvested posts gets real likes, real
- * views, real formats and their real content grid, while their audience
- * breakdown and campaign history stay estimated — because those tables are
- * empty for everyone.
+ * ── What it is now ─────────────────────────────────────────────────────────
+ * A reader. Every performance and content figure below comes from
+ * `l1_silver.unified_post` through `@/lib/discover/kolMeasured`, and is `null`
+ * or `[]` when that creator has no rows. There is no generated fallback left
+ * in this path at all, which is why the fields became nullable rather than
+ * staying numbers.
  *
- * `real` is what the UI reads to decide whether to print the estimate marker.
- * It is deliberately per-field and not per-section: within Performance, likes
- * and views are measured while reach and saves are not, and one marker over the
- * whole card would either overclaim or underclaim.
+ * Coverage is small and the UI says so per card: of 7.432 active creators, 55
+ * have any harvested post, 32 have a post with views, 30 have hashtags, 11 have
+ * saves and 10 have shares. **Nobody has reach** — `unified_post.reach` is 0 in
+ * all 503 rows — so reach is unavailable here rather than derived from views.
+ * Views are not reach and are never relabelled as reach.
+ *
+ * Nothing in this module is generated any more. `growth` was the last such
+ * field and moved to the real `l2_gold.kol_profile_card.followers_growth` in
+ * Phase 4D; `@/lib/discover/kolSample` was deleted with it, so there is no
+ * generator left in Discover to fall back to even by accident.
  */
 
-/** Which figures on this creator came from a measurement rather than a model. */
+/**
+ * Which figures on this creator rest on a measurement.
+ *
+ * Still per-field rather than per-section, for the reason it always was: within
+ * Performance, likes and views can be measured while shares and saves are not.
+ * `reach` is retained and is **false for every creator** — the flag is what a
+ * future harvest would flip, and removing it would hide that the column exists
+ * and is empty.
+ */
 export interface RealFlags {
   likes: boolean
   comments: boolean
@@ -34,9 +48,9 @@ export interface RealFlags {
   reach: boolean
   shares: boolean
   saves: boolean
-  /** The format mix under Content, and the "strongest format" line on Profile. */
+  /** The format mix under Content. */
   formats: boolean
-  /** The recent/top content grids. */
+  /** The content grid. */
   content: boolean
   /** The creator's prices, from the KOL platform's own rate card. */
   rates: boolean
@@ -44,10 +58,82 @@ export interface RealFlags {
   hashtags: boolean
 }
 
-export interface CreatorIntel extends SampleIntel {
+/**
+ * One harvested post, as the content grid renders it.
+ *
+ * Every field is either the post's own value or null. It replaces
+ * `SampleContentItem`, which carried the same shape but filled the gaps from a
+ * generated item — so a real post could show a generated share count beside its
+ * real like count, with one marker covering both.
+ */
+export interface ContentItem {
+  /** The caption's first line; falls back to the format name, never to prose. */
+  title: string
+  caption: string | null
+  format: string
+  platform: string
+  /** ISO timestamp, or null when the harvest carried no date. */
+  postedAt: string | null
+  permalink: string | null
+  coverImage: string | null
+  views: number | null
+  likes: number | null
+  comments: number | null
+  shares: number | null
+  saves: number | null
+  /**
+   * Engagement over views for this post, in percent. Null unless BOTH are
+   * measured — a rate computed against an unmeasured denominator is not a rate.
+   */
+  erPct: number | null
+  hashtags: string[]
+  /** The platform's own paid-partnership flag. */
+  sponsored: boolean
+}
+
+export interface CreatorIntel {
   real: RealFlags
   /** Passed through so components can show the basis ("dari 10 post"). */
   measured: KolMeasured | null
+
+  /** Per-post averages over the harvested set. Null when nothing was harvested. */
+  kpi: {
+    avgViews: number | null
+    avgLikes: number | null
+    avgComments: number | null
+    /**
+     * Always null. `unified_post.reach` is 0 in all 503 harvested rows, and no
+     * other table on this server carries a per-post reach. Kept as a field so
+     * the absence is explicit rather than a missing key.
+     */
+    avgReach: null
+  }
+
+  /** Totals over the harvested set. Null per metric where unmeasured. */
+  performance: {
+    likes: number | null
+    comments: number | null
+    views: number | null
+    shares: number | null
+    saves: number | null
+    /** Always null — see `kpi.avgReach`. */
+    reach: null
+    /** Always null: no impressions column exists on this server. */
+    impressions: null
+  }
+
+  content: {
+    /** Newest first. Empty when this creator has no harvested posts. */
+    recent: ContentItem[]
+    /** The same posts ordered by views. Empty when none carry views. */
+    top: ContentItem[]
+    /** Real format mix from the harvest. Empty when nothing was harvested. */
+    formats: { label: string; pct: number; n: number }[]
+    /** Real tags counted across the harvest. Empty when none carry tags. */
+    hashtags: { tag: string; n: number }[]
+    /** Posts per 30 days across the harvest window. Null below two posts. */
+    postsPer30d: number | null
+  }
 }
 
 /**
@@ -66,63 +152,79 @@ const NONE: RealFlags = {
   formats: false, content: false, rates: false, hashtags: false,
 }
 
-/**
- * Turns a measured post into the shape the content grids already render.
- *
- * The fields the warehouse cannot fill — shares, saves, per-post engagement rate
- * and sentiment — keep the sampled values they would have had, rather than
- * becoming zero. A zero would be a claim; the estimate marker beside them is the
- * truth. `fallback` is the sampled item this one displaces, which is what those
- * fields are taken from.
- */
-function measuredItem(
-  post: KolMeasured['recent'][number],
-  fallback: SampleContentItem,
-  platform: string,
-): SampleContentItem {
+const EMPTY_CONTENT: CreatorIntel['content'] = {
+  recent: [], top: [], formats: [], hashtags: [], postsPer30d: null,
+}
+
+const EMPTY_KPI: CreatorIntel['kpi'] = {
+  avgViews: null, avgLikes: null, avgComments: null, avgReach: null,
+}
+
+const EMPTY_PERFORMANCE: CreatorIntel['performance'] = {
+  likes: null, comments: null, views: null, shares: null, saves: null,
+  reach: null, impressions: null,
+}
+
+/** Turns one harvested post into the grid's shape. Nothing is filled in. */
+function toItem(post: KolMeasured['recent'][number], platform: string): ContentItem {
   const caption = post.caption?.trim() ?? ''
   return {
-    ...fallback,
-    // A caption is the only title these posts have; the first line of it reads
-    // as a headline, and the full text stays in `caption` for the overlay.
+    // A caption is the only title these posts have; its first line reads as a
+    // headline. With no caption the format name is used — a label, not a claim.
     title: caption ? caption.split('\n')[0].slice(0, 80) : `Post ${post.format}`,
-    caption: caption || fallback.caption,
+    caption: caption || null,
     format: post.format,
-    // Only override when the post actually carries tags: 143 of the 221
-    // harvested posts have none, and an empty row would read as "we looked and
-    // this post used no tags" when the harvest simply did not capture them.
-    hashtags: post.hashtags.length ? post.hashtags.map(t => `#${t}`) : fallback.hashtags,
-    views: post.views ?? fallback.views,
-    likes: post.likes ?? fallback.likes,
-    comments: post.comments ?? fallback.comments,
-    postedAt: post.date ?? fallback.postedAt,
-    platform,
-    measured: true,
+    platform: post.mediaType ? platform : platform,
+    postedAt: post.date,
     permalink: post.permalink,
     coverImage: post.coverImage,
-    // Only these two are real on a measured item; the rest stay estimated.
-    measuredFields: [
-      ...(post.views !== null ? ['views'] : []),
-      ...(post.likes !== null ? ['likes'] : []),
-      ...(post.comments !== null ? ['comments'] : []),
-    ],
+    views: post.views,
+    likes: post.likes,
+    comments: post.comments,
+    shares: post.shares,
+    saves: post.saves,
+    erPct: post.views !== null && post.views > 0 && post.likes !== null
+      ? Math.round(((post.likes + (post.comments ?? 0)) / post.views) * 1000) / 10
+      : null,
+    hashtags: post.hashtags.map(t => `#${t}`),
+    sponsored: post.sponsored,
   }
+}
+
+/**
+ * Posting cadence across the harvest window, per 30 days.
+ *
+ * Needs at least two posts and a window of at least a day: a single post has no
+ * cadence, and dividing by a zero-length window produces an arithmetic artefact
+ * rather than a rate. Null in both cases.
+ */
+function postsPer30d(m: KolMeasured): number | null {
+  if (m.postCount < 2 || !m.firstPostAt || !m.lastPostAt) return null
+  const days = (new Date(m.lastPostAt).getTime() - new Date(m.firstPostAt).getTime()) / 86_400_000
+  if (!Number.isFinite(days) || days < 1) return null
+  return Math.round((m.postCount / days) * 30 * 10) / 10
 }
 
 export function creatorIntel(
   creator: KolDirectoryRow,
   measured: KolMeasured | null,
 ): CreatorIntel {
-  const base = sampleIntel(creator)
-  if (!measured) return { ...base, real: NONE, measured: null }
+  if (!measured) {
+    return {
+      real: NONE,
+      measured: null,
+      kpi: EMPTY_KPI,
+      performance: EMPTY_PERFORMANCE,
+      content: EMPTY_CONTENT,
+    }
+  }
 
   /**
    * Defaulted rather than destructured bare. `measured` arrives over the wire
    * from `/api/…/kol-directory/[kolId]`, so a client holding a newer bundle than
    * the payload it was served — a hot reload mid-edit, a deploy landing between
    * the page load and the fetch — would otherwise read `.length` off `undefined`
-   * and take the whole workspace down with it. `KolDirectoryPage.statusOf`
-   * guards the same class of failure for the same reason.
+   * and take the whole workspace down with it.
    */
   const totals = measured.totals ?? {}
   const averages = measured.averages ?? {}
@@ -132,50 +234,48 @@ export function creatorIntel(
   const hashtags = measured.hashtags ?? []
   const platform = creator.platform ?? 'instagram'
 
-  const real: RealFlags = {
-    likes: totals.likes != null,
-    comments: totals.comments != null,
-    views: totals.views != null,
-    reach: totals.reach != null,
-    shares: totals.shares != null,
-    saves: totals.saved != null,
-    formats: formats.length > 0,
-    content: recent.length > 0,
-    rates: rates.length > 0,
-    hashtags: hashtags.length > 0,
-  }
-
-  const items = recent.map((p, i) =>
-    measuredItem(p, base.content.recent[i] ?? base.content.recent[0], platform))
+  const items = recent.map(p => toItem(p, platform))
 
   return {
-    ...base,
-    real,
     measured,
+    real: {
+      likes: totals.likes != null,
+      comments: totals.comments != null,
+      views: totals.views != null,
+      // False for everybody; see `RealFlags.reach`.
+      reach: totals.reach != null,
+      shares: totals.shares != null,
+      saves: totals.saved != null,
+      formats: formats.length > 0,
+      content: items.length > 0,
+      rates: rates.length > 0,
+      hashtags: hashtags.length > 0,
+    },
     kpi: {
-      ...base.kpi,
-      avgViews: averages.views ?? base.kpi.avgViews,
-      // Reach is never harvested, so it stays modelled — and stays marked.
-      avgReach: base.kpi.avgReach,
+      avgViews: averages.views ?? null,
+      avgLikes: averages.likes ?? null,
+      avgComments: averages.comments ?? null,
+      avgReach: null,
     },
     performance: {
-      ...base.performance,
-      likes: totals.likes ?? base.performance.likes,
-      comments: totals.comments ?? base.performance.comments,
-      shares: totals.shares ?? base.performance.shares,
-      saves: totals.saved ?? base.performance.saves,
+      likes: totals.likes ?? null,
+      comments: totals.comments ?? null,
+      views: totals.views ?? null,
+      shares: totals.shares ?? null,
+      saves: totals.saved ?? null,
+      reach: null,
+      impressions: null,
     },
     content: {
-      ...base.content,
-      formats: formats.length
-        ? formats.map(f => ({ label: f.label, pct: f.pct }))
-        : base.content.formats,
-      recent: items.length ? items : base.content.recent,
-      // "Top" is the same posts ordered by reach-of-record; with only ten of
-      // them, sorting the real set beats showing a modelled one.
-      top: items.length
-        ? [...items].sort((a, b) => b.views - a.views).slice(0, base.content.top.length)
-        : base.content.top,
+      recent: items,
+      // Ordered by views, and only over the posts that carry one — sorting an
+      // unmeasured post to the bottom would read as "this post did badly".
+      top: items.filter(i => i.views !== null)
+        .sort((a, b) => (b.views as number) - (a.views as number))
+        .slice(0, 3),
+      formats,
+      hashtags,
+      postsPer30d: postsPer30d(measured),
     },
   }
 }

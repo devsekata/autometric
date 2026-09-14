@@ -49,6 +49,9 @@ const TERMS = [
   'Pembayaran diproses lewat payment gateway; data kartu tidak disimpan di sini.',
 ]
 
+/** Shown wherever the warehouse holds no reading. Never '0', never 'null'. */
+const NOT_MEASURED = 'Belum terukur'
+
 export default function KolRateCard({
   orgId, profile, data, onGoToCart,
 }: {
@@ -147,7 +150,12 @@ export default function KolRateCard({
       <div className="grid grid-cols-4 gap-3">
         <Mini label="Platform" value={a.platform} icon={PLATFORM_ICON[a.platform] ?? 'public'} />
         <Mini label="Format utama" value={profile.topFormat.value} icon="movie" />
-        <Mini label="Est. reach / konten" value={fmtNum(profile.estimatedReach.value)} icon="visibility"
+        {/* Reach is nullable now. The confidence badge still travels with it,
+            because its three states - measured reach, calculated from measured
+            views, unavailable - are exactly what a buyer needs to read here. */}
+        <Mini label="Reach / konten"
+          value={profile.estimatedReach.value === null ? NOT_MEASURED : fmtNum(profile.estimatedReach.value)}
+          icon="visibility"
           badge={<ConfidenceBadge confidence={profile.estimatedReach.confidence} basis={profile.estimatedReach.basis} compact />} />
         <Mini label="Engagement rate" value={`${profile.erPct.value.toFixed(2)}%`} icon="bolt"
           badge={<ConfidenceBadge confidence={profile.erPct.confidence} basis={profile.erPct.basis} compact />} />
@@ -217,11 +225,11 @@ export default function KolRateCard({
                       </div>
                       <div className="flex-1" />
                       <div className="text-right min-w-[92px]">
-                        <div style={PJ} className="text-[11.5px] font-bold text-[#374151] tabular-nums">{fmtNum(reach)}</div>
+                        <div style={PJ} className="text-[11.5px] font-bold text-[#374151] tabular-nums">{reach === null ? NOT_MEASURED : fmtNum(reach)}</div>
                         <div className="text-[9.5px] text-[#9ca3af]">est. reach</div>
                       </div>
                       <div className="text-right min-w-[92px]">
-                        <div style={PJ} className="text-[11.5px] font-bold text-[#374151] tabular-nums">{fmtNum(engagement)}</div>
+                        <div style={PJ} className="text-[11.5px] font-bold text-[#374151] tabular-nums">{engagement === null ? NOT_MEASURED : fmtNum(engagement)}</div>
                         <div className="text-[9.5px] text-[#9ca3af]">est. engagement</div>
                       </div>
                       <div className="text-right min-w-[110px]">
@@ -267,7 +275,10 @@ export default function KolRateCard({
                 <Mini label="Post tersinkron" value={String(profile.posts.value)} icon="grid_view" />
                 <Mini label="Rata-rata views" value={fmtNum(profile.avgViews.value)} icon="visibility" />
                 <Mini label="Rasio konten berbayar" value={`${profile.paidRatio.value.toFixed(0)}%`} icon="sell" />
-                <Mini label="Brand fit" value={String(profile.brandFit.value)} icon="handshake" />
+                {/* Was "Brand fit", generated from a hash of the account id.
+                    Replaced by the account's real tier, from its real follower
+                    count on the latest profile snapshot. */}
+                <Mini label="Tier" value={profile.tier.value ?? 'Belum terukur'} icon="workspace_premium" />
               </div>
               <div className="px-4 pb-4">
                 <p className="text-[10.5px] text-[#9ca3af]">

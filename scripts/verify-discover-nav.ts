@@ -55,14 +55,15 @@ const legacy: [string | null, string | null, string, string | null][] = [
   ['accounts', null, 'directory', 'tracked'],
   ['creators', 'roster', 'directory', 'mine'],
   ['directory', 'roster', 'directory', 'database'],
-  // dashboard yang sempat berdiri di depan direktori
-  ['directory', 'hub', 'directory', 'database'],
+  // Discover Dashboard — view pertama tab directory, jadi landing modul
+  ['directory', 'hub', 'directory', 'hub'],
   ['cart', null, 'order', 'cart'],
   ['ratecard', null, 'directory', 'ratecard'],
   ['campaigns', null, 'campaign', null],
   ['content', null, 'directory', 'content'],
-  // nilai yang tidak dikenal mendarat di depan, bukan 404
-  ['nonsense', null, 'directory', 'database'],
+  // nilai yang tidak dikenal mendarat di depan, bukan 404 — dan "depan"
+  // sekarang adalah Discover Dashboard, view pertama tab default
+  ['nonsense', null, 'directory', 'hub'],
 ]
 for (const [rt, rv, wt, wv] of legacy) {
   const r = resolveTabParams(rt, rv)

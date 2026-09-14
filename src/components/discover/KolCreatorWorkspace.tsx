@@ -42,10 +42,14 @@ import {
   AiSection, AudienceSection, BrandFitSection, CampaignSection, ContentSection,
   PerformanceSection, platformLabel, type SectionProps,
 } from './KolCreatorSections'
+import { useCreatorLinks } from './useCreatorLinks'
+import { useDiscoverFavorites } from './useDiscoverFavorites'
 import { creatorIntel, measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import { tabHref } from '@/lib/discover/tabs'
-import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
+import type { KolCreatorPayload, KolDirectoryPayload } from '@/lib/discover/kolDirectory'
+import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
 import type { KolMeasuredRate } from '@/lib/discover/kolMeasured'
+import type { CreatorLink, TrackingStatus } from '@/lib/discover/types'
 
 /**
  * The creator navigation. Report is absent on purpose — it is an action in the
@@ -74,7 +78,45 @@ export default function KolCreatorWorkspace({
   const [reload, setReload] = useState(0)
   const [view, setView] = useState<NavId>('profile')
 
-  const [fav, setFav] = useState(false)
+  /**
+   * Favourite, My Creators and tracking — all three kept where they belong.
+   *
+   * Favourite was a bare `useState` here, so starring a creator lasted until the
+   * page was left; it is the same personal, server-side set the Creator Database
+   * uses. My Creators and tracking are the organization's two standing decisions
+   * about this creator, and this is the screen where somebody who has just read
+   * the profile decides to make one.
+   */
+  /**
+   * The Brand Match Engine's verdict on this creator, for the Brand Fit view.
+   *
+   * Fetched through the directory endpoint with an explicit `ids=` — the same
+   * route, the same engine and therefore the same number the Creator Database
+   * card showed, rather than a second scoring path that could drift from it.
+   * `null` means the workspace has no saved Brand Profile; the section says so.
+   */
+  const [match, setMatch] = useState<MatchExplanation | null>(null)
+  const [matchScoreable, setMatchScoreable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${kolId}&match=1`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: KolDirectoryPayload | null) => {
+        if (cancelled || !d) return
+        setMatch(d.match?.rows[kolId] ?? null)
+        setMatchScoreable(d.match?.scoreable ?? false)
+      })
+      .catch(() => { if (!cancelled) setMatchScoreable(false) })
+    return () => { cancelled = true }
+  }, [orgId, kolId])
+
+  const favorites = useDiscoverFavorites(orgId)
+  const links = useCreatorLinks(orgId)
+  const fav = favorites.has('roster', kolId)
+  const inRoster = links.inRoster('roster', kolId)
+  const tracking = links.trackingOf('roster', kolId)
+
   const [compareTray, setCompareTray] = useState(false)
   const [campaignOpen, setCampaignOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
@@ -167,7 +209,33 @@ export default function KolCreatorWorkspace({
       ) : (
         <Loaded
           data={data} intel={intel} view={view} goTo={goTo}
-          fav={fav} setFav={setFav}
+          match={match} matchScoreable={matchScoreable} orgSlug={orgSlug}
+          fav={fav}
+          onFav={() => {
+            favorites.toggle('roster', kolId)
+            setToast(fav ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit')
+          }}
+          inRoster={inRoster}
+          onRoster={async () => {
+            const ok = await links.setRoster('roster', kolId, !inRoster)
+            setToast(!ok
+              ? 'Gagal memperbarui My Creators'
+              : inRoster
+                ? 'Dikeluarkan dari My Creators — creator tetap ada di Creator Database'
+                : 'Ditambahkan ke My Creators')
+          }}
+          tracking={tracking}
+          onTracking={async () => {
+            const next = tracking === 'active' ? 'paused' : 'active'
+            const ok = await links.setTracking('roster', kolId, next)
+            setToast(!ok
+              ? 'Gagal memperbarui tracking'
+              : next === 'active'
+                ? (tracking === 'paused' ? 'Tracking dilanjutkan' : 'Creator mulai dipantau — lihat di Tracked Accounts')
+                : 'Tracking dijeda')
+          }}
+          linkBusy={links.busy.has(`roster:${kolId}`)}
+          link={links.byKey.get(`roster:${kolId}`) ?? null}
           onCompare={() => { setCompareTray(true); setToast('Ditambahkan ke compare') }}
           onAddCampaign={() => setCampaignOpen(true)}
           onReport={() => setReportOpen(true)}
@@ -192,7 +260,8 @@ export default function KolCreatorWorkspace({
 
           <KolCreatorReport
             open={reportOpen} onClose={() => setReportOpen(false)}
-            creator={data.creator} rank={data.rank} platforms={data.platforms} intel={intel} />
+            creator={data.creator} rank={data.rank} platforms={data.platforms} intel={intel}
+            match={match} />
         </>
       )}
 
@@ -226,14 +295,29 @@ export default function KolCreatorWorkspace({
 /* ── loaded page ──────────────────────────────────────────────────────────── */
 
 function Loaded({
-  data, intel, view, goTo, fav, setFav, onCompare, onAddCampaign, onReport, addedTo, setToast,
+  data, intel, view, goTo, fav, onFav, inRoster, onRoster, tracking, onTracking, linkBusy, link,
+  onCompare, onAddCampaign, onReport, addedTo, setToast, match, matchScoreable, orgSlug,
 }: {
   data: KolCreatorPayload
   intel: CreatorIntel
+  /** The Brand Match Engine's verdict; see the state that fetches it above. */
+  match: MatchExplanation | null
+  matchScoreable: boolean | null
+  orgSlug: string
   view: NavId
   goTo: (id: string) => void
   fav: boolean
-  setFav: (f: (v: boolean) => boolean) => void
+  onFav: () => void
+  /** In this organization's My Creators. */
+  inRoster: boolean
+  onRoster: () => void
+  /** Whether this organization monitors the creator, and how. */
+  tracking: TrackingStatus
+  onTracking: () => void
+  /** A roster or tracking write is in flight; both buttons wait it out. */
+  linkBusy: boolean
+  /** The link row itself, for the dates. Null when this org has no relationship. */
+  link: CreatorLink | null
   onCompare: () => void
   onAddCampaign: () => void
   onReport: () => void
@@ -241,7 +325,39 @@ function Loaded({
   setToast: (s: string) => void
 }) {
   const { creator, identity, rank, platforms, similar } = data
-  const sectionProps: SectionProps = { creator, identity, rank, platforms, similar, intel, gold: data.gold }
+
+  /**
+   * How old the numbers on this page are.
+   *
+   * The creator's own record, not the link row: `lastCheckedAt` there records
+   * when somebody pressed Refresh, and the pipeline runs for minutes after
+   * that — so merging the two would date this page by a request rather than by
+   * the data it is showing.
+   */
+  /**
+   * Real follower growth, from `l2_gold.kol_profile_card.followers_growth`.
+   *
+   * The pipeline defines it as (now - prev) / prev * 100 between two
+   * CONSECUTIVE SNAPSHOTS, and its own docs stress that this is not a fixed
+   * window — the gap is whatever the scraper produced, 10-13 days today. So it
+   * is never labelled monthly. Null for the creators scraped only once, which
+   * is 7.407 of 7.432.
+   *
+   * The card matching this creator's own platform wins; `kolGold` returns one
+   * per linked account ordered by followers.
+   */
+  const growthCard = (data.gold?.cards ?? []).find(c => c.platform === creator.platform)
+    ?? (data.gold?.cards ?? [])[0] ?? null
+  const realGrowth = growthCard?.followersGrowth ?? null
+  const growthNote = realGrowth === null
+    ? 'Growth belum terukur'
+    : `${realGrowth > 0 ? '▲' : realGrowth < 0 ? '▼' : ''} ${realGrowth.toFixed(2)}% sejak snapshot sebelumnya`
+
+  const lastUpdated = creator.lastRefreshedAt
+  const sectionProps: SectionProps = {
+    creator, identity, rank, platforms, similar, intel, gold: data.gold,
+    match, matchScoreable, orgSlug,
+  }
   const name = identity.displayName ?? `@${creator.username}`
 
   const estReach = creator.followers !== null && creator.erPct !== null
@@ -284,10 +400,13 @@ function Loaded({
                 <h1 style={{ ...PJ, color: T.t1 }} className="text-[20px] font-extrabold tracking-[-0.02em]">
                   {name}
                 </h1>
-                {creator.verified && (
+                {/* Connected, not verified: the badge means the creator linked
+                    the account through OAuth, so the glyph is a link rather
+                    than a check that would read as a platform blue tick. */}
+                {creator.connected && (
                   <span style={{ ...PJ, background: '#eaf5ef', color: '#3d8a5f' }}
                     className="inline-flex items-center gap-1 text-[9.5px] font-extrabold px-2 py-0.5 rounded-full">
-                    <span className="material-symbols-outlined text-[12px]">verified</span>Verified
+                    <span className="material-symbols-outlined text-[12px]">link</span>Connected
                   </span>
                 )}
                 {creator.tier && (
@@ -337,11 +456,70 @@ function Loaded({
                 Demo profile · Sample data
               </span>
               <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite" on={fav}
-                onClick={() => { setFav(f => !f); setToast(fav ? 'Dihapus dari favorit' : 'Creator added to Favorites') }} />
+                onClick={onFav} />
+              {/* The organization's two decisions, beside the personal one.
+                  Saving puts the creator in My Creators without copying their
+                  record anywhere; tracking is what puts them in Tracked
+                  Accounts, and opening this page does neither. */}
+              <ActionBtn
+                icon={inRoster ? 'folder_shared' : 'create_new_folder'}
+                label={inRoster ? 'In My Creators' : 'Add to My Creators'}
+                on={inRoster} disabled={linkBusy} onClick={onRoster} />
+              <ActionBtn
+                icon={tracking === 'active' ? 'pause_circle' : tracking === 'paused' ? 'play_circle' : 'monitor_heart'}
+                label={tracking === 'active' ? 'Pause Tracking' : tracking === 'paused' ? 'Resume Tracking' : 'Start Tracking'}
+                on={tracking === 'active'} disabled={linkBusy} onClick={onTracking} />
               <ActionBtn icon="compare" label="Compare" onClick={onCompare} />
               <ActionBtn icon="lab_profile" label="Report" onClick={onReport} />
               <ActionBtn icon="add" label="Add to Campaign" primary onClick={onAddCampaign} />
             </div>
+          </div>
+
+          {/* Monitoring, stated rather than implied.
+              Opening a profile is not tracking and neither is being in the
+              database, so the strip says which of the three states this creator
+              is in for this organization, and when their numbers were last
+              collected. `Next update` appears only if the link row carries one:
+              no scheduler runs today, and printing a due date nobody will honour
+              is the one thing here a reader would act on and be wrong about. */}
+          <div className="mt-3 flex items-center gap-3 flex-wrap text-[11px]" style={{ color: T.t3 }}>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[15px]"
+                style={{
+                  color: tracking === 'active' ? '#3d8a5f' : tracking === 'paused' ? '#b5761f' : T.t4,
+                }}>
+                {tracking === 'active' ? 'monitor_heart' : tracking === 'paused' ? 'pause_circle' : 'radar'}
+              </span>
+              Monitoring:{' '}
+              <b style={{ color: T.t2 }}>
+                {tracking === 'active' ? 'Active' : tracking === 'paused' ? 'Paused' : 'Not tracked'}
+              </b>
+            </span>
+            <span style={{ color: '#d1d5db' }}>·</span>
+            <span>
+              Last updated:{' '}
+              <b style={{ color: T.t2 }}>
+                {lastUpdated ? new Date(lastUpdated).toLocaleDateString('id-ID') : 'belum pernah'}
+              </b>
+            </span>
+            {link?.nextCheckAt && (
+              <>
+                <span style={{ color: '#d1d5db' }}>·</span>
+                <span>
+                  Next update:{' '}
+                  <b style={{ color: T.t2 }}>{new Date(link.nextCheckAt).toLocaleDateString('id-ID')}</b>
+                </span>
+              </>
+            )}
+            {inRoster && (
+              <>
+                <span style={{ color: '#d1d5db' }}>·</span>
+                <span className="inline-flex items-center gap-1" style={{ color: T.primaryDeep }}>
+                  <span className="material-symbols-outlined text-[14px]">folder_shared</span>
+                  In My Creators
+                </span>
+              </>
+            )}
           </div>
 
           {addedTo && (
@@ -357,7 +535,7 @@ function Loaded({
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
         <BigKpi label="Followers"
           value={creator.followers === null ? '—' : fmtNum(creator.followers)}
-          note={`▲ ${intel.growth.monthly}% / bulan`} noteSample
+          note={growthNote}
           sub={`#${rank.followersRank.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')} creator`} />
         <BigKpi label="Engagement Rate"
           value={creator.erPct === null ? 'belum diukur' : `${creator.erPct.toFixed(2)}%`}
@@ -381,8 +559,11 @@ function Loaded({
               ? `termurah dari ${rateCount} deliverable · rate card database KOL`
               : 'dari rate card database KOL'} />
         ) : (
-          <BigKpi label="Est. Media Value" value={`$${fmtNum(intel.kpi.emvUsd)}`}
-            note="per campaign" sample sub="creator ini belum punya rate card di database KOL" />
+          /* EMV had no source anywhere: it was engagement times a CPM drawn from
+             a hash. Phase 2B reached the same conclusion for Tracked Accounts,
+             and no benchmark exists on either server to recompute it from. */
+          <BigKpi label="Est. Media Value" value="Belum terukur"
+            note="butuh benchmark CPM" sub="creator ini belum punya rate card di database KOL" />
         )}
       </div>
 
@@ -390,13 +571,36 @@ function Loaded({
       <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
         <StatTile label="Reach" value={estReach === null ? '—' : fmtNum(estReach)}
           hint="followers × ER" />
-        <StatTile label="Avg. Views" value={fmtNum(intel.kpi.avgViews)}
-          hint={intel.real.views ? viewsBasis : 'avg / post'} sample={!intel.real.views} />
-        <StatTile label="CPE" value={`$${(intel.kpi.emvUsd / Math.max(1, intel.performance.likes)).toFixed(2)}`}
-          hint="per engagement" sample />
-        <StatTile label="Audience Quality" value={`${intel.audience.qualityScore}`} hint="/ 100" sample />
-        <StatTile label="Authenticity" value={`${intel.audience.authenticity}%`} hint="real" sample />
-        <StatTile label="Growth Rate" value={`${intel.growth.monthly}%`} hint="per month" sample />
+        <StatTile label="Avg. Views"
+          value={intel.kpi.avgViews === null ? 'Belum terukur' : fmtNum(intel.kpi.avgViews)}
+          hint={intel.kpi.avgViews === null ? undefined : viewsBasis} />
+        {/* CPE is EMV over engagement; with no EMV there is no CPE. */}
+        <StatTile label="CPE" value="Belum terukur" hint="butuh EMV" />
+        {/* Real scores now, from `feature.*_audience_analysis` via `kolGold`
+            (see `GoldAudienceQuality`). Both used to come from `kolSample`.
+            Null for the ~99.6% of the roster the pipeline has not analysed. */}
+        <StatTile
+          label="Audience Quality"
+          value={data.gold?.audienceQuality?.audienceQuality == null
+            ? 'Belum terukur'
+            : `${data.gold.audienceQuality.audienceQuality}`}
+          hint="/ 100 · sampel follower" />
+        <StatTile
+          label="Authenticity"
+          value={data.gold?.audienceQuality?.authenticity == null
+            ? 'Belum terukur'
+            : `${data.gold.audienceQuality.authenticity}%`}
+          hint="sampel follower" />
+        {/* Was `intel.growth.monthly`, generated, labelled "per month".
+            The real column measures the change between two consecutive
+            snapshots - about 10-13 days apart today - so calling it monthly was
+            wrong twice over. 25 of 7.432 creators have a second snapshot. */}
+        <StatTile
+          label="Growth"
+          value={realGrowth === null
+            ? 'Belum terukur'
+            : `${realGrowth > 0 ? '+' : ''}${realGrowth.toFixed(2)}%`}
+          hint={realGrowth === null ? 'butuh dua snapshot' : 'sejak snapshot sebelumnya'} />
       </div>
 
       {/* ── creator navigation + the view it selects ── */}
@@ -428,7 +632,8 @@ function Loaded({
           {view === 'content' && <ContentSection {...sectionProps} />}
           {view === 'analytics' && <PerformanceSection {...sectionProps} />}
           {view === 'audience' && <AudienceSection {...sectionProps} />}
-          {view === 'campaigns' && <CampaignSection {...sectionProps} />}
+          {/* Takes no props now: there is no campaign data to pass. */}
+          {view === 'campaigns' && <CampaignSection />}
           {/* Brand Fit is the scoring half of AI Insights, so the two share a
               view rather than splitting one argument across two nav rows. */}
           {view === 'ai' && (
@@ -615,15 +820,22 @@ function CreatorSkeleton() {
 }
 
 function ActionBtn({
-  icon, label, onClick, primary, on,
-}: { icon: string; label?: string; onClick: () => void; primary?: boolean; on?: boolean }) {
+  icon, label, onClick, primary, on, disabled,
+}: {
+  icon: string; label?: string; onClick: () => void
+  primary?: boolean; on?: boolean
+  /** A write is in flight. The button greys rather than queueing a second one. */
+  disabled?: boolean
+}) {
   return (
-    <button type="button" onClick={onClick} title={label ?? icon}
+    <button type="button" onClick={onClick} title={label ?? icon} disabled={disabled}
       style={{
         ...PJ,
         background: primary ? T.primary : on ? T.surfaceVariant : VIZ.surface,
         borderColor: primary ? T.primary : on ? T.primary : T.outline,
         color: primary ? '#fff' : on ? T.primaryDeep : T.t2,
+        opacity: disabled ? 0.55 : 1,
+        cursor: disabled ? 'default' : 'pointer',
       }}
       className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11.5px] font-bold hover:brightness-[.98]">
       <span className="material-symbols-outlined text-[15px]">{icon}</span>

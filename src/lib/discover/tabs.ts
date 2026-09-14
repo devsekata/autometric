@@ -41,11 +41,14 @@
  * first. Only the tracked accounts have post-level history, which is why the
  * analysis views hang off them.
  *
- * So this entry lands on the commercial directory, exactly as the source's does,
- * and the other three sit in a sub-strip above it. There was a version where a
- * dashboard stood in front of all four instead; it answered "what do we already
- * have?" before anyone had asked, and put a page between the sidebar entry and
- * the list that entry is named after.
+ * A dashboard stands in front of the four, and the segment strip lists all five.
+ * An earlier version of this comment argued against exactly that — it answered
+ * "what do we already have?" before anyone had asked, and put a page between the
+ * sidebar entry and the list it is named after. What changed is that the
+ * dashboard now answers questions the roster cannot: how much of the database is
+ * new this month, how many creators this workspace has saved, how many it is
+ * tracking, and a search box that reaches the whole database. The roster is one
+ * press away in the strip, and `?view=database` still opens it directly.
  *
  * The URL is `?tab=<tab>&view=<view>`. Two params rather than one flat value:
  * `view` ids are namespaced by their tab, so `content` can mean Discovery
@@ -134,6 +137,23 @@ export const DISCOVER_TABS: DiscoverTab[] = [
     group: 'kol',
     subtitle: 'Explore and manage creators available in your workspace and database.',
     views: [
+      /**
+       * The module's landing: what this workspace has, what is new in the
+       * database, and shelves of creators to open.
+       *
+       * It carries a `view` id rather than being drawn whenever `view` is null,
+       * which is what it used to rely on. That condition could never be true —
+       * `resolveTabParams` resolves every bare Discovery URL to the tab's first
+       * visible view — so the screen existed, was maintained, and never once
+       * rendered. Being first in this list is what makes it the landing, by the
+       * same rule every other tab already follows.
+       */
+      {
+        id: 'hub',
+        label: 'Discover Dashboard',
+        icon: 'space_dashboard',
+        subtitle: 'What your workspace has, what is new in the creator database, and where to go next.',
+      },
       {
         // The commercial platform's ~7.7k creators: the big searchable list.
         id: 'database',

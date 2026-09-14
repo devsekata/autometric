@@ -7,11 +7,35 @@
  * a sticky 248px panel with accordion sections that stays open while you browse
  * (never a blocking overlay), collapsing to a vertical tab on the right edge.
  *
- * The reference panel offers sections this roster has no columns for —
- * audience demographics, authenticity, brand fit, paid ratio, campaigns run,
- * rate card, format. Those are left out rather than shipped as controls that
- * filter nothing; what remains is exactly what `public.kol_directory` can
- * answer: platform, tier, followers, engagement, category, verified.
+ * The reference panel offers sections this roster has no data for. They are
+ * rendered disabled with the reason rather than shipped as controls that filter
+ * nothing — and the reason is a measured number, taken 8 Sep 2026 against the
+ * 7.720 active creators:
+ *
+ *   * audience age / gender / location / interest — 23 creators
+ *     (`l2_gold.audience_*_daily`, `feature.ig|tt_audience_analysis`)
+ *   * authenticity & audience quality — the same 23
+ *   * brand fit — `feature.brand_fit_analysis` holds 0 rows
+ *   * content format — 56 creators (`l2_gold.content_format_daily`)
+ *   * creator location — `kol_directory.creator_city` is non-null for 0
+ *   * campaigns run — `public.campaign_kols` holds 0 rows
+ *
+ * Rate card used to head that list and no longer does: `l1_silver.unified_rate_card`
+ * holds 8.856 priced deliverables over 6.959 creators since 13 Sep 2026. The
+ * `kol_profile_card.rate_card_*` columns are still null for every row, which is
+ * by design — the directory reads L1 directly and those Gold columns are not a
+ * second source for the same figure.
+ *
+ * What remains is what the roster answers for a usable share of itself:
+ * platform, category, tier, followers (min AND max), engagement rate, rate card,
+ * follower growth, and the two recency bounds the Section Tabs use.
+ *
+ * Two of those carry a caveat rather than a disabled state. Growth is real but
+ * thin — it needs two profile snapshots and only ~25 creators have them — and
+ * Connected, which replaced the platform's blue tick, is real but currently
+ * false for everyone, because no creator has been through the connect flow yet.
+ * Both are shown with the number written on them: a control that narrows to
+ * nothing is defensible when it says so, and indefensible when it does not.
  */
 
 import { PJ, TOKENS as T, fmtNum } from './ui'
@@ -33,6 +57,14 @@ export interface KolFilters {
   tiers: string[]
   /** Absolute follower count, picked from FOLLOWER_STEPS. */
   follMin: number
+  /**
+   * Upper follower bound, from the same scale. 0 means no ceiling.
+   *
+   * The reference panel has had `follMax` since the beginning; this one only
+   * ever carried the lower half, which made "show me creators under 100K" a
+   * question you could not ask. It is the filter behind Emerging Creators.
+   */
+  follMax: number
   /** Percentage points. */
   erMin: number
   /**
@@ -41,13 +73,54 @@ export interface KolFilters {
    * price under a number cannot be satisfied by the absence of a price.
    */
   maxRate: number
-  verifiedOnly: boolean
+  /**
+   * Business Connected: the creator linked the account through OAuth
+   * (`social_account.platform_user_id` AND `oauth_token`). NOT the platform's
+   * blue tick — that badge was dropped from Discovery entirely.
+   */
+  connectedOnly: boolean
+  /**
+   * Follower-growth band, as a preset key rather than a slider.
+   *
+   * A slider cannot express this filter. Every other numeric control here uses
+   * 0 to mean "no bound", but 0% growth is a real and common value — several of
+   * the measured creators sit exactly at 0.0000%. Presets keep "no bound" and
+   * "exactly flat" apart without a nullable slider.
+   */
+  growth: GrowthKey
 }
 
+/**
+ * Growth bands. Bounds are percentage points of change since the account's
+ * PREVIOUS snapshot — not a month. `min`/`max` are inclusive, and `null` means
+ * unbounded on that side.
+ */
+export const GROWTH_PRESETS = [
+  { key: '', label: 'Any', min: null, max: null },
+  { key: 'up', label: 'Naik (> 0%)', min: 0.0001, max: null },
+  { key: 'flat', label: 'Datar (0%)', min: 0, max: 0 },
+  { key: 'down', label: 'Turun (< 0%)', min: null, max: -0.0001 },
+  { key: 'up05', label: 'Naik ≥ 0,5%', min: 0.5, max: null },
+  { key: 'up1', label: 'Naik ≥ 1%', min: 1, max: null },
+] as const
+export type GrowthKey = (typeof GROWTH_PRESETS)[number]['key']
+
 export const KOL_FILTERS_DEFAULT: KolFilters = {
-  categories: [], platform: '', tiers: [], follMin: 0, erMin: 0, maxRate: 0,
-  verifiedOnly: false,
+  categories: [], platform: '', tiers: [], follMin: 0, follMax: 0, erMin: 0,
+  maxRate: 0, connectedOnly: false, growth: '',
 }
+
+/**
+ * Why the rate-card control is live again.
+ *
+ * It was inert, and that was a measurement rather than a design decision: the
+ * table it reads held 0 rows, so the server-side ceiling was correct SQL that
+ * could only ever return nothing. That measurement expired on 13 Sep 2026, when
+ * the roster rate cards were synced through to `l1_silver.unified_rate_card` —
+ * 8.856 priced deliverables over 6.959 of the 7.432 roster creators. The ceiling
+ * now narrows rather than empties: ≤Rp1jt keeps 5.073 creators, ≤Rp10jt keeps
+ * 6.673. Nothing about the SQL changed; only the table under it.
+ */
 
 /**
  * The two sentinels the directory API understands for "carries none of this".
@@ -64,12 +137,15 @@ export const UNTIERED = '__untiered'
 /**
  * Coerces a stored filter object into the current shape.
  *
- * Saved Lists live in `localStorage` and predate multi-select, so lists saved
- * before this change hold `category: 'Beauty'` and `tier: 'Micro'` as plain
- * strings. Spreading one of those over the defaults would put a string where the
- * panel expects an array and break on the first `.map`. Anything unreadable
- * falls back to the default rather than throwing — a stale saved list should
- * lose its filter, not the page.
+ * Saved Lists predate multi-select, so lists saved before that change hold
+ * `category: 'Beauty'` and `tier: 'Micro'` as plain strings. Spreading one of
+ * those over the defaults would put a string where the panel expects an array
+ * and break on the first `.map`. Anything unreadable falls back to the default
+ * rather than throwing — a stale saved list should lose its filter, not the
+ * page.
+ *
+ * Lists saved before Connected replaced Verified are the one case where a value
+ * is dropped on purpose rather than translated. See `connectedOnly` below.
  */
 export function normalizeKolFilters(raw: unknown): KolFilters {
   const f = (raw ?? {}) as Record<string, unknown>
@@ -85,9 +161,17 @@ export function normalizeKolFilters(raw: unknown): KolFilters {
     platform: typeof f.platform === 'string' ? f.platform : '',
     tiers: many(f.tiers ?? f.tier),
     follMin: num(f.follMin, 0),
+    follMax: num(f.follMax, 0),
     erMin: num(f.erMin, 0),
     maxRate: num(f.maxRate, 0),
-    verifiedOnly: f.verifiedOnly === true,
+    // An old list's `verifiedOnly` is deliberately NOT carried over. The two
+    // flags ask different questions — one was the platform's blue tick, this is
+    // an OAuth link — and `connected` is false for the entire roster today, so
+    // honouring the old flag as this one would silently empty a list that used
+    // to return creators. Dropping it widens the list instead, which is the
+    // failure a user can see and correct.
+    connectedOnly: f.connectedOnly === true,
+    growth: GROWTH_PRESETS.some(g => g.key === f.growth) ? (f.growth as GrowthKey) : '',
   }
 }
 
@@ -126,8 +210,8 @@ export const FOLLOWER_STEPS = [
  */
 export function activeFilterCount(f: KolFilters): number {
   return [
-    f.platform !== '', f.tiers.length > 0, f.follMin > 0, f.erMin > 0,
-    f.maxRate > 0, f.verifiedOnly,
+    f.platform !== '', f.tiers.length > 0, f.follMin > 0, f.follMax > 0,
+    f.erMin > 0, f.connectedOnly, f.growth !== '', f.maxRate > 0,
   ].filter(Boolean).length
 }
 
@@ -139,9 +223,17 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.platform) p.platform = f.platform
   if (f.tiers.length) p.tier = f.tiers.join(',')
   if (f.follMin > 0) p.follMin = String(f.follMin)
+  if (f.follMax > 0) p.follMax = String(f.follMax)
   if (f.erMin > 0) p.minEr = String(f.erMin)
   if (f.maxRate > 0) p.maxRate = String(f.maxRate)
-  if (f.verifiedOnly) p.verified = '1'
+  if (f.connectedOnly) p.connected = '1'
+  // Only the bounds the chosen band actually sets are sent, so "Naik" leaves
+  // growthMax absent rather than pinning it to some arbitrary ceiling.
+  if (f.growth) {
+    const g = GROWTH_PRESETS.find(x => x.key === f.growth)
+    if (g?.min != null) p.growthMin = String(g.min)
+    if (g?.max != null) p.growthMax = String(g.max)
+  }
   return p
 }
 
@@ -221,10 +313,18 @@ function Chip({
 }
 
 function Section({
-  id, icon, label, badge, open, onToggle, children,
+  id, icon, label, badge, open, onToggle, onReset, children,
 }: {
   id: string; icon: string; label: string; badge?: string | null
-  open: boolean; onToggle: (id: string) => void; children: React.ReactNode
+  open: boolean; onToggle: (id: string) => void
+  /**
+   * Clears just this section — the reference panel's `fpResetGrp`. Passed only
+   * for sections that hold something clearable, and only rendered once
+   * something in them is set, so it never appears as a control that does
+   * nothing.
+   */
+  onReset?: () => void
+  children: React.ReactNode
 }) {
   return (
     <div style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
@@ -239,6 +339,21 @@ function Section({
           <span style={{ ...PJ, color: T.primaryDeep, background: T.surfaceVariant, borderColor: '#dbeaf7' }}
             className="text-[9.5px] font-bold rounded-full border px-2 py-0.5 max-w-[108px] truncate">
             {badge}
+          </span>
+        )}
+        {onReset && (
+          <span
+            role="button"
+            tabIndex={0}
+            title={`Reset ${label}`}
+            aria-label={`Reset ${label}`}
+            onClick={e => { e.stopPropagation(); onReset() }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onReset() }
+            }}
+            className="material-symbols-outlined text-[15px] cursor-pointer hover:opacity-70"
+            style={{ color: T.t4 }}>
+            restart_alt
           </span>
         )}
         <span className="material-symbols-outlined text-[18px] transition-transform"
@@ -297,8 +412,17 @@ export function KolFilterPanel({
 }) {
   const count = activeFilterCount(filters)
   const follIdx = Math.max(0, FOLLOWER_STEPS.indexOf(filters.follMin))
+  /**
+   * The ceiling's slider sits on the same scale as the floor, but its "off"
+   * position is the far right rather than the far left — no ceiling is the
+   * widest question, not the narrowest.
+   */
+  const follMaxIdx = filters.follMax > 0
+    ? Math.max(0, FOLLOWER_STEPS.indexOf(filters.follMax))
+    : FOLLOWER_STEPS.length - 1
   const rateIdx = Math.max(0, RATE_STEPS.indexOf(filters.maxRate))
-  const reachActive = [filters.follMin > 0, filters.erMin > 0, filters.maxRate > 0]
+  const reachActive = [filters.follMin > 0, filters.follMax > 0, filters.erMin > 0,
+    filters.growth !== '']
     .filter(Boolean).length
 
   return (
@@ -328,6 +452,7 @@ export function KolFilterPanel({
 
       <div className="max-h-[620px] overflow-y-auto pr-1">
         <Section id="platform" icon="hub" label="Platform" open={open.has('platform')} onToggle={onToggleSection}
+          onReset={filters.platform ? () => onChange({ platform: '' }) : undefined}
           badge={filters.platform ? PLATFORM_LABEL[filters.platform] ?? filters.platform : null}>
           <div className="flex flex-wrap gap-[7px]">
             {/* Clearing the platform also clears Tier: the section it lives in
@@ -355,6 +480,7 @@ export function KolFilterPanel({
             you click around. */}
         {filters.platform && (
           <Section id="tier" icon="military_tech" label="Tier" open={open.has('tier')} onToggle={onToggleSection}
+            onReset={filters.tiers.length ? () => onChange({ tiers: [] }) : undefined}
             badge={filters.tiers.length ? `${filters.tiers.length} dipilih` : null}>
             <div className="flex flex-col gap-1.5">
               <Chip label="All tiers" full on={!filters.tiers.length} onClick={() => onChange({ tiers: [] })} />
@@ -426,21 +552,58 @@ export function KolFilterPanel({
         )}
 
         <Section id="reach" icon="bar_chart" label="Reach & Engagement" open={open.has('reach')} onToggle={onToggleSection}
+          onReset={reachActive
+            ? () => onChange({ follMin: 0, follMax: 0, erMin: 0, growth: '' })
+            : undefined}
           badge={reachActive ? `${reachActive} active` : null}>
           <Range label="Min. followers" min={0} max={FOLLOWER_STEPS.length - 1} step={1} value={follIdx}
             display={filters.follMin ? fmtNum(filters.follMin) : 'Any'}
             onChange={i => onChange({ follMin: FOLLOWER_STEPS[i] })} />
+          {/* The ceiling the reference panel always had. Selecting the last
+              step clears it rather than setting a 10M cap, so "no maximum" is
+              reachable from the slider itself. */}
+          <Range label="Max. followers" min={0} max={FOLLOWER_STEPS.length - 1} step={1} value={follMaxIdx}
+            display={filters.follMax ? `≤ ${fmtNum(filters.follMax)}` : 'Any'}
+            onChange={i => onChange({
+              follMax: i === FOLLOWER_STEPS.length - 1 ? 0 : FOLLOWER_STEPS[i],
+            })} />
           <Range label="Min. engagement" min={0} max={10} step={0.1} value={filters.erMin}
             display={filters.erMin ? `${filters.erMin.toFixed(1)}%` : 'Any'}
             onChange={v => onChange({ erMin: v })} />
+          {/* Step 0 of RATE_STEPS is 0 itself, so "Any" is reachable from the
+              low end of the slider — no last-step-clears trick needed here. */}
           <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
             display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
             onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
+          {/* A select rather than a Range: see `growth` on KolFilters — 0% is a
+              real value here, so the 0-means-any convention the sliders use
+              would make "flat" unaskable. */}
+          <div className="my-[7px] mb-2.5">
+            <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+              <span>Growth</span>
+              {filters.growth !== '' && (
+                <button type="button" className="underline" style={{ color: T.t4 }}
+                  onClick={() => onChange({ growth: '' })}>reset</button>
+              )}
+            </div>
+            <select value={filters.growth} aria-label="Follower growth"
+              onChange={e => onChange({ growth: e.target.value as GrowthKey })}
+              className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+              style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+              {GROWTH_PRESETS.map(g => (
+                <option key={g.key || 'any'} value={g.key}>{g.label}</option>
+              ))}
+            </select>
+          </div>
           <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
-            Engagement rate hanya terukur pada sebagian roster — memasang minimum
-            akan menyembunyikan creator yang belum pernah diukur. Rate card ada
-            untuk 7.230 dari 7.718 creator; memasang plafon harga menyembunyikan
-            sisanya.
+            Engagement rate terpakai untuk 1.744 dari 7.721 creator (22,6%):
+            kolomnya terisi 1.757 kali, tapi 7 nilai di atas 100% dan 6 nilai nol
+            dibuang karena tidak mungkin. Memasang minimum menyembunyikan yang
+            belum pernah diukur. Follower terukur untuk 7.499, jadi batas atas
+            dan bawah bekerja untuk hampir seluruh roster. Growth dihitung dari
+            perubahan followers sejak snapshot sebelumnya — bukan 30 hari — dan
+            baru terukur untuk creator yang sudah punya dua snapshot; memasang
+            band menyembunyikan sisanya.
           </p>
         </Section>
 
@@ -464,6 +627,7 @@ export function KolFilterPanel({
         </Section>
 
         <Section id="category" icon="category" label="Category" open={open.has('category')} onToggle={onToggleSection}
+          onReset={filters.categories.length ? () => onChange({ categories: [] }) : undefined}
           badge={filters.categories.length ? `${filters.categories.length} dipilih` : null}>
           <div className="flex flex-wrap gap-[7px]">
             <Chip label="All" on={!filters.categories.length}
@@ -523,18 +687,19 @@ export function KolFilterPanel({
         <div className="pt-2.5 px-0.5 pb-0.5">
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold">Verified creators only</div>
+              <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold">Connected creators only</div>
               <div className="text-[9.5px] mt-0.5" style={{ color: T.t4 }}>
-                Terisi untuk sebagian roster — creator yang belum pernah dicek
-                ikut tersembunyi saat ini dinyalakan.
+                Connected = creator sudah menghubungkan akunnya lewat OAuth.
+                Belum ada satu pun yang terhubung, jadi filter ini masih
+                mengosongkan hasil sampai connect flow berjalan.
               </div>
             </div>
-            <button type="button" role="switch" aria-checked={filters.verifiedOnly}
-              onClick={() => onChange({ verifiedOnly: !filters.verifiedOnly })}
+            <button type="button" role="switch" aria-checked={filters.connectedOnly}
+              onClick={() => onChange({ connectedOnly: !filters.connectedOnly })}
               className="w-[38px] h-[22px] rounded-xl relative flex-shrink-0 transition-colors"
-              style={{ background: filters.verifiedOnly ? T.gradient : '#d1d5db' }}>
+              style={{ background: filters.connectedOnly ? T.gradient : '#d1d5db' }}>
               <span className="absolute top-0.5 w-[18px] h-[18px] rounded-full bg-white transition-all"
-                style={{ left: filters.verifiedOnly ? 18 : 2, boxShadow: '0 1px 3px rgba(0,0,0,.18)' }} />
+                style={{ left: filters.connectedOnly ? 18 : 2, boxShadow: '0 1px 3px rgba(0,0,0,.18)' }} />
             </button>
           </div>
         </div>
@@ -563,4 +728,79 @@ export function KolFilterTab({ count, onOpen }: { count: number; onOpen: () => v
       </div>
     </div>
   )
+}
+
+/* ── applied filters, as removable chips ──────────────────────────────────── */
+
+export interface AppliedFilter {
+  /** Stable key for React, and the field it clears. */
+  key: string
+  label: string
+  /** The patch that removes just this one. */
+  clear: Partial<KolFilters>
+}
+
+/**
+ * Every active filter as one removable chip — the reference panel's
+ * `fpChipsHTML`, which this directory had no equivalent of.
+ *
+ * Without it the only readout of what is applied is a number ("3 filters
+ * applied") and the only way back is Clear All, so removing one filter of three
+ * meant rebuilding the other two. Category is included here even though the
+ * toolbar has its own chips for it: this row answers "what is narrowing this
+ * list", and a category is narrowing it.
+ *
+ * Ordered as the panel is, so the chips and the sections read in the same
+ * sequence.
+ */
+export function appliedFilters(f: KolFilters): AppliedFilter[] {
+  const out: AppliedFilter[] = []
+  if (f.platform) {
+    out.push({
+      key: 'platform',
+      label: PLATFORM_LABEL[f.platform] ?? f.platform,
+      clear: { platform: '' },
+    })
+  }
+  for (const c of f.categories) {
+    out.push({
+      key: `category:${c}`,
+      label: c === UNCATEGORIZED ? 'Belum berkategori' : c,
+      clear: { categories: f.categories.filter(x => x !== c) },
+    })
+  }
+  for (const t of f.tiers) {
+    out.push({
+      key: `tier:${t}`,
+      label: t === UNTIERED ? 'Tanpa tier' : t,
+      clear: { tiers: f.tiers.filter(x => x !== t) },
+    })
+  }
+  if (f.follMin > 0) {
+    out.push({ key: 'follMin', label: `Followers ≥ ${fmtNum(f.follMin)}`, clear: { follMin: 0 } })
+  }
+  if (f.follMax > 0) {
+    out.push({ key: 'follMax', label: `Followers ≤ ${fmtNum(f.follMax)}`, clear: { follMax: 0 } })
+  }
+  if (f.erMin > 0) {
+    out.push({ key: 'erMin', label: `ER ≥ ${f.erMin.toFixed(1)}%`, clear: { erMin: 0 } })
+  }
+  if (f.maxRate > 0) {
+    out.push({
+      key: 'maxRate',
+      label: `Rate ≤ ${idrShortFilter(f.maxRate)}`,
+      clear: { maxRate: 0 },
+    })
+  }
+  if (f.growth !== '') {
+    out.push({
+      key: 'growth',
+      label: `Growth: ${GROWTH_PRESETS.find(g => g.key === f.growth)?.label ?? f.growth}`,
+      clear: { growth: '' },
+    })
+  }
+  if (f.connectedOnly) {
+    out.push({ key: 'connectedOnly', label: 'Connected only', clear: { connectedOnly: false } })
+  }
+  return out
 }

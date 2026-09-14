@@ -21,7 +21,7 @@ import { platformLabel, type SectionProps } from './KolCreatorSections'
 /* ── Profile ──────────────────────────────────────────────────────────────── */
 
 export function ProfileSection({
-  creator, identity, rank, platforms, similar, intel, gold, onGoTo,
+  creator, identity, rank, platforms, similar, intel, gold, match, matchScoreable, onGoTo,
 }: SectionProps & { onGoTo: (id: string) => void }) {
   const name = identity.displayName ?? `@${creator.username}`
   const niche = creator.categories.slice(1).join(' · ')
@@ -110,8 +110,17 @@ export function ProfileSection({
               <MiniField label="Niche" value={niche || 'belum diisi'} />
               <MiniField label="Location" value={creator.city || 'belum diisi'} />
               <MiniField label="Agency" value={identity.agency ?? 'belum diisi'} />
-              <MiniField label="Collab" value="Open" sample />
-              <MiniField label="Match" value={`${intel.brandFit.score}%`} sample />
+              {/* `Collab` and `Match` both used to be generated: Collab was the
+                  literal string "Open" for every creator, and Match was
+                  `kolSample`'s brand-fit number, which knew nothing about any
+                  brand. Collab is dropped — the roster has no availability
+                  column — and Match is now the Brand Match Engine's real status
+                  against the saved Brand Profile. */}
+              <MiniField
+                label="Match"
+                value={matchScoreable === false ? 'atur Brand Profile'
+                  : match?.level ?? 'belum dihitung'}
+              />
             </div>
           </VizCard>
         }
@@ -134,16 +143,20 @@ export function ProfileSection({
         <div className="flex items-start gap-2.5">
           <span className="material-symbols-outlined text-[18px] mt-px" style={{ color: VIZ.good }}>trending_up</span>
           <p className="text-[12.5px] leading-[1.65]" style={{ color: T.t2 }}>
+            {/* The real half of this sentence is the ER percentile, computed
+                from `kol_directory` by `getKolCreator`. The authenticity clause
+                was generated and is dropped; the `else` branch was
+                `intel.ai.summary`, a template string, and is replaced by an
+                honest line rather than by another template. */}
             {creator.erPct !== null && rank.categoryErPercentile !== null && rank.categoryName ? (
               <>
                 Engagement <b>{creator.erPct.toFixed(2)}%</b> menempatkannya di{' '}
                 <b>top {Math.max(1, Math.round(100 - rank.categoryErPercentile))}%</b> kategori{' '}
-                {rank.categoryName}, dengan audiens autentik{' '}
-                <b>{intel.audience.authenticity}%</b> — profil creator papan atas untuk niche ini.
+                {rank.categoryName} berdasarkan data roster.
               </>
             ) : (
               <>
-                {intel.ai.summary}
+                Engagement rate creator ini belum terukur, jadi posisinya di kategori belum bisa dihitung.
               </>
             )}
           </p>

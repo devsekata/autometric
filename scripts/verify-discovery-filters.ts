@@ -9,10 +9,11 @@
  * dicocokkan dengan equality, dan sepanjang `q` cuma melihat `username` — tiga
  * hal yang dulu salah dan tidak menghasilkan error apa pun.
  *
- * Angka yang dipakai di sini diukur pada 2026-09-06 terhadap roster 7.720 baris
- * aktif. Kalau roster berubah, jumlahnya ikut berubah dan skrip ini akan gagal —
- * itu memang yang diinginkan: angka yang bergeser diam-diam lebih berbahaya
- * daripada tes yang merah.
+ * Angka distribusi di sini diukur ulang pada 2026-09-08. Kalau distribusinya
+ * bergeser, skrip ini akan gagal — itu memang yang diinginkan: angka yang
+ * bergeser diam-diam lebih berbahaya daripada tes yang merah. Ukuran roster
+ * sendiri dibaca saat runtime, karena "tanpa filter mengembalikan semuanya"
+ * benar berapa pun isi roster-nya.
  *
  * MEMBUTUHKAN VPN kantor: seluruh assertion memanggil database KOL sungguhan
  * lewat `@/lib/kolDb`, sama seperti `verify:creators`.
@@ -35,10 +36,24 @@ const ok = (label: string, cond: boolean, extra = '') => {
 const eq = (label: string, got: unknown, want: unknown) =>
   ok(label, got === want, got === want ? '' : `dapat ${got}, harusnya ${want}`)
 
-/** Roster aktif per 2026-09-06. */
-const ROSTER = 7720
+/**
+ * Ukuran roster aktif, dibaca dari database saat skrip jalan — bukan angka
+ * tetap.
+ *
+ * Dulu ini `const ROSTER = 7720`, hasil pengukuran 2026-09-06. Begitu satu
+ * creator ditambahkan lewat Add KOL (8 Sep 2026, `bobbykertanegara`), dua belas
+ * assertion langsung merah — padahal tidak satu pun filter berubah perilaku.
+ * Assertion yang berbunyi "tanpa filter = seluruh roster" adalah invariant
+ * struktural: benar berapa pun isinya. Yang tetap literal di bawah hanyalah
+ * angka *distribusi* — berapa yang punya ER, berapa yang tanpa kategori — karena
+ * di situlah pergeseran diam-diam justru perlu ketahuan.
+ */
+let ROSTER = 0
 
 async function main() {
+  ROSTER = (await listKolDirectory({ pageSize: 1 })).total
+  console.log(`Roster aktif saat ini: ${ROSTER.toLocaleString('id-ID')}`)
+
   /* ── BE-05 — Engagement Rate ──────────────────────────────────────────── */
   console.log('\n── BE-05 Engagement Rate ──')
 
@@ -48,7 +63,9 @@ async function main() {
   const erAll = await listKolDirectory({ minErPct: 0.0001, pageSize: 60, sort: 'engagement' })
   // 1.756 terisi − 7 mustahil (>100%) − 6 nilai nol. Nol dibuang oleh aturan yang
   // sama: kolom ini tidak pernah menuliskan nol yang benar-benar terukur.
-  eq('total ER bersih = 1.743', erAll.total, 1743)
+  // Distribusi, diukur ulang 2026-09-08 (naik 1 dari 1.743 karena satu creator
+  // baru masuk lewat Add KOL dengan ER 4,00%).
+  eq('total ER bersih = 1.744', erAll.total, 1744)
 
   const top = erAll.rows
   ok('tidak ada erPct > 100 di halaman teratas sort=engagement',
@@ -130,7 +147,7 @@ async function main() {
 
   const facets = await listKolFacets()
   const tierSum = facets.tiers.reduce((n, t) => n + t.count, 0)
-  eq('SUM(tiers.count) + untiered = 7.720', tierSum + facets.untiered, ROSTER)
+  eq('SUM(tiers.count) + untiered = seluruh roster', tierSum + facets.untiered, ROSTER)
   eq('untiered = 526', facets.untiered, 526)
   eq('5 band dari kol_tiers', facets.tiers.length, 5)
   ok('batas band datang dari tabel, bukan hardcode',
@@ -196,10 +213,10 @@ async function main() {
   }
 
   const uncat = await listKolDirectory({ categories: [UNCATEGORIZED], pageSize: 5 })
-  eq('category=__uncategorized = 3.546', uncat.total, 3546)
+  eq('category=__uncategorized = 3.547', uncat.total, 3547)
   ok('baris uncategorized memang tanpa kategori',
     uncat.rows.every(r => r.categories.length === 0))
-  eq('facets.uncategorized = 3.546', facets.uncategorized, 3546)
+  eq('facets.uncategorized = 3.547', facets.uncategorized, 3547)
   eq('28 master category muncul di facet', facets.categories.length, 28)
   ok('setiap kategori di facet punya count > 0',
     facets.categories.every(c => c.count > 0))
@@ -212,9 +229,9 @@ async function main() {
 
   const WINDOW = new Date('2026-08-07T00:00:00Z')
   const created = await listKolDirectory({ createdAfter: WINDOW, pageSize: 5 })
-  eq('createdAfter=2026-08-07 = 2', created.total, 2)
+  eq('createdAfter=2026-08-07 = 3', created.total, 3)
   const refreshed = await listKolDirectory({ refreshedAfter: WINDOW, pageSize: 5 })
-  eq('refreshedAfter=2026-08-07 = 1.003', refreshed.total, 1003)
+  eq('refreshedAfter=2026-08-07 = 1.004', refreshed.total, 1004)
   ok('Recently Added dan Recently Updated bukan dataset yang sama',
     created.total !== refreshed.total)
 
@@ -275,7 +292,9 @@ async function main() {
       platform: p.platform || null,
       minErPct: p.minEr ? Number(p.minEr) : null,
       minFollowers: p.follMin ? Number(p.follMin) : null,
-      verifiedOnly: p.verified === '1',
+      connectedOnly: p.connected === '1',
+      minGrowth: p.growthMin ? Number(p.growthMin) : null,
+      maxGrowth: p.growthMax ? Number(p.growthMax) : null,
       pageSize: 1,
     })
   }
@@ -287,7 +306,7 @@ async function main() {
   eq('UI 2 kategori -> union yang sama dengan panggilan langsung', uiUnion.total, union.total)
 
   const uiUncat = await throughRoute({ ...KOL_FILTERS_DEFAULT, categories: [UI_UNCATEGORIZED] })
-  eq('UI chip "Tanpa kategori" -> 3.546', uiUncat.total, 3546)
+  eq('UI chip "Tanpa kategori" -> 3.547', uiUncat.total, 3547)
 
   const uiTiers = await throughRoute({ ...KOL_FILTERS_DEFAULT, tiers: ['Micro', 'Macro'] })
   eq('UI 2 tier -> gabungan', uiTiers.total, micro.total + macro.total)
@@ -306,20 +325,20 @@ async function main() {
     activeFilterCount({ ...KOL_FILTERS_DEFAULT, tiers: ['Micro', 'Macro'] }), 1)
 
   // Saved list yang dibuat sebelum multi-select menyimpan string, bukan array.
-  const legacy = normalizeKolFilters({ category: 'Beauty', tier: 'Micro', erMin: 3, verifiedOnly: true })
+  const legacy = normalizeKolFilters({ category: 'Beauty', tier: 'Micro', erMin: 3, connectedOnly: true })
   ok('saved list lama (string) dinaikkan jadi array',
     Array.isArray(legacy.categories) && legacy.categories[0] === 'Beauty'
     && Array.isArray(legacy.tiers) && legacy.tiers[0] === 'Micro',
     JSON.stringify(legacy))
   eq('saved list lama mempertahankan nilai numerik', legacy.erMin, 3)
   // Yang diuji adalah kesetaraan makna, bukan jumlah hasilnya: kombinasi ini
-  // kebetulan nol (Beauty + Micro + ER>=3 + verified), dan itu jawaban yang
+  // kebetulan nol (Beauty + Micro + ER>=3 + connected), dan itu jawaban yang
   // benar. Yang salah adalah kalau list lama menyaring BERBEDA dari list baru
   // yang isinya sama.
   const legacyTotal = await throughRoute(legacy)
   const sameModern = await throughRoute({
     ...KOL_FILTERS_DEFAULT,
-    categories: ['Beauty'], tiers: ['Micro'], erMin: 3, verifiedOnly: true,
+    categories: ['Beauty'], tiers: ['Micro'], erMin: 3, connectedOnly: true,
   })
   eq('saved list lama menyaring sama persis dengan list baru yang setara',
     legacyTotal.total, sameModern.total)
@@ -329,6 +348,17 @@ async function main() {
   ok('input rusak jatuh ke default, bukan melempar',
     junk.categories.length === 1 && junk.tiers.length === 0 && junk.erMin === 0,
     JSON.stringify(junk))
+  // Verified -> Connected: list lama TIDAK boleh membawa flag lamanya. Keduanya
+  // menjawab pertanyaan berbeda dan `connected` masih false untuk seluruh
+  // roster, jadi menerjemahkannya akan mengosongkan list yang tadinya berisi.
+  const legacyVerified = normalizeKolFilters({ category: 'Beauty', verifiedOnly: true })
+  ok('flag verified lama dibuang, bukan diterjemahkan jadi connected',
+    legacyVerified.connectedOnly === false, JSON.stringify(legacyVerified))
+  eq('list lama tanpa flag verified tetap mengembalikan kategorinya',
+    (await throughRoute(legacyVerified)).total, 1271)
+  // Band growth: preset tak dikenal jatuh ke "Any", bukan ke band acak.
+  ok('growth preset tak dikenal jatuh ke Any',
+    normalizeKolFilters({ growth: 'entah' }).growth === '', '')
 
   // Section tabs: ketiga tab memakai kunci sort yang benar-benar ada.
   for (const key of ['followers', 'created', 'recent'] as const) {

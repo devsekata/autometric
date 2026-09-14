@@ -137,3 +137,88 @@ export interface DirectoryPayload {
   accounts: DirectoryAccount[]
   platforms: DiscoverPlatform[]
 }
+
+/* ── the organization's relationship with a creator ───────────────────────── */
+
+/**
+ * Which database a Discovery creator's id belongs to: `roster` is the commercial
+ * KOL database (`public.kol_directory`, a different Postgres server), `account`
+ * is this database (`public.discover_creators`, the creators this org profiled
+ * itself).
+ *
+ * The same two words `discover_favorites` stores as a column and
+ * `useDiscoverSelection` encodes as a `roster:` key prefix. They live here
+ * rather than beside the queries because both the client and the server reason
+ * about them, and this module carries no server imports.
+ */
+export type LinkSource = 'account' | 'roster'
+
+/**
+ * Monitoring, as a closed set of three rather than a nullable flag. 'none' is a
+ * creator that is not being watched — either never was, or was and was stopped;
+ * the link row's `trackingStartedAt` is what tells those apart.
+ */
+export type TrackingStatus = 'none' | 'active' | 'paused'
+
+export interface LinkRef {
+  source: LinkSource
+  /** The creator's id in whichever database `source` names. */
+  id: string
+}
+
+/** One org's two decisions about one creator. See migration 053. */
+export interface CreatorLink extends LinkRef {
+  /** In My Creators. Always false for `account`, which is in it by construction. */
+  inRoster: boolean
+  rosterAddedAt: string | null
+  tracking: TrackingStatus
+  trackingStartedAt: string | null
+  trackingChangedAt: string | null
+  /** When the creator's numbers were last pulled; null until something has. */
+  lastCheckedAt: string | null
+  nextCheckAt: string | null
+}
+
+export interface LinkCounts {
+  /** Creators adopted into My Creators from the Creator Database. */
+  roster: number
+  tracked: number
+  paused: number
+}
+
+/**
+ * A linked creator, flattened out of whichever database holds them.
+ *
+ * My Creators and Tracked Accounts both list creators from two id spaces at
+ * once, so the two row shapes — `KolDirectoryRow` and `CreatorSummary` — are
+ * normalised into this one at the API layer and the components never branch on
+ * source except to label it. Same reasoning as `DiscoverPost` above.
+ */
+export interface LinkedCreator {
+  /** `<uuid>` or `roster:<uuid>` — the key favourites and compare also use. */
+  key: string
+  source: LinkSource
+  id: string
+  username: string
+  displayName: string | null
+  avatarUrl: string | null
+  profileUrl: string | null
+  platform: string | null
+  categories: string[]
+  city: string | null
+  followers: number | null
+  /** Percentage points, e.g. 3.25 means 3.25%. Null when never measured. */
+  erPct: number | null
+  tier: string | null
+  /**
+   * There is deliberately no verified/connected flag here. The two sources stopped
+   * agreeing on what one would mean: the roster half no longer carries the
+   * platform's blue tick at all (it now reports Business Connected, an OAuth
+   * link), while an org's own creator record still carries `verified`. Nothing
+   * rendered the merged field, so it is gone rather than ambiguous — add a
+   * source-specific one if a screen ever needs to show it.
+   */
+  /** When the creator's own numbers were last collected, from their record. */
+  lastRefreshedAt: string | null
+  link: CreatorLink
+}

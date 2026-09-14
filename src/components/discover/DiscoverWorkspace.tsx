@@ -53,10 +53,10 @@ import { Btn, DiscoverHeader, PJ, Spinner, TabStrip } from './ui'
 import { useDiscoverSelection } from './useDiscoverSelection'
 import { useDiscoverCart } from './useDiscoverCart'
 import { useActiveKol } from './useActiveKol'
-import DiscoverDirectoryView from './DiscoverDirectoryView'
+import TrackedAccountsView from './TrackedAccountsView'
 import KolDirectoryPage from './KolDirectoryPage'
 import DiscoverHub from './DiscoverHub'
-import CreatorRoster from './CreatorRoster'
+import MyCreatorsView from './MyCreatorsView'
 import CreatorProfilingScreen from './CreatorProfilingScreen'
 import AddCreatorModal from './AddCreatorModal'
 import CreatorDetail from './CreatorDetail'
@@ -414,15 +414,12 @@ export default function DiscoverWorkspace({
       )}
 
       <div>
-        {/* The landing, and the source platform's `V.list`: the commercial
-            directory, searchable. A bare `?tab=directory` resolves here, so it
-            renders when `view` has not been named yet too. */}
-        {/* The landing. A bare `?tab=directory` is where Discovery opens, and it
-            opens on the shelves — who is new, who moved, who is big, who
-            resembles your own creators — with the searchable database directly
-            below. Pressing `Creator Database` in the strip asks for the
-            database on its own, and drops the shelves. */}
-        {tab === 'directory' && !creatorSection && !view && (
+        {/* The landing: the dashboard, on its own `view` id.
+            It used to be drawn on `!view`, which `resolveTabParams` can never
+            produce for this tab — so the screen never rendered. `hub` is the
+            first entry in the tab's strip now, which is what makes it the
+            landing, and Creator Database is the segment beside it. */}
+        {tab === 'directory' && !creatorSection && view === 'hub' && (
           <DiscoverHub
             orgId={orgId}
             onOpenCreator={id => goCreator('creator', id)}
@@ -430,10 +427,17 @@ export default function DiscoverWorkspace({
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onFindSimilar={(id, source) => goFindSimilar(id, source)}
             onGoToSmart={() => go('directory', 'smart')}
+            // The writer for `?q=`, which this route has always read and seeded
+            // the database screen with. It is a navigation rather than local
+            // state because the screen it seeds is reached by navigating.
+            onSearch={q => go('directory', 'database', { q })}
+            onGoToDatabase={() => go('directory', 'database')}
+            onGoToMine={() => go('directory', 'mine')}
+            onGoToTracked={() => go('directory', 'tracked')}
           />
         )}
 
-        {tab === 'directory' && !creatorSection && (!view || view === 'database') && (
+        {tab === 'directory' && !creatorSection && view === 'database' && (
           <KolDirectoryPage
             orgId={orgId}
             orgSlug={orgSlug}
@@ -447,9 +451,17 @@ export default function DiscoverWorkspace({
         )}
 
         {tab === 'directory' && !creatorSection && view === 'tracked' && (
-          <DiscoverDirectoryView
+          <TrackedAccountsView
             orgId={orgId}
             orgSlug={orgSlug}
+            // The creators half — what Start Tracking anywhere in Discovery
+            // fills. The warehouse accounts half is the screen this segment has
+            // always shown, handed the same three callbacks it always had.
+            onOpenCreator={id => goCreator('creator', id)}
+            onOpenRosterCreator={id =>
+              router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
+            onGoToDatabase={() => go('directory', 'database')}
+            onFindSimilar={(id, source) => goFindSimilar(id, source)}
             onSelectKol={(id, relation, username) => {
               activeKol.select({ id, relation, username })
               go('directory', 'profile')
@@ -485,13 +497,15 @@ export default function DiscoverWorkspace({
             one there is nothing to show, so they fall back to the roster rather
             than to an empty shell. */}
         {creatorScreen === 'mine' && (
-          <CreatorRoster
+          <MyCreatorsView
             orgId={orgId}
-            embedded
             onAddCreator={goAddKol}
             onOpenCreator={id => goCreator('creator', id)}
             onOpenProfiling={id => goCreator('profiling', id)}
-            onFindSimilar={id => goFindSimilar(id, 'creator')}
+            onOpenRosterCreator={id =>
+              router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
+            onGoToDatabase={() => go('directory', 'database')}
+            onFindSimilar={(id, source) => goFindSimilar(id, source)}
           />
         )}
 

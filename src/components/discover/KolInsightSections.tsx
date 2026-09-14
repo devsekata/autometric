@@ -25,46 +25,151 @@ import type { AccountDetailPayload } from '@/lib/discover/account'
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 const PALETTE = ['#285D6E', '#4E96AC', '#e0a458', '#5fa783', '#8b7fc7', '#d97a7a']
 
-/* ── Brand Fit ────────────────────────────────────────────────────────────── */
+/** Shown wherever the warehouse holds no reading. Never '0', never 'null'. */
+const NOT_MEASURED = 'Belum terukur'
 
-export function BrandFitSection({ profile }: { profile: KolProfile }) {
-  // Mirrors the weights in profile.ts; shown so the score can be audited.
-  const inputs = [
-    { label: 'Audience quality', value: profile.audienceQuality.value, weight: 0.35, basis: profile.audienceQuality.basis },
-    { label: 'Authenticity', value: profile.authenticity.value, weight: 0.3, basis: profile.authenticity.basis },
-    { label: 'Engagement rate', value: Math.min(100, profile.erPct.value * 12), weight: 0.2, basis: 'ER terukur, diskalakan ke 0–100' },
-    { label: 'Konsistensi posting', value: Math.min(100, profile.postFrequency.value * 6), weight: 0.15, basis: 'Frekuensi post per 30 hari' },
+/**
+ * Why a demographics chart is missing.
+ *
+ * Keeps the competitor explanation the Account Signals card already carried:
+ * a competitor is scraped from public content, and scraping cannot return an
+ * audience breakdown - so this will never fill in, and saying so is kinder than
+ * an empty panel that looks like a loading state.
+ */
+function DemographicsUnavailable({ profile }: { profile: KolProfile }) {
+  return (
+    <p className="text-[11px] leading-relaxed text-[#6b7280]">
+      <b style={PJ}>{NOT_MEASURED}</b> — platform belum melaporkan demografi audiens untuk akun ini.
+      {profile.account.relation === 'competitor'
+        ? ' Akun kompetitor di-scrape dari konten publik, dan scraping tidak pernah mengembalikan demografi audiens.'
+        : ' Meta dan TikTok baru membuka breakdown ini setelah audiens akun melewati ambang minimum mereka.'}
+    </p>
+  )
+}
+
+/* -- Account Signals ------------------------------------------------------- */
+
+/**
+ * What this tracked account measurably is - performance, cadence, audience.
+ *
+ * This was `BrandFitSection`, and it led with a 0-100 "Brand fit" score over a
+ * four-input breakdown. Three of those four inputs had no real source for this
+ * population: authenticity was a hash of the account id mapped to 68-96,
+ * audience quality was 30% that same number, and the headline score was 65% the
+ * two of them. The breakdown made it look auditable, which made it worse - a
+ * reader could see the weights and reasonably conclude the inputs were real.
+ *
+ * It is not renamed to be tactful. Brand fit is a property of a creator AND a
+ * brand, the Brand Match Engine owns it, and that engine scores creators in
+ * `public.kol_directory`. A tracked account is not in that table, so there is no
+ * honest brand-fit number to show here at all - not a smaller one, not a hedged
+ * one. What is left is what the warehouse actually measured about the account.
+ */
+export function AccountSignalsSection({ profile }: { profile: KolProfile }) {
+  /*
+   * Every row is a live measurement from this account's own posts or its
+   * profile snapshot. `max` is what the bar is drawn against - a scale, not a
+   * target the account is being judged against.
+   */
+  const signals: {
+    label: string; value: number | null; max: number
+    fmt: (v: number) => string; basis: string
+  }[] = [
+    {
+      label: 'Engagement rate', value: profile.erPct.value, max: 8,
+      fmt: v => `${v.toFixed(2)}%`, basis: profile.erPct.basis,
+    },
+    {
+      label: 'Frekuensi posting', value: profile.postFrequency.value, max: 20,
+      fmt: v => `${v.toFixed(1)} / 30 hari`, basis: profile.postFrequency.basis,
+    },
+    {
+      label: 'Rasio konten berbayar', value: profile.paidRatio.value, max: 100,
+      fmt: v => `${v.toFixed(0)}%`, basis: profile.paidRatio.basis,
+    },
+    {
+      label: 'Followers', value: profile.followers.value,
+      max: Math.max(1, profile.followers.value ?? 1),
+      fmt: fmtNum, basis: profile.followers.basis,
+    },
   ]
-  const fit = profile.brandFit.value
-  const verdict = fit >= 80 ? 'Sangat cocok' : fit >= 65 ? 'Cocok' : fit >= 50 ? 'Cukup' : 'Kurang cocok'
-  const color = fit >= 80 ? '#3d8a5f' : fit >= 65 ? '#4E96AC' : fit >= 50 ? '#e0a458' : '#c2553f'
+
+  const demographicsKnown = profile.ageBands.value.length > 0
+    || profile.genderBands.value.length > 0
+    || profile.location.value !== null
 
   return (
     <div className="flex flex-col gap-3.5">
       <Card>
-        <CardHead title="Brand fit" sub="Kecocokan akun ini untuk brand kamu saat ini" />
-        <div className="px-4 pb-4 flex items-center gap-6 flex-wrap">
-          <div className="text-center">
-            <div style={{ ...PJ, color }} className="text-[38px] font-extrabold leading-none">{fit}</div>
-            <div style={{ ...PJ, color }} className="text-[12px] font-bold mt-1">{verdict}</div>
-            <ConfidenceBadge confidence={profile.brandFit.confidence} basis={profile.brandFit.basis} />
-          </div>
-          <div className="flex-1 min-w-[280px] flex flex-col gap-2">
-            {inputs.map(i => (
-              <div key={i.label}>
-                <div className="flex items-center justify-between text-[11.5px]">
-                  <span className="text-[#374151]">
-                    {i.label} <span className="text-[#9ca3af]">· bobot {Math.round(i.weight * 100)}%</span>
-                  </span>
-                  <b style={PJ} className="tabular-nums text-[#111827]">{Math.round(i.value)}</b>
-                </div>
-                <div className="h-1.5 rounded-full bg-[#f3f4f6] mt-1 overflow-hidden">
-                  <div className="h-full rounded-full bg-[#4E96AC]" style={{ width: `${Math.min(100, i.value)}%` }} />
-                </div>
-                <p className="text-[10px] text-[#9ca3af] mt-0.5">{i.basis}</p>
+        <CardHead title="Sinyal akun" sub="Yang benar-benar terukur dari post dan snapshot profil akun ini" />
+        <div className="px-4 pb-4 flex flex-col gap-2.5">
+          {signals.map(sig => (
+            <div key={sig.label}>
+              <div className="flex items-center justify-between text-[11.5px]">
+                <span className="text-[#374151]">{sig.label}</span>
+                {sig.value === null
+                  ? <span className="text-[10.5px] font-semibold text-[#9ca3af]">Belum terukur</span>
+                  : <b style={PJ} className="tabular-nums text-[#111827]">{sig.fmt(sig.value)}</b>}
               </div>
-            ))}
-          </div>
+              {sig.value !== null && (
+                <div className="h-1.5 rounded-full bg-[#f3f4f6] mt-1 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[#4E96AC]"
+                    style={{ width: `${Math.min(100, (sig.value / sig.max) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <p className="text-[10px] text-[#9ca3af] mt-0.5">{sig.basis}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="Audiens" sub="Demografi dari platform insights - hanya tersedia untuk akun yang kamu miliki" />
+        <div className="px-4 pb-4">
+          {demographicsKnown ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label tone="good">Umur</Label>
+                {profile.ageBands.value.length ? (
+                  <ul className="flex flex-col gap-1">
+                    {profile.ageBands.value.slice(0, 4).map(b => (
+                      <li key={b.label} className="flex items-center justify-between text-[11.5px] text-[#374151]">
+                        <span>{b.label}</span>
+                        <b style={PJ} className="tabular-nums">{b.pct}%</b>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <Unmeasured />}
+              </div>
+              <div>
+                <Label tone="good">Gender &amp; lokasi</Label>
+                {profile.genderBands.value.length ? (
+                  <ul className="flex flex-col gap-1">
+                    {profile.genderBands.value.slice(0, 3).map(b => (
+                      <li key={b.label} className="flex items-center justify-between text-[11.5px] text-[#374151]">
+                        <span>{b.label}</span>
+                        <b style={PJ} className="tabular-nums">{b.pct}%</b>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <Unmeasured />}
+                {profile.location.value && (
+                  <p className="text-[11.5px] text-[#374151] mt-1.5">
+                    Kota teratas: <b style={PJ}>{profile.location.value}</b>
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[11.5px] leading-relaxed text-[#6b7280]">
+              Platform belum melaporkan demografi audiens untuk akun ini.
+              {profile.account.relation === 'competitor'
+                ? ' Akun kompetitor di-scrape dari konten publik, dan scraping tidak pernah mengembalikan demografi audiens - jadi ini tidak akan terisi.'
+                : ' Meta dan TikTok baru membuka breakdown ini setelah audiens akun melewati ambang minimum mereka.'}
+            </p>
+          )}
         </div>
       </Card>
 
@@ -75,28 +180,33 @@ export function BrandFitSection({ profile }: { profile: KolProfile }) {
             <Label tone="good">Mendukung</Label>
             <ul className="flex flex-col gap-1">
               {profile.erPct.value >= 3 && <Li tone="good">Engagement rate {profile.erPct.value.toFixed(2)}% di atas rata-rata pasar</Li>}
-              {profile.authenticity.value >= 85 && <Li tone="good">Autentisitas audiens tinggi ({profile.authenticity.value})</Li>}
               {profile.postFrequency.value >= 8 && <Li tone="good">Posting konsisten, {profile.postFrequency.value.toFixed(1)} post per 30 hari</Li>}
               {profile.paidRatio.value > 0 && profile.paidErPct.value >= profile.organicErPct.value &&
                 <Li tone="good">Konten berbayar tetap perform sebaik organik</Li>}
-              {profile.audienceQuality.value >= 70 && <Li tone="good">Kualitas audiens baik ({profile.audienceQuality.value})</Li>}
+              {profile.campaignLift.value !== null && profile.campaignLift.value >= 1 &&
+                <Li tone="good">ER campaign {profile.campaignLift.value.toFixed(2)}x baseline akun ini sendiri</Li>}
             </ul>
           </div>
           <div>
             <Label tone="bad">Perlu diperhatikan</Label>
             <ul className="flex flex-col gap-1">
               {profile.erPct.value < 2 && <Li tone="bad">Engagement rate rendah ({profile.erPct.value.toFixed(2)}%)</Li>}
-              {profile.authenticity.value < 80 && <Li tone="bad">Autentisitas belum terverifikasi sumber nyata</Li>}
-              {profile.paidRatio.value > 60 && <Li tone="bad">Rasio konten berbayar tinggi ({profile.paidRatio.value.toFixed(0)}%) — risiko audience fatigue</Li>}
+              {profile.paidRatio.value > 60 && <Li tone="bad">Rasio konten berbayar tinggi ({profile.paidRatio.value.toFixed(0)}%) - risiko audience fatigue</Li>}
               {profile.postFrequency.value < 4 && <Li tone="bad">Frekuensi posting rendah</Li>}
+              {profile.followers.value === null && <Li tone="bad">Jumlah follower belum tersinkron</Li>}
               {!profile.hasRate && <Li tone="bad">Belum ada rate card, biaya belum bisa dihitung</Li>}
-              {profile.account.relation === 'competitor' && <Li tone="bad">Ini akun kompetitor — data terbatas pada post publik</Li>}
+              {profile.account.relation === 'competitor' && <Li tone="bad">Ini akun kompetitor - data terbatas pada post publik</Li>}
             </ul>
           </div>
         </div>
       </Card>
     </div>
   )
+}
+
+/** The honest stand-in for a breakdown the platform has not reported. */
+function Unmeasured() {
+  return <p className="text-[11px] text-[#9ca3af]">Belum terukur</p>
 }
 
 /* ── AI Insights ──────────────────────────────────────────────────────────── */
@@ -146,9 +256,12 @@ export function AiInsightsSection({
         body: `${p.postFrequency.value.toFixed(1)} post per 30 hari. Jadwal campaign perlu ruang lebih longgar.` })
     }
 
-    if (p.tier.value === 'Mega' || p.tier.value === 'Macro') {
+    // Tier and followers are both real now, so the copy drops "Perkiraan".
+    // Guarded on the follower count rather than on the tier alone: tier is
+    // derived from it, so a null count means there is no tier to talk about.
+    if (p.followers.value !== null && (p.tier.value === 'Mega' || p.tier.value === 'Macro')) {
       out.push({ icon: 'groups', tone: 'info', title: `Tier ${p.tier.value}`,
-        body: `Perkiraan ${fmtNum(p.followers.value)} follower. Cocok untuk objective awareness; untuk konversi pertimbangkan kombinasi dengan tier lebih kecil.` })
+        body: `${fmtNum(p.followers.value)} follower. Cocok untuk objective awareness; untuk konversi pertimbangkan kombinasi dengan tier lebih kecil.` })
     }
 
     return out
@@ -210,16 +323,18 @@ export function KolReportSection({
     ['Rata-rata views', String(profile.avgViews.value), profile.avgViews.confidence, profile.avgViews.basis],
     ['Engagement rate %', profile.erPct.value.toFixed(2), profile.erPct.confidence, profile.erPct.basis],
     ['Estimated reach', String(profile.estimatedReach.value), profile.estimatedReach.confidence, profile.estimatedReach.basis],
-    ['Followers', String(profile.followers.value), profile.followers.confidence, profile.followers.basis],
-    ['Tier', profile.tier.value, profile.tier.confidence, profile.tier.basis],
-    ['Kategori', profile.category.value, profile.category.confidence, profile.category.basis],
-    ['Lokasi', profile.location.value, profile.location.confidence, profile.location.basis],
-    ['Lifestyle', profile.lifestyle.value, profile.lifestyle.confidence, profile.lifestyle.basis],
-    ['Umur dominan', profile.topAge.value, profile.topAge.confidence, profile.topAge.basis],
-    ['Gender (P/L)', `${profile.genderSplit.value.female}/${profile.genderSplit.value.male}`, profile.genderSplit.confidence, profile.genderSplit.basis],
-    ['Authenticity', String(profile.authenticity.value), profile.authenticity.confidence, profile.authenticity.basis],
-    ['Audience quality', String(profile.audienceQuality.value), profile.audienceQuality.confidence, profile.audienceQuality.basis],
-    ['Brand fit', String(profile.brandFit.value), profile.brandFit.confidence, profile.brandFit.basis],
+    // Real now, and nullable. "Belum terukur" rather than "null" or a zero:
+    // this table is the one a user exports and forwards.
+    ['Followers', profile.followers.value === null ? NOT_MEASURED : String(profile.followers.value), profile.followers.confidence, profile.followers.basis],
+    ['Tier', profile.tier.value ?? NOT_MEASURED, profile.tier.confidence, profile.tier.basis],
+    // Kategori and Lifestyle rows removed: both were a coin flip per account.
+    ['Kota audiens teratas', profile.location.value ?? NOT_MEASURED, profile.location.confidence, profile.location.basis],
+
+    ['Umur dominan', profile.topAge.value ?? NOT_MEASURED, profile.topAge.confidence, profile.topAge.basis],
+    ['Audiens perempuan %', profile.femalePct.value === null ? NOT_MEASURED : String(profile.femalePct.value), profile.femalePct.confidence, profile.femalePct.basis],
+    // Authenticity, Audience quality and Brand fit are gone from this table.
+    // All three were generated from a hash of the account id, and a report is
+    // the worst place for that: it leaves the screen and outlives its caveats.
     ['Paid ratio %', profile.paidRatio.value.toFixed(1), profile.paidRatio.confidence, profile.paidRatio.basis],
     ['Paid ER %', profile.paidErPct.value.toFixed(2), profile.paidErPct.confidence, profile.paidErPct.basis],
     ['Organic ER %', profile.organicErPct.value.toFixed(2), profile.organicErPct.confidence, profile.organicErPct.basis],
@@ -295,22 +410,39 @@ export function KolReportSection({
         </div>
       </Card>
 
+      {/* Both charts read REAL platform-insight demographics now.
+          They previously drew `ageSplit` and `genderSplit` - six random age
+          bands and a random female share, both hashed from the account id.
+          The card subtitles said "Dimodelkan", which was true and not enough:
+          a chart is read as a measurement whatever the subtitle says.
+
+          `ageBands` / `genderBands` come from `l0_raw.*_profile_snapshots` via
+          `@/lib/discover/accountFacts`. Empty for every competitor by
+          construction - the insights API only answers for an account you hold a
+          token for - and for owned accounts below the platform's reporting
+          threshold. Empty draws the unavailable state, never a chart. */}
       <div className="grid grid-cols-2 gap-3.5">
         <Card>
-          <CardHead title="Demografi umur" sub="Dimodelkan — sumber belum tersedia" />
+          <CardHead title="Demografi umur" sub="Dari platform insights" />
           <div className="px-4 pb-4">
-            <HBars items={profile.ageSplit.value.map((b, i) => ({
-              label: b.band, value: b.pct, display: `${b.pct}%`, color: PALETTE[i % PALETTE.length],
-            }))} />
+            {profile.ageBands.value.length ? (
+              <HBars items={profile.ageBands.value.map((b, i) => ({
+                label: b.label, value: b.pct, display: `${b.pct}%`, color: PALETTE[i % PALETTE.length],
+              }))} />
+            ) : <DemographicsUnavailable profile={profile} />}
           </div>
         </Card>
         <Card>
-          <CardHead title="Gender" sub="Dimodelkan — sumber belum tersedia" />
+          <CardHead title="Gender" sub="Dari platform insights" />
           <div className="px-4 pb-4">
-            <Donut segments={[
-              { label: 'Perempuan', value: profile.genderSplit.value.female, color: PALETTE[5] },
-              { label: 'Laki-laki', value: profile.genderSplit.value.male, color: PALETTE[1] },
-            ]} centerLabel={`${profile.genderSplit.value.female}%`} centerSub="perempuan" />
+            {profile.genderBands.value.length ? (
+              <Donut
+                segments={profile.genderBands.value.map((b, i) => ({
+                  label: b.label, value: b.pct, color: PALETTE[(i + 5) % PALETTE.length],
+                }))}
+                centerLabel={profile.femalePct.value === null ? '—' : `${profile.femalePct.value}%`}
+                centerSub="perempuan" />
+            ) : <DemographicsUnavailable profile={profile} />}
           </div>
         </Card>
       </div>
@@ -319,9 +451,22 @@ export function KolReportSection({
         <CardHead title="Ringkasan komersial" />
         <div className="px-4 pb-4 grid grid-cols-4 gap-3">
           <Mini label="Base rate" value={profile.hasRate ? idr(profile.baseRate) : 'belum diatur'} />
-          <Mini label="EMV" node={<MetricValue metric={profile.emv} format={idr} />} />
-          <Mini label="Est. reach / post" node={<MetricValue metric={profile.estimatedReach} format={fmtNum} />} />
-          <Mini label="Brand fit" node={<MetricValue metric={profile.brandFit} format={v => String(v)} />} />
+          {/* EMV has no real source - see `profile.emv`. Stated as
+              unavailable rather than dropped, so the absence is visible. */}
+          <Mini label="EMV" node={<span className="text-[10.5px] font-semibold text-[#9ca3af]">{NOT_MEASURED}</span>} />
+          {/* `MetricValue` renders a number with its confidence badge and has
+              no null branch; the unavailable case is handled here so the badge
+              is not drawn over an absent value. */}
+          <Mini
+            label="Reach / post"
+            node={profile.estimatedReach.value === null
+              ? <span className="text-[10.5px] font-semibold text-[#9ca3af]">{NOT_MEASURED}</span>
+              : <MetricValue metric={{ ...profile.estimatedReach, value: profile.estimatedReach.value }} format={fmtNum} />}
+          />
+          {/* Was "Brand fit" — generated, no real source for tracked accounts.
+              Posting cadence is measured from this account's own posts and is
+              the commercial fact this slot can actually answer. */}
+          <Mini label="Post / 30 hari" node={<MetricValue metric={profile.postFrequency} format={v => v.toFixed(1)} />} />
         </div>
       </Card>
     </div>

@@ -23,6 +23,22 @@ import type { CampaignDashboardPayload } from '@/lib/discover/campaignStore'
 import type { OrderStatus } from '@/lib/discover/orders'
 
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
+/** Shown wherever a contribution has no reach reading. Never '0'. */
+const NOT_MEASURED = 'Belum terukur'
+
+/** Stands in for the success gauge when coverage was too thin to score. */
+function LimitedData() {
+  return (
+    <div className="flex flex-col items-center justify-center py-5 text-center">
+      <span className="material-symbols-outlined text-[22px] text-[#9ca3af]">query_stats</span>
+      <div style={PJ} className="text-[12px] font-bold text-[#374151] mt-1">Data belum cukup</div>
+      <p className="text-[10.5px] text-[#9ca3af] leading-snug mt-0.5 max-w-[210px]">
+        Faktor terukur untuk KOL di campaign ini belum cukup untuk memprediksi hasil.
+      </p>
+    </div>
+  )
+}
+
 const PALETTE = ['#285D6E', '#4E96AC', '#e0a458', '#5fa783', '#8b7fc7', '#d97a7a', '#7DB4C6']
 const initials = (s: string) => s.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || '??'
 
@@ -103,8 +119,14 @@ export default function CampaignDashboard({
       <div className="grid grid-cols-4 gap-3.5 mb-4">
         <Kpi label="Reach" value={fmtNum(actuals.reach)} sub={`dari est. ${fmtNum(estimate.reach)}`} icon="visibility" projected />
         <Kpi label="Engagement" value={fmtNum(actuals.engagement)} sub={`dari est. ${fmtNum(estimate.engagement)}`} icon="favorite" projected />
-        <Kpi label="EMV" value={idr(actuals.emv)} sub="earned media value" icon="paid" projected />
-        <Kpi label="ROI" value={`${actuals.roi.toFixed(2)}×`} sub="EMV / biaya" icon="trending_up" projected />
+        {/* EMV has no measured source — see `profile.emv`. ROI is EMV over
+            cost, so it goes with it rather than being shown as 0.00×. Orders
+            placed before the change keep their frozen `est_emv`. */}
+        <Kpi label="EMV" value={actuals.emv === null ? NOT_MEASURED : idr(actuals.emv)}
+          sub={actuals.emv === null ? 'belum ada benchmark CPM' : 'earned media value'}
+          icon="paid" projected />
+        <Kpi label="ROI" value={actuals.roi === null ? NOT_MEASURED : `${actuals.roi.toFixed(2)}×`}
+          sub="EMV / biaya" icon="trending_up" projected />
       </div>
 
       <div className="grid grid-cols-4 gap-3.5 mb-4">
@@ -120,7 +142,17 @@ export default function CampaignDashboard({
         <Card>
           <CardHead title="Predicted success" sub="Dibekukan saat checkout" />
           <div className="px-4 pb-4">
-            <SuccessGauge rate={campaign.successRate ?? prediction.rate} band={prediction.band} />
+            {/* `rate` is nullable now: `predictSuccess` returns null when too
+                little is measurable to predict anything. The frozen checkout
+                value still wins when present. */}
+            {(campaign.successRate ?? prediction.rate) === null
+              ? <LimitedData />
+              : <SuccessGauge
+                  rate={(campaign.successRate ?? prediction.rate) as number}
+                  band={prediction.band}
+                  coverage={prediction.coverage}
+                  confidence={prediction.confidence}
+                  bandIsMeaningful={prediction.bandIsMeaningful} />}
             <div className="flex flex-col gap-1.5 mt-3">
               {(campaign.successFactors ?? prediction.factors).map(f => (
                 <div key={f.key} className="flex items-center gap-2">
@@ -164,9 +196,15 @@ export default function CampaignDashboard({
             {contributions.length === 0
               ? <EmptyState icon="donut_small" title="Tidak ada kontribusi" />
               : <Donut
-                  segments={contributions.slice(0, 6).map((c, i) => ({
-                    label: c.username, value: c.reach, color: PALETTE[i % PALETTE.length],
-                  }))}
+                  // Unmeasured contributions are omitted from the chart rather
+                  // than drawn as a zero-width slice, which would read as a
+                  // creator who reached nobody.
+                  segments={contributions
+                    .filter((c): c is typeof c & { reach: number } => c.reach !== null)
+                    .slice(0, 6)
+                    .map((c, i) => ({
+                      label: c.username, value: c.reach, color: PALETTE[i % PALETTE.length],
+                    }))}
                   centerLabel={fmtNum(estimate.reach)} centerSub="est. reach" />}
           </div>
         </Card>
@@ -178,7 +216,7 @@ export default function CampaignDashboard({
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-[#e5e7eb]">
-                {['KOL', 'Deliverable', 'Est. reach', 'Share', 'Est. engagement', 'Brand fit', 'Biaya'].map((h, i) => (
+                {['KOL', 'Deliverable', 'Est. reach', 'Share', 'Est. engagement', 'Biaya'].map((h, i) => (
                   <th key={h} style={PJ}
                     className={`text-[10px] font-bold uppercase tracking-wider text-[#9ca3af] px-3 py-2 ${i >= 2 ? 'text-right' : 'text-left'}`}>
                     {h}
@@ -202,10 +240,13 @@ export default function CampaignDashboard({
                     </div>
                   </td>
                   <Num>{c.units}</Num>
-                  <Num>{fmtNum(c.reach)}</Num>
-                  <Num>{c.reachShare.toFixed(1)}%</Num>
-                  <Num>{fmtNum(c.engagement)}</Num>
-                  <Num>{c.brandFit}</Num>
+                  <Num>{c.reach === null ? NOT_MEASURED : fmtNum(c.reach)}</Num>
+                  <Num>{c.reachShare === null ? NOT_MEASURED : `${c.reachShare.toFixed(1)}%`}</Num>
+                  <Num>{c.engagement === null ? NOT_MEASURED : fmtNum(c.engagement)}</Num>
+                  {/* A generated brand-fit column used to sit here, persisted
+                      into the campaign snapshot. Phase 2A stopped the optimizer
+                      reading it and Phase 2B deleted the field; nothing writes
+                      or shows it now. */}
                   <Num>{idr(c.cost)}</Num>
                 </tr>
               ))}
@@ -218,10 +259,14 @@ export default function CampaignDashboard({
         <Card className="mt-3.5">
           <CardHead title="Biaya vs reach per KOL" sub="Membandingkan efisiensi belanja" />
           <div className="px-4 pb-4">
-            <HBars items={contributions.map((c, i) => ({
-              label: `${c.username} · ${idr(c.cost)}`,
-              value: c.reach, display: fmtNum(c.reach), color: PALETTE[i % PALETTE.length],
-            }))} />
+            {/* Same rule as the donut: a creator with no reach reading has no
+                bar, because a zero-length bar is a claim about their reach. */}
+            <HBars items={contributions
+              .filter((c): c is typeof c & { reach: number } => c.reach !== null)
+              .map((c, i) => ({
+                label: `${c.username} · ${idr(c.cost)}`,
+                value: c.reach, display: fmtNum(c.reach), color: PALETTE[i % PALETTE.length],
+              }))} />
           </div>
         </Card>
       )}

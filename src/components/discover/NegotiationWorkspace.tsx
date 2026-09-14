@@ -512,15 +512,29 @@ function CreatorPicker({
     const rate = rates[account.id] ?? null
 
     const profile = profiles.find(p => p.account.id === account.id)
-    const estimate = profile
+    /*
+     * `reachFor` / `engagementFor` are nullable now: a profile carries no reach
+     * when the platform reported neither a reach nor any views for it.
+     *
+     * The null case routes into the fallback this function already had, which
+     * is built from the account's own measured totals - so an offer is still
+     * estimated from real numbers, and nothing here invents one. Negotiation's
+     * offer and pricing logic is untouched; this only decides which of the two
+     * existing estimate sources is used.
+     */
+    const profileReach = profile ? reachFor(profile, 1) : null
+    const profileEngagement = profile ? engagementFor(profile, 1) : null
+
+    const estimate = profileReach !== null && profileEngagement !== null
       ? {
-          reach: reachFor(profile, 1),
-          engagement: engagementFor(profile, 1),
-          likes: Math.round(engagementFor(profile, 1) * 0.94),
-          comments: Math.round(engagementFor(profile, 1) * 0.06),
+          reach: profileReach,
+          engagement: profileEngagement,
+          likes: Math.round(profileEngagement * 0.94),
+          comments: Math.round(profileEngagement * 0.06),
         }
       : {
-          // No profile: fall back to the account's own measured totals per post.
+          // No profile, or no reach measured for it: fall back to the account's
+          // own measured totals per post.
           reach: Math.round(account.totalViews / Math.max(1, account.postCount)),
           engagement: Math.round((account.totalLikes + account.totalComments) / Math.max(1, account.postCount)),
           likes: Math.round(account.totalLikes / Math.max(1, account.postCount)),

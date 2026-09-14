@@ -66,6 +66,20 @@ export interface SimilarCandidate extends SimilarReference {
 export interface SimilarConstraints {
   /** Restrict to one platform. Defaults to the reference's own. */
   platform?: string | null
+  /**
+   * Only creators sharing a category with the reference.
+   *
+   * Category already carries the heaviest weight in the ranking, but weight is
+   * not a promise: a creator matching on platform, size and engagement can rank
+   * well with an unrelated category, which is the right answer for "who
+   * resembles them" and the wrong one for "find me another beauty creator".
+   * This turns the preference into a requirement.
+   *
+   * Matching is by `categoryKey`, not by string, because the two sides name
+   * their categories differently — see `CATEGORY_SYNONYMS`. Ignored when the
+   * reference carries no category at all: there would be nothing to require.
+   */
+  sameCategory?: boolean
   /** Only creators in this city (roster creators carry a city; org ones may not). */
   city?: string | null
   /** Only this follower tier. */
@@ -348,6 +362,20 @@ export async function findSimilarCreators(
   const limit = Math.min(Math.max(constraints.limit ?? 12, 1), 40)
 
   /**
+   * The category requirement, resolved once against the reference.
+   *
+   * Asked for but unanswerable is a note rather than an empty result: a
+   * reference with no category cannot have "same category as the reference"
+   * applied to it, and returning nothing would read as "no similar creators
+   * exist".
+   */
+  const refCategoryKeys = new Set(reference.categories.map(categoryKey))
+  const requireCategory = !!constraints.sameCategory && refCategoryKeys.size > 0
+  if (constraints.sameCategory && !requireCategory) {
+    notes.push('The reference creator has no category on record, so "same category" could not be applied.')
+  }
+
+  /**
    * A price ceiling from the reference's own rate card.
    *
    * "Lower estimated price" is only answerable for creators that have a rate
@@ -483,8 +511,14 @@ export async function findSimilarCreators(
     `${(c.platform ?? '').toLowerCase()}:${c.username.toLowerCase()}`
   const referenceIdentity = identity(reference)
 
-  const candidates = [...ownCandidates, ...rosterCandidates]
+  const beforeCategory = [...ownCandidates, ...rosterCandidates]
     .filter(c => identity(c) !== referenceIdentity)
+
+  const candidates = beforeCategory
+    // Applied after the fetch rather than in it: the roster narrows by the
+    // reference's *first* category name, and the two vocabularies mean this has
+    // to be re-checked by key against every category a candidate carries.
+    .filter(c => !requireCategory || c.categories.some(x => refCategoryKeys.has(categoryKey(x))))
     .map(c => ({ ...c, ...scoreCandidate(reference, c) }))
     // A candidate scoring under a third of the judgeable rules is not a
     // recommendation, it is padding.
@@ -502,7 +536,9 @@ export async function findSimilarCreators(
 
   if (!candidates.length && (ownCandidates.length || rosterCandidates.length)) {
     notes.push(
-      `${ownCandidates.length + rosterCandidates.length} creators were compared, but none matched closely enough to recommend.`,
+      requireCategory
+        ? `${beforeCategory.length} creators were compared, but none of them shares a category with the reference. Set Category back to "Any category" to widen the search.`
+        : `${ownCandidates.length + rosterCandidates.length} creators were compared, but none matched closely enough to recommend.`,
     )
   }
 

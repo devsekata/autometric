@@ -192,11 +192,15 @@ export interface CampaignContribution {
   platform: string
   units: number
   cost: number
-  reach: number
-  engagement: number
-  /** Share of total campaign reach, 0–100. */
-  reachShare: number
-  brandFit: number
+  /**
+   * Null when this account has no reach measurement and no views to derive one
+   * from. Not 0: a contribution of zero reach and an unmeasured contribution
+   * are different facts, and the dashboard draws them differently.
+   */
+  reach: number | null
+  engagement: number | null
+  /** Share of total campaign reach, 0-100. Null whenever `reach` is. */
+  reachShare: number | null
 }
 
 export interface CampaignDashboardPayload {
@@ -207,7 +211,13 @@ export interface CampaignDashboardPayload {
   contributions: CampaignContribution[]
   /** Campaign window progress, 0–100. */
   pacingPct: number
-  actuals: { reach: number; engagement: number; emv: number; roi: number }
+  /**
+   * `emv` and `roi` are null when no EMV could be computed — which is every
+   * campaign today, because `profile.emv` has no real source. An order created
+   * before this change keeps the figure frozen in `discover_orders.est_emv`, so
+   * historical campaigns still report the number they were sold on.
+   */
+  actuals: { reach: number; engagement: number; emv: number | null; roi: number | null }
   budgetUsedPct: number
   goals: { label: string; actual: number; goal: number; pct: number; met: boolean }[]
   /** Always true today — see the note at the top of this module. */
@@ -274,10 +284,14 @@ export async function getCampaignDashboard(
       cost: s.cost,
       reach,
       engagement: engagementFor(s.profile, s.units),
-      reachShare: estimate.reach > 0 ? (reach / estimate.reach) * 100 : 0,
-      brandFit: s.profile.brandFit.value,
+      reachShare: reach !== null && estimate.reach > 0 ? (reach / estimate.reach) * 100 : null,
+      // `brandFit` left this shape with the optimizer that used it. It was a
+      // generated figure persisted into a campaign record, which is the worst
+      // place for one - it outlives every caveat.
     }
-  }).sort((a, b) => b.reach - a.reach)
+  // Unmeasured contributions sort last rather than as 0, so the bottom of the
+  // table does not mix "reached nobody" with "nobody measured".
+  }).sort((a, b) => (b.reach ?? -1) - (a.reach ?? -1))
 
   // Prefer the estimate frozen at checkout; fall back to a live recompute for
   // orders created before those columns existed.
@@ -289,8 +303,8 @@ export async function getCampaignDashboard(
   const actuals = {
     reach: Math.round(baseReach * pacingPct),
     engagement: Math.round(baseEngagement * pacingPct),
-    emv: Math.round(baseEmv * pacingPct),
-    roi: order.total > 0 ? (baseEmv * pacingPct) / order.total : 0,
+    emv: baseEmv === null ? null : Math.round(baseEmv * pacingPct),
+    roi: baseEmv !== null && order.total > 0 ? (baseEmv * pacingPct) / order.total : null,
   }
 
   const goal = (label: string, actual: number, target: number | null) => ({

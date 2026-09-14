@@ -7,11 +7,12 @@
  * value in each row marked with a ★, an "Add:" strip of candidates, and an empty
  * state until at least two are picked.
  *
- * Every figure is read from a database. Nothing here is modelled or sampled —
- * which is worth stating, because the Creator Intelligence Workspace next door
- * *does* generate demo figures for roster creators (`@/lib/discover/kolSample`)
- * and this screen deliberately shares none of that. If a number cannot be
- * measured it is left blank rather than filled in.
+ * Every figure is read from a database. Nothing here is modelled or sampled.
+ * That was once a distinction worth drawing against the Creator Intelligence
+ * Workspace, which generated demo figures from `@/lib/discover/kolSample`;
+ * Phases 4A-4D migrated that workspace to real data and deleted the generator,
+ * so both screens now follow the same rule. If a number cannot be measured it
+ * is left blank rather than filled in.
  *
  * Two populations can be compared, and they are measured by different systems:
  *
@@ -20,7 +21,7 @@
  *     real content;
  *   * **roster creators** — the commercial KOL platform's directory holds mostly
  *     identity: follower count, its own published engagement rate, tier,
- *     category, city, verified flag. A small number of them do have harvested
+ *     category, city, connected flag. A small number of them do have harvested
  *     posts and prices in the warehouse (`@/lib/discover/kolMeasured`), which
  *     this screen does not read yet — it compares the roster's own columns, so a
  *     creator here is described by the same fields as every other.
@@ -40,7 +41,10 @@ import {
 } from './ui'
 import { idsOf, selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import type { DirectoryAccount, DirectoryPayload } from '@/lib/discover/types'
-import type { KolDirectoryPayload, KolDirectoryRow } from '@/lib/discover/kolDirectory'
+import type {
+  KolDirectoryMatch, KolDirectoryPayload, KolDirectoryRow,
+} from '@/lib/discover/kolDirectory'
+import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
 
 /* ── the two populations, in one shape ────────────────────────────────────── */
 
@@ -64,8 +68,20 @@ interface Contender {
   /* published by the KOL platform */
   followers: number | null
   rosterErPct: number | null
-  verified: boolean | null
+  /** Null for an account-side contender: only roster rows carry this. */
+  connected: boolean | null
   category: string | null
+  /**
+   * The Brand Match Engine's Final Match Score against the workspace's saved
+   * Brand Profile, and its band.
+   *
+   * Roster creators only, and null when no profile is saved. A tracked account
+   * is not in `public.kol_directory` and the engine reads nothing else, so
+   * scoring one would mean a second, differently-sourced match number in the
+   * same column — which is the thing this screen most carefully avoids.
+   */
+  matchScore: number | null
+  matchLevel: string | null
   city: string | null
 }
 
@@ -83,12 +99,16 @@ const fromAccount = (a: DirectoryAccount): Contender => ({
   measuredErPct: a.avgErPct,
   followers: null,
   rosterErPct: null,
-  verified: null,
+  connected: null,
   category: null,
   city: null,
+  // A tracked account is not a row in `public.kol_directory`, and the Brand
+  // Match Engine reads nothing else. Null, and the row says why.
+  matchScore: null,
+  matchLevel: null,
 })
 
-const fromRoster = (r: KolDirectoryRow): Contender => ({
+const fromRoster = (r: KolDirectoryRow, match?: MatchExplanation | null): Contender => ({
   key: selectionKey('roster', r.id),
   id: r.id,
   source: 'roster',
@@ -102,9 +122,11 @@ const fromRoster = (r: KolDirectoryRow): Contender => ({
   measuredErPct: null,
   followers: r.followers,
   rosterErPct: r.erPct,
-  verified: r.verified,
+  connected: r.connected,
   category: r.categories[0] ?? null,
   city: r.city,
+  matchScore: match?.score ?? null,
+  matchLevel: match?.level ?? null,
 })
 
 /* ── the rows ─────────────────────────────────────────────────────────────── */
@@ -187,6 +209,33 @@ const GROUPS: MetricGroup[] = [
       },
     ],
   },
+  {
+    /**
+     * Brand Match — the one row on this screen that is about the pair rather
+     * than about the creator.
+     *
+     * It is the absolute Final Match Score, not the normalised one. `normalise`
+     * exists for exactly this shape of population and was the obvious thing to
+     * reach for here, but it would rescale every score the moment a creator was
+     * added to or removed from the comparison: a creator you were told was an
+     * 80 becomes a 100 because you dropped the person above them. The ★ already
+     * marks the leader of the comparison; the number stays the creator's own.
+     */
+    title: 'Brand Match',
+    note: 'Skor terhadap Brand Profile workspace, dari Brand Match Engine. '
+      + 'Hanya untuk creator roster — akun yang kamu track sendiri tidak ada di database KOL.',
+    rows: [
+      {
+        label: 'Match score',
+        get: c => c.matchScore,
+        fmt: c => (c.matchScore === null ? '—' : `${c.matchScore}`),
+        higherIsBetter: true,
+        missing: c => (c.source === 'roster'
+          ? 'Belum ada Brand Profile tersimpan, atau creator ini tidak bisa diskor dari data yang ada.'
+          : notRoster),
+      },
+    ],
+  },
 ]
 
 /** Non-numeric facts, shown under the columns rather than ranked. */
@@ -194,7 +243,8 @@ const FACTS: { label: string; get: (c: Contender) => string | null }[] = [
   { label: 'Tier / relasi', get: c => c.badge },
   { label: 'Kategori', get: c => c.category },
   { label: 'Kota', get: c => c.city },
-  { label: 'Verified', get: c => (c.verified === null ? null : c.verified ? 'Ya' : 'Tidak') },
+  { label: 'Connected', get: c => (c.connected === null ? null : c.connected ? 'Ya' : 'Tidak') },
+  { label: 'Match status', get: c => c.matchLevel },
 ]
 
 export default function DiscoverCompare({
@@ -212,6 +262,12 @@ export default function DiscoverCompare({
 }) {
   const [data, setData] = useState<DirectoryPayload | null>(null)
   const [roster, setRoster] = useState<KolDirectoryRow[]>([])
+  /**
+   * Brand Match for the roster creators in this comparison, from the same engine
+   * and the same route the Creator Database used — so a creator carried into
+   * Compare keeps the score they were picked on.
+   */
+  const [match, setMatch] = useState<KolDirectoryMatch | null>(null)
   const [rosterError, setRosterError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
@@ -241,9 +297,14 @@ export default function DiscoverCompare({
     if (!compare.ready) return
     if (!rosterIds) { setRoster([]); setRosterError(null); return }
     let cancelled = false
-    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${rosterIds}`)
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${rosterIds}&match=1`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: KolDirectoryPayload) => { if (!cancelled) { setRoster(d.rows); setRosterError(null) } })
+      .then((d: KolDirectoryPayload) => {
+        if (cancelled) return
+        setRoster(d.rows)
+        setMatch(d.match ?? null)
+        setRosterError(null)
+      })
       // The roster lives on another server. Losing it drops those columns and
       // says so, rather than failing the whole comparison.
       .catch(e => { if (!cancelled) setRosterError(String(e.message ?? e)) })
@@ -254,8 +315,8 @@ export default function DiscoverCompare({
     const accounts = (data?.accounts ?? [])
       .filter(a => compare.ids.has(selectionKey('account', a.id)))
       .map(fromAccount)
-    return [...accounts, ...roster.map(fromRoster)]
-  }, [data, roster, compare.ids])
+    return [...accounts, ...roster.map(r => fromRoster(r, match?.rows[r.id] ?? null))]
+  }, [data, roster, match, compare.ids])
 
   const available = useMemo(() => {
     if (!data) return []

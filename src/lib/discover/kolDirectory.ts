@@ -100,15 +100,37 @@ export interface KolDirectoryRow {
   /** How much to trust `erPct`. Null whenever `erPct` is null. */
   erQuality: KolErQuality
   tier: string | null
-  verified: boolean
+  /**
+   * Percentage change in followers since this account's PREVIOUS snapshot, from
+   * `l2_gold.kol_profile_card.followers_growth`. The gap is whatever the scraper
+   * produced — 10-13 days today, not a month — so never label it monthly or
+   * 30-day. Null for creators scraped only once, which is most of the roster.
+   */
+  growthPct: number | null
+  /**
+   * Business Connected: `platform_user_id` and `oauth_token` both set. Replaces
+   * the old `verified`, which carried the platform's blue tick. See `CONNECTED`.
+   */
+  connected: boolean
   status: KolDataStatus
   lastRefreshedAt: string | null
   /**
    * The three columns the source platform's directory carries that this one used
    * to leave out. They were left out because the roster row has no column for
    * them — which was true of EMV, authenticity, growth and brand fit, and is
-   * still true. It was never true of these two: the agency tables name 7,684 of
-   * the 7,718 creators, and `l1_silver.unified_rate_card` prices 7,230 of them.
+   * still true. It was never true of the agency name: the agency tables name
+   * 7.684 of the 7.720 creators.
+   *
+   * The rate card has now answered twice with different numbers, so date the
+   * figure you read here. Measured 13 Sep 2026, after the roster sync ran:
+   * `l1_silver.unified_rate_card` holds 8.856 priced deliverables and the join
+   * below fills `rateFrom` for 6.959 of the 7.432 roster creators. It genuinely
+   * did hold 0 rows on 8 Sep, which is why the rate filter shipped disabled;
+   * that control is live again.
+   *
+   * `l2_gold.kol_profile_card.rate_card_min_fee` is still null for all 1.978
+   * rows and is NOT consulted here. That is deliberate — one source per figure,
+   * and the source is L1. See the note in `kolGold.ts`.
    *
    * Both are attached after paging rather than joined in (`attachRosterExtras`),
    * because a LATERAL join for either runs before `LIMIT` and costs seconds.
@@ -153,12 +175,70 @@ export interface KolDirectoryFacets {
   rosterTotal: number
 }
 
+/**
+ * Brand Match for the creators on one page, when `?match=1` asked for it.
+ *
+ * Attached by the route rather than produced here, because matching needs the
+ * workspace's Brand Profile out of the warehouse and this module only ever
+ * talks to the KOL pool. Keeping the fetch and the scoring in separate modules
+ * is what stops a directory query from quietly acquiring a second database.
+ */
+export interface KolDirectoryMatch {
+  /**
+   * False when the workspace has not saved a scoreable Brand Profile. `rows` is
+   * then empty — not full of zeros. A creator nobody has stated a preference
+   * about has no match score, and printing one would be the fake precision the
+   * engine exists to remove.
+   */
+  scoreable: boolean
+  brandName: string | null
+  brandCategory: string | null
+  updatedAt: string | null
+  eligibility: import('./brandMatch/profile').EligibilityRules
+  /** Creator id → the score and the reason for it. Absent id means unscored. */
+  rows: Record<string, import('./brandMatch/explain').MatchExplanation>
+  /**
+   * Creator id → the MEASURED signals for that creator: authenticity, audience
+   * quality, growth, average views, posting cadence.
+   *
+   * Present even when `scoreable` is false, because none of it depends on a
+   * brand. It is what the cards and the quick-look panel read instead of the
+   * figures `@/lib/discover/kolSample` used to generate for the same slots —
+   * every field nullable, and null meaning not measured rather than zero.
+   */
+  measured: Record<string, import('./brandMatch/measured').MeasuredSignals>
+}
+
+/**
+ * What Matters Most for the creators on this page, when `?matters=` asked.
+ *
+ * Every number here is computed server-side by `@/lib/discover/whatMatters`
+ * against the KOL server. The client renders these; it must not re-derive them,
+ * or the page and the engine would disagree about the same creator.
+ */
+export interface KolDirectoryWhatMatters {
+  /** The criteria the caller selected, after unknown keys were dropped. */
+  selected: import('./whatMatters/model').CriterionKey[]
+  /** The canonical seven, so the UI keeps no second copy of the names. */
+  criteria: { key: import('./whatMatters/model').CriterionKey; label: string }[]
+  /**
+   * Creator id → per-criterion scores plus the average over the selected ones.
+   *
+   * A criterion the database cannot answer is `null` — not measured, and NOT a
+   * zero. It is dropped from the average's denominator rather than counted, and
+   * the UI must draw it as unmeasured.
+   */
+  rows: Record<string, import('./whatMatters').WhatMattersResult>
+}
+
 export interface KolDirectoryPayload {
   rows: KolDirectoryRow[]
   total: number
   page: number
   pageSize: number
   facets?: KolDirectoryFacets
+  match?: KolDirectoryMatch
+  whatMatters?: KolDirectoryWhatMatters
 }
 
 export interface KolDirectoryQuery {
@@ -190,6 +270,18 @@ export interface KolDirectoryQuery {
    */
   tiers?: string[]
   minFollowers?: number | null
+  /**
+   * Upper bound on followers — the reference panel's `follMax`, which this
+   * directory only ever had the lower half of.
+   *
+   * It is what makes "creators smaller than X" a question the database answers
+   * rather than something the reader eyeballs: 2.247 of the roster sit under
+   * 10K and 2.942 between 10K and 50K, so the ceiling separates real
+   * populations. A creator whose follower count was never measured is excluded
+   * when a ceiling is set, for the same reason a rate ceiling excludes the
+   * unpriced: "below X" is not satisfied by "unknown".
+   */
+  maxFollowers?: number | null
   minErPct?: number | null
   /**
    * Ceiling on the creator's cheapest priced deliverable, in IDR — the source
@@ -198,7 +290,16 @@ export interface KolDirectoryQuery {
    * "no price" is not one.
    */
   maxRate?: number | null
-  verifiedOnly?: boolean
+  /**
+   * Inclusive bounds on `growthPct`, in percentage points.
+   *
+   * Null means no bound. 0 does not: a creator can sit exactly at 0.0000% and
+   * several of the measured ones do, so these are nullable rather than using
+   * the 0-means-any convention the follower and rate bounds use.
+   */
+  minGrowth?: number | null
+  maxGrowth?: number | null
+  connectedOnly?: boolean
   /**
    * Lower bounds on the two roster timestamps, for the Section Tabs (BE-04).
    * `createdAfter` is when the row appeared, `refreshedAfter` when its numbers
@@ -237,6 +338,71 @@ const SORT_COLUMNS: Record<string, string> = {
   // different question and a different column.
   created: 'created_at',
   name: 'username',
+  // Percentage change in followers since the account's previous snapshot. Rows
+  // with no second snapshot sort last on either direction — NULLS LAST is
+  // applied by the order builder, so "worst growth" never means "unmeasured".
+  growth: 'growth_pct',
+  /**
+   * Brand Match score — and the only key here that is NOT a column.
+   *
+   * A match score is a function of (creator, brand profile) computed in Node
+   * after the page is read; there is nothing in `kol_directory` to ORDER BY.
+   * So this resolves to the follower ordering, which becomes the STABLE BASE
+   * the page is selected and tie-broken by, and the route re-ranks that page
+   * by score afterwards — see `MATCH_SORT` below.
+   *
+   * Mapped explicitly rather than left to `orderBy`'s unknown-key fallback:
+   * the fallback lands on the same column, but silently, and a reader would
+   * have no way to tell an intentional alias from a typo that stopped working.
+   */
+  match: 'followers',
+}
+
+/**
+ * The sort key whose ordering is applied AFTER the query, over the page only.
+ *
+ * Page-scoped by construction, not by omission: scoring the whole roster would
+ * mean computing ~7.4k scores per request per brand profile, and with category
+ * absent for 3.430 creators most of them would tie at the same neutral value
+ * anyway. The UI says "halaman ini" for exactly this reason.
+ */
+export const MATCH_SORT = 'match'
+
+/**
+ * Re-ranks ONE PAGE by Brand Match score. Pure, so it can be verified without a
+ * database or a running route.
+ *
+ * Three properties it has to keep, and the reason each one is not negotiable:
+ *
+ *   unscored last   A creator with no score is not a creator who scored 0.
+ *                   `null` sorts to the bottom in BOTH directions, so "lowest
+ *                   match first" never means "unmeasured first" — the same rule
+ *                   the SQL ordering applies with NULLS LAST.
+ *   no fabrication  Nothing substitutes a number for a missing score. The
+ *                   comparator reads `null` and orders around it; it never
+ *                   coerces to 0, to 50, or to -1.
+ *   deterministic   `Array.prototype.sort` has been required to be stable since
+ *                   ES2019, so equal scores keep the incoming order — which is
+ *                   the SQL ordering (followers DESC, then username ASC).
+ *                   Thousands of creators tie at the neutral 50 on this roster,
+ *                   so this is the common case, not the edge case.
+ *
+ * Returns a new array; the input is not mutated.
+ */
+export function rankByMatch<T>(
+  rows: readonly T[],
+  scoreOf: (row: T) => number | null,
+  dir: string | null | undefined,
+): T[] {
+  const asc = dir === 'asc'
+  return [...rows].sort((a, b) => {
+    const x = scoreOf(a)
+    const y = scoreOf(b)
+    if (x === null && y === null) return 0
+    if (x === null) return 1
+    if (y === null) return -1
+    return asc ? x - y : y - x
+  })
 }
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
@@ -289,6 +455,30 @@ const ACTIVE = `kd.directory_status = 'active'`
  * replaced; ~half the roster still only has the latter, so both are read.
  */
 const CATEGORY_IDS = `COALESCE(kd.category_ids, ARRAY[kd.category_id])`
+
+/**
+ * Business Connected — the creator has actually linked the account through
+ * OAuth, meaning `social_account.platform_user_id` AND `oauth_token` are both
+ * present.
+ *
+ * This is deliberately NOT `kol_directory.verified_status`, which it replaces.
+ * That column is the platform's blue tick and says nothing about whether the
+ * creator has connected anything to us; `social_account.connected` looks like
+ * the right column and is never filled. Defined here once because three queries
+ * need the same answer and three copies of it would drift.
+ *
+ * It returns false for the whole roster today — no creator has been through the
+ * connect flow yet. That is why the filter that reads it ships with the reason
+ * written on it rather than as a control that silently returns nothing.
+ */
+const CONNECTED = `EXISTS (
+           SELECT 1
+             FROM public.kol_social_account ksa
+             JOIN public.social_account sa ON sa.id = ksa.social_account_id
+            WHERE ksa.kol_id = kd.id
+              AND sa.platform_user_id IS NOT NULL
+              AND sa.oauth_token IS NOT NULL
+         )`
 
 /**
  * What `?q=` matches (BE-03).
@@ -367,7 +557,7 @@ const BASE = `
          ${ER_CLEAN}::float                        AS er_pct,
          kd.engagement_rate::float                 AS er_raw,
          t.name                                    AS tier,
-         (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified,
+         ${CONNECTED}                              AS connected,
          -- Provenance, using the same three labels the rest of Discover uses:
          -- a recent refresh is Live, an older row that was actually scraped
          -- (see migration 004 in scrapper-project — scrape_status is kept in
@@ -384,6 +574,7 @@ const BASE = `
            WHEN kd.scrape_status = 'success'                      THEN 'Calculated'
            ELSE 'Estimated'
          END                                       AS status,
+         g.followers_growth::float                 AS growth_pct,
          kd.last_refreshed_at,
          -- Not mapped onto the row; carried so the list can be ordered by when
          -- a creator was added, which is what the Discovery landing's "Recently
@@ -407,6 +598,23 @@ const BASE = `
         FROM public.kol_categories kc
        WHERE kc.id = ANY (${CATEGORY_IDS})
     ) cats ON TRUE
+    -- Follower growth, the only measured growth that exists: L1 computes
+    -- (current - previous) / previous * 100 over consecutive profile snapshots
+    -- and l2_gold.kol_profile_card carries it through untouched.
+    --
+    -- LATERAL ... LIMIT 1 rather than a plain join so the roster row stays one
+    -- row even if a creator ever maps to more than one linked account, ordered
+    -- by followers to pick the same account the detail page shows. Only
+    -- followers_growth is read here: followers and tier stay on kol_directory,
+    -- which is the agreed source of truth for both.
+    LEFT JOIN LATERAL (
+      SELECT c.followers_growth
+        FROM public.kol_social_account ksa
+        JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
+       WHERE ksa.kol_id = kd.id
+       ORDER BY c.followers_count DESC NULLS LAST
+       LIMIT 1
+    ) g ON TRUE
    WHERE ${ACTIVE}`
 
 /**
@@ -538,7 +746,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     profile_url: string | null; avatar_url: string | null; bio: string | null; city: string | null
     categories: string[] | null; followers: number | null
     er_pct: number | null; er_raw: number | null
-    tier: string | null; verified: boolean; status: KolDataStatus
+    tier: string | null; growth_pct: number | null; connected: boolean
+    status: KolDataStatus
     last_refreshed_at: Date | string | null; total_count: number
   }>(
     `
@@ -561,8 +770,15 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
            OR ($13::boolean IS TRUE AND b.tier IS NULL)
          )
          AND ($5::float8   IS NULL OR b.er_pct >= $5)
-         AND ($6::boolean  IS NOT TRUE OR b.verified)
+         AND ($6::boolean  IS NOT TRUE OR b.connected)
          AND ($9::bigint   IS NULL OR b.followers >= $9)
+         AND ($16::bigint  IS NULL OR b.followers <= $16)
+         -- Growth band. Both bounds inclusive, and a creator with no second
+         -- snapshot fails either one: growth_pct IS NULL compares to nothing,
+         -- so setting a band hides the ~99% of the roster it cannot answer for
+         -- rather than guessing they sat still.
+         AND ($17::float8  IS NULL OR b.growth_pct >= $17)
+         AND ($18::float8  IS NULL OR b.growth_pct <= $18)
          AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
          -- Section Tabs (BE-04). Two different columns on purpose: when the row
          -- appeared, versus when its numbers were last measured.
@@ -587,7 +803,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       categories,
       tiers,
       query.minErPct ?? null,
-      query.verifiedOnly === true,
+      query.connectedOnly === true,
       pageSize,
       (page - 1) * pageSize,
       query.minFollowers ? Math.trunc(query.minFollowers) : null,
@@ -599,6 +815,12 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       wantUntiered,
       query.createdAfter ?? null,
       query.refreshedAfter ?? null,
+      query.maxFollowers ? Math.trunc(query.maxFollowers) : null,
+      // Not truncated, and not passed through a truthiness check: growth is a
+      // signed percentage where 0 is a real value, so `?? null` is the only
+      // guard that keeps "no bound" and "exactly flat" apart.
+      query.minGrowth ?? null,
+      query.maxGrowth ?? null,
     ],
     q !== null,
   )
@@ -617,7 +839,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       erRaw: r.er_raw,
       erQuality: erQualityOf(r.er_pct),
       tier: r.tier,
-      verified: r.verified,
+      growthPct: r.growth_pct,
+      connected: r.connected,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
       // Filled by attachRosterExtras below; declared here so the row is never
@@ -785,7 +1008,8 @@ export interface KolCreatorPlatformRow {
   profileUrl: string | null
   followers: number | null
   erPct: number | null
-  verified: boolean
+  /** Business Connected — see `CONNECTED`. Replaces the old blue-tick flag. */
+  connected: boolean
 }
 
 /** A neighbour in the roster — same category where there is one, nearest in size. */
@@ -837,7 +1061,8 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
-    er_pct: number | null; er_raw: number | null; tier: string | null; verified: boolean
+    er_pct: number | null; er_raw: number | null; tier: string | null
+    growth_pct: number | null; connected: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
     display_name: string | null; agency: string | null
   }>(`
@@ -918,11 +1143,11 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     db.query<{
       id: string; platform: string | null; username: string
       profile_url: string | null; followers: number | null
-      er_pct: number | null; verified: boolean
+      er_pct: number | null; connected: boolean
     }>(`
       SELECT kd.id, pl.key AS platform, kd.username, kd.profile_url,
              kd.followers_count AS followers, ${ER_CLEAN}::float AS er_pct,
-             (LOWER(COALESCE(kd.verified_status, '')) IN ('verified', 'true', 'yes')) AS verified
+             ${CONNECTED} AS connected
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
        WHERE ${ACTIVE}
@@ -986,7 +1211,8 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       erRaw: r.er_raw,
       erQuality: erQualityOf(r.er_pct),
       tier: r.tier,
-      verified: r.verified,
+      growthPct: r.growth_pct,
+      connected: r.connected,
       status: r.status,
       lastRefreshedAt: toIso(r.last_refreshed_at),
       // Already in hand here: the agency comes from the join above and the
@@ -1030,7 +1256,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       profileUrl: p.profile_url,
       followers: p.followers,
       erPct: p.er_pct,
-      verified: p.verified,
+      connected: p.connected,
     })),
     similar: similar.rows.map(s => ({
       id: s.id,
@@ -1083,4 +1309,52 @@ export async function getRosterIdentities(ids: string[]): Promise<Map<string, Ro
     out.set(r.id, { id: r.id, username: r.username, platform: r.platform })
   }
   return out
+}
+
+export interface RosterScrapeTarget extends RosterIdentity {
+  profileUrl: string | null
+  /**
+   * `kol_social_account.social_account_id`, when the roster row already carries
+   * one. Null only for an Excel import that was never scraped.
+   */
+  socialAccountId: string | null
+}
+
+/**
+ * Everything `startKolScrape` needs to re-run a scrape against a creator who is
+ * already in the roster.
+ *
+ * Refreshing a tracked creator is the same pipeline as adding one, pointed at
+ * the row that exists. Both existing ids matter, and the second one is why this
+ * function reads `kol_social_account` rather than just the directory row:
+ * `startKolScrape` given a `kolDirectoryId` but no `socialAccountId` takes the
+ * "imported but never linked" path and INSERTs a fresh `social_account` +
+ * `kol_social_account` pair. For a creator who already has one, that is a
+ * duplicate identity — and every follower and post table downstream keys off
+ * `social_account_id`, so the refresh would write its results against an
+ * account nothing else reads.
+ */
+export async function getRosterScrapeTarget(id: string): Promise<RosterScrapeTarget | null> {
+  const { rows } = await kolDb().query<{
+    id: string; username: string; platform: string | null
+    profile_url: string | null; social_account_id: string | null
+  }>(
+    `SELECT kd.id, kd.username, pl.key AS platform, kd.profile_url,
+            ksa.social_account_id
+       FROM public.kol_directory kd
+       LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
+       LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+      WHERE kd.id = $1
+      LIMIT 1`,
+    [id],
+  )
+  const r = rows[0]
+  if (!r) return null
+  return {
+    id: r.id,
+    username: r.username,
+    platform: r.platform,
+    profileUrl: r.profile_url,
+    socialAccountId: r.social_account_id,
+  }
 }

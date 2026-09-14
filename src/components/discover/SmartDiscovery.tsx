@@ -22,7 +22,9 @@ import { LOCATIONS, TIERS } from '@/lib/discover/vocab'
 import type { CreatorSummary } from '@/lib/discover/creatorFlow'
 import type { KolDirectoryRow } from '@/lib/discover/kolDirectory'
 import type { SimilarCandidate, SimilarResult } from '@/lib/discover/creatorSimilar'
+import type { TrackingStatus } from '@/lib/discover/types'
 import { useDiscoverSelection, selectionKey } from './useDiscoverSelection'
+import { useCreatorLinks } from './useCreatorLinks'
 
 export interface SmartDiscoveryProps {
   orgId: string
@@ -146,6 +148,15 @@ export default function SmartDiscovery({
   const [maxRate, setMaxRate] = useState(0)
   const [cheaper, setCheaper] = useState(false)
   /**
+   * Category as a requirement rather than as the ranking's own preference.
+   *
+   * Off by default because category is already the heaviest rule in the
+   * scoring, so the results are category-led without it — and a reference with
+   * no category on record would otherwise start the screen with a constraint
+   * that cannot be met.
+   */
+  const [sameCategory, setSameCategory] = useState(false)
+  /**
    * The Compare shortlist, the same one the Creator Database and Compare share
    * through localStorage.
    *
@@ -157,6 +168,16 @@ export default function SmartDiscovery({
    * resolve.
    */
   const compare = useDiscoverSelection(orgId, 'compare')
+  /**
+   * My Creators and tracking, so a recommendation can be acted on where it is
+   * read.
+   *
+   * A ranking that names five creators and then makes you go and find them
+   * again in the Creator Database to save one stops a step short of the
+   * decision it exists to support. Only Creator Database candidates can carry
+   * either state: an org's own creator is in My Creators by construction.
+   */
+  const creatorLinks = useCreatorLinks(orgId)
   const [result, setResult] = useState<SimilarResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -237,6 +258,7 @@ export default function SmartDiscovery({
       if (platform) qs.set('platform', platform)
       if (tier) qs.set('tier', tier)
       if (city) qs.set('city', city)
+      if (sameCategory) qs.set('sameCategory', '1')
       if (maxRate) qs.set('maxRate', String(maxRate))
       if (cheaper) qs.set('cheaper', '1')
 
@@ -249,7 +271,7 @@ export default function SmartDiscovery({
     } finally {
       setLoading(false)
     }
-  }, [orgId, ref, platform, tier, city, maxRate, cheaper])
+  }, [orgId, ref, platform, tier, city, sameCategory, maxRate, cheaper])
 
   const choose = useCallback((pick: RefPick) => {
     setRef(pick)
@@ -394,6 +416,24 @@ export default function SmartDiscovery({
               onClick={() => setCheaper(v => !v)} />
           </div>
 
+          <div className="flex items-center gap-1.5 flex-wrap mb-3">
+            <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#c4cbd4] mr-1">
+              Category
+            </span>
+            {/* Two chips rather than a category picker: this step is about the
+                reference, and "the same category as them" is the question
+                somebody standing here is actually asking. Picking a category
+                outright is what the Creator Database's own filters are for. */}
+            <Chip label="Any category" on={!sameCategory} onClick={() => setSameCategory(false)} />
+            <Chip label="Same as reference" icon="category" on={sameCategory}
+              onClick={() => setSameCategory(true)} />
+            {sameCategory && ref && !ref.category && (
+              <span className="text-[10.5px] text-[#b5761f]">
+                This reference has no category on record, so the requirement will be skipped.
+              </span>
+            )}
+          </div>
+
           <div className="flex items-center gap-1.5 flex-wrap">
             <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#c4cbd4] mr-1">
               Platform
@@ -486,6 +526,31 @@ export default function SmartDiscovery({
                   onCompare={c.source === 'roster'
                     ? () => compare.toggle(selectionKey('roster', c.id))
                     : null}
+                  // Only database candidates carry the two org-wide states; an
+                  // org's own creator is in My Creators already.
+                  inRoster={c.source === 'roster' ? creatorLinks.inRoster('roster', c.id) : null}
+                  tracking={c.source === 'roster' ? creatorLinks.trackingOf('roster', c.id) : null}
+                  onRoster={c.source === 'roster'
+                    ? () => { void creatorLinks.setRoster('roster', c.id, !creatorLinks.inRoster('roster', c.id)) }
+                    : null}
+                  onTracking={c.source === 'roster'
+                    ? () => {
+                        const now = creatorLinks.trackingOf('roster', c.id)
+                        void creatorLinks.setTracking('roster', c.id, now === 'active' ? 'paused' : 'active')
+                      }
+                    : null}
+                  // Chase the thread: a recommendation that looks right is often
+                  // the better starting point than the creator you began with.
+                  onUseAsReference={() => choose({
+                    id: c.id,
+                    source: c.source === 'creator' ? 'creator' : 'roster',
+                    username: c.username,
+                    displayName: c.displayName,
+                    avatarUrl: c.avatarUrl,
+                    platform: c.platform,
+                    category: c.categories[0] ?? null,
+                    followers: c.followers,
+                  })}
                 />
               ))}
             </ol>
@@ -566,7 +631,8 @@ function RefButton({
 }
 
 function RecommendationRow({
-  rank, candidate, onOpen, inCompare, onCompare,
+  rank, candidate, onOpen, inCompare, onCompare, inRoster, tracking, onRoster, onTracking,
+  onUseAsReference,
 }: {
   rank: number
   candidate: SimilarCandidate
@@ -574,6 +640,13 @@ function RecommendationRow({
   inCompare: boolean
   /** Null for an org's own creator, which the shortlist has no population for. */
   onCompare: (() => void) | null
+  /** Null for a candidate that cannot carry the state - see the caller. */
+  inRoster: boolean | null
+  tracking: TrackingStatus | null
+  onRoster: (() => void) | null
+  onTracking: (() => void) | null
+  /** Search again, from this creator. */
+  onUseAsReference: () => void
 }) {
   const c = candidate
   return (
@@ -643,6 +716,45 @@ function RecommendationRow({
             {inCompare ? 'In compare' : 'Compare'}
           </button>
         )}
+        {onRoster && (
+          <button type="button" onClick={onRoster} style={PJ}
+            title={inRoster ? 'Remove from My Creators' : 'Save to My Creators'}
+            className={`inline-flex items-center gap-1 rounded-lg text-[10.5px] font-bold px-2 h-7 border transition-colors cursor-pointer ${
+              inRoster
+                ? 'bg-[#f0f7fa] border-[#A7C8D4] text-[#285D6E]'
+                : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4]'
+            }`}>
+            <span className="material-symbols-outlined text-[13px]">
+              {inRoster ? 'folder_shared' : 'create_new_folder'}
+            </span>
+            {inRoster ? 'Saved' : 'My Creators'}
+          </button>
+        )}
+        {onTracking && (
+          <button type="button" onClick={onTracking} style={PJ}
+            title={
+              tracking === 'active' ? 'Pause tracking'
+                : tracking === 'paused' ? 'Resume tracking'
+                : 'Start tracking this creator'
+            }
+            className={`inline-flex items-center gap-1 rounded-lg text-[10.5px] font-bold px-2 h-7 border transition-colors cursor-pointer ${
+              tracking === 'active'
+                ? 'bg-[#eaf5ef] border-[#b6ddc6] text-[#2f6d4c]'
+                : tracking === 'paused'
+                  ? 'bg-[#fdf3e3] border-[#e6d6b8] text-[#96621a]'
+                  : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4]'
+            }`}>
+            <span className="material-symbols-outlined text-[13px]">
+              {tracking === 'active' ? 'monitor_heart' : tracking === 'paused' ? 'pause_circle' : 'radar'}
+            </span>
+            {tracking === 'active' ? 'Tracking' : tracking === 'paused' ? 'Paused' : 'Track'}
+          </button>
+        )}
+        <button type="button" onClick={onUseAsReference} style={PJ}
+          title="Search again using this creator as the reference"
+          className="text-[10.5px] font-bold text-[#6b5bb5] hover:underline cursor-pointer">
+          Use as reference
+        </button>
         {onOpen ? (
           <button type="button" onClick={onOpen} style={PJ}
             className="text-[10.5px] font-bold text-[#285D6E] hover:underline cursor-pointer">

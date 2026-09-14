@@ -31,7 +31,7 @@ import {
   AudienceSection, CampaignSection, PerformanceSection, ProfileSection,
 } from './DiscoverKolDetail'
 import ContentAnalytics from './ContentAnalytics'
-import { AiInsightsSection, BrandFitSection, KolReportSection } from './KolInsightSections'
+import { AiInsightsSection, AccountSignalsSection, KolReportSection } from './KolInsightSections'
 import KolRateCard from './KolRateCard'
 import { useDiscoverCart } from './useDiscoverCart'
 import { useDiscoverSelection } from './useDiscoverSelection'
@@ -160,7 +160,7 @@ export default function KolSectionView({
       {section === 'brandcamp' && (profile
         ? (
           <div className="flex flex-col gap-4">
-            <BrandFitSection profile={profile} />
+            <AccountSignalsSection profile={profile} />
             <CampaignSection data={data} />
           </div>
         )

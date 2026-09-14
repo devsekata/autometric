@@ -15,13 +15,14 @@ import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import { Overlay, Row, SampleTag } from './kolViz'
 import { platformLabel } from './KolCreatorSections'
 import type { CreatorIntel } from '@/lib/discover/kolIntel'
+import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
 import type {
   KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
 
 const REPORT_SECTIONS = [
   'Profile', 'Performance', 'Audience', 'Content', 'Campaign History',
-  'Brand Fit', 'AI Insights',
+  'Brand Match', 'AI Insights',
 ] as const
 
 /**
@@ -36,7 +37,7 @@ const DATE_RANGES = [
 ] as const
 
 export default function KolCreatorReport({
-  open, onClose, creator, rank, platforms, intel,
+  open, onClose, creator, rank, platforms, intel, match,
 }: {
   open: boolean
   onClose: () => void
@@ -44,6 +45,12 @@ export default function KolCreatorReport({
   rank: KolCreatorRank
   platforms: KolCreatorPlatformRow[]
   intel: CreatorIntel
+  /**
+   * The Brand Match Engine's verdict on this creator, or null when the workspace
+   * has saved no Brand Profile. When null, the match columns are left out of the
+   * file entirely rather than exported blank.
+   */
+  match: MatchExplanation | null
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set(REPORT_SECTIONS))
   const [format, setFormat] = useState<'PDF' | 'Excel' | 'CSV'>('CSV')
@@ -66,7 +73,7 @@ export default function KolCreatorReport({
     categories: creator.categories.join(' · ') || '—',
     followers: creator.followers ?? 0,
     erPct: creator.erPct === null ? '' : creator.erPct.toFixed(2),
-    verified: creator.verified ? 'Ya' : 'Tidak',
+    connected: creator.connected ? 'Ya' : 'Tidak',
     status: creator.status,
     followersRank: `#${rank.followersRank} dari ${rank.rosterTotal}`,
     categoryRank: rank.categoryFollowersRank === null
@@ -88,7 +95,20 @@ export default function KolCreatorReport({
     rateCard: m?.rates.length
       ? m.rates.map(r => `${r.label}: Rp${r.fee.toLocaleString('id-ID')}`).join(' · ')
       : '',
-  }], [creator, rank, m])
+    /**
+     * The Brand Match Engine's verdict, and how much of the model it rests on.
+     *
+     * This is the one figure on the sheet that is about a pair rather than a
+     * creator, so it travels with its coverage: a 71 computed from three of six
+     * components is a different number from a 71 computed from all six, and a
+     * spreadsheet strips every caveat the screen puts around it. Blank when no
+     * Brand Profile is saved.
+     */
+    matchScore: match?.score ?? '',
+    matchLevel: match?.level ?? '',
+    matchCoverage: match ? `${match.coverage}%` : '',
+    matchConfidence: match?.confidence ?? '',
+  }], [creator, rank, m, match])
 
   const cols: ExportColumn<(typeof rows)[number]>[] = [
     { key: 'username', header: 'Username', value: r => r.username },
@@ -97,7 +117,7 @@ export default function KolCreatorReport({
     { key: 'categories', header: 'Kategori', value: r => r.categories },
     { key: 'followers', header: 'Followers', value: r => r.followers },
     { key: 'erPct', header: 'Engagement rate %', value: r => r.erPct },
-    { key: 'verified', header: 'Verified', value: r => r.verified },
+    { key: 'connected', header: 'Connected', value: r => r.connected },
     { key: 'status', header: 'Data status', value: r => r.status },
     { key: 'followersRank', header: 'Peringkat followers', value: r => r.followersRank },
     { key: 'categoryRank', header: 'Peringkat kategori', value: r => r.categoryRank },
@@ -124,6 +144,16 @@ export default function KolCreatorReport({
   if (intel.real.rates) {
     cols.push({ key: 'rateCard', header: 'Rate card', value: r => r.rateCard })
   }
+  // Only when a profile is saved. Four empty columns would read as "we scored
+  // this creator and found nothing", which is not what an absent profile means.
+  if (match) {
+    cols.push(
+      { key: 'matchScore', header: 'Brand match score', value: r => r.matchScore },
+      { key: 'matchLevel', header: 'Match status', value: r => r.matchLevel },
+      { key: 'matchCoverage', header: 'Model coverage', value: r => r.matchCoverage },
+      { key: 'matchConfidence', header: 'Data confidence', value: r => r.matchConfidence },
+    )
+  }
 
   const toggle = (s: string) => setPicked(p => {
     const next = new Set(p)
@@ -141,6 +171,10 @@ export default function KolCreatorReport({
     PROFILE_SECTION,
     ...(intel.real.content ? ['Content' as const] : []),
     ...(intel.real.likes || intel.real.views ? ['Performance' as const] : []),
+    // Brand Match is real whenever a score exists: it is computed by the engine
+    // from database columns, not modelled from the creator's own follower count
+    // the way the old Brand Fit section was.
+    ...(match?.score !== null && match !== null ? ['Brand Match' as const] : []),
   ] as string[]
   const included = [...picked].filter(s => realSections.includes(s))
   const sampled = [...picked].filter(s => !realSections.includes(s))
@@ -206,7 +240,7 @@ export default function KolCreatorReport({
           Yang benar-benar ikut ke file
         </div>
         <p className="text-[11px] leading-[1.55]" style={{ color: T.t2 }}>
-          {PROFILE_SECTION}: followers, engagement rate, tier, kategori, verified dan
+          {PROFILE_SECTION}: followers, engagement rate, tier, kategori, connected dan
           peringkat di roster — {rank.rosterTotal.toLocaleString('id-ID')} creator sebagai
           pembanding.
           {intel.real.content && intel.measured && (
@@ -222,7 +256,9 @@ export default function KolCreatorReport({
 
       <div className="mt-3">
         <Row label="Creator" value={`@${creator.username}`} />
-        <Row label="Campaign tersedia" value={intel.campaigns.length} sample />
+        {/* Was `intel.campaigns.length` — a count of generated campaigns.
+            The KOL database holds no campaign history for anyone. */}
+        <Row label="Campaign tersedia" value="Belum ada data" />
       </div>
 
       {note && <p className="text-[10.5px] mt-2.5" style={{ color: T.t3 }}>{note}</p>}

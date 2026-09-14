@@ -8,7 +8,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * GET /api/organizations/[id]/discover/creators/similar
- *   ?ref=<uuid>&source=creator|roster&platform=&city=&tier=&maxRate=&cheaper=1&limit=
+ *   ?ref=<uuid>&source=creator|roster&platform=&city=&tier=&maxRate=&cheaper=1
+ *   &sameCategory=1&limit=
  *
  * Smart Discovery. `source` says which roster the reference lives in: a creator
  * this org added, or one from the commercial KOL directory. Both are valid
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       platform: sp.get('platform'),
       city: sp.get('city'),
       tier: sp.get('tier'),
+      sameCategory: sp.get('sameCategory') === '1',
       maxRate: num('maxRate'),
       cheaperThanReference: sp.get('cheaper') === '1',
       limit: num('limit') ?? 12,

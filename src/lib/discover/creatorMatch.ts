@@ -1,5 +1,5 @@
 import type { KolDirectoryRow } from './kolDirectory'
-import { sampleIntel } from './kolSample'
+import type { MeasuredSignals } from './brandMatch/measured'
 
 /**
  * Creator intelligence for a directory *row* — the signals the list needs to
@@ -10,94 +10,146 @@ import { sampleIntel } from './kolSample'
  * answered "is this person right for me". This module derives the rest from
  * what a row already implies, so the list can lead with a reason.
  *
- * ── What is real, and what is not ────────────────────────────────────────────
+ * ── Everything here is measured. Nothing here is generated. ─────────────────
  *
- * This matters more than anything else here, so it is stated once and enforced
- * by `SIGNAL_BASIS` below rather than left to each caller to remember.
+ * This module used to have a second half. Reach, views, growth, audience
+ * quality, authenticity and brand fit were produced by
+ * `@/lib/discover/kolSample`, which derives them deterministically from a
+ * creator's real follower count and engagement rate — same creator, same
+ * numbers, every time, and badged "modelled" wherever they were drawn.
  *
- *   **Measured** — follower count, engagement rate, tier, verification,
- *   categories, city, and the rate card. These come from the KOL platform's own
- *   tables. Filters and scores built on them are exact.
+ * They are gone. Deterministic is not measured: a figure computed from two
+ * other figures by a formula nobody validated is a guess with a stable seed,
+ * and it was sitting on the same card as real measurements. Where the database
+ * genuinely holds one of those numbers it is now read from the database, as
+ * `MeasuredSignals` (see `@/lib/discover/brandMatch/measured`); where it does
+ * not, the field is `null` and the UI says "not measured" rather than showing a
+ * number nobody took.
  *
- *   **Modelled** — reach, views, growth, audience quality, authenticity and
- *   brand fit. The commercial roster has no columns for any of it, so
- *   `@/lib/discover/kolSample` derives them deterministically from the creator's
- *   real followers and engagement rate. Same creator, same numbers, every time —
- *   but numbers, not measurements.
+ * Brand fit left by a different door. It was never a property of a creator —
+ * it is a property of a creator AND a brand — so no creator-only number could
+ * have meant anything. It now comes from the Brand Match Engine scoring a
+ * creator against the workspace's saved Brand Profile.
  *
  * So the intelligence here **ranks and explains**; it never filters silently.
- * A modelled figure used as a hard filter would quietly drop creators on the
- * strength of a guess, and — because the roster pages server-side — would filter
- * only the rows already fetched, giving a count that means nothing. Ranking and
- * badging the page you asked for is honest about both limits.
+ * A nullable figure used as a hard filter would quietly drop creators for not
+ * having been measured, and — because the roster pages server-side — would
+ * filter only the rows already fetched, giving a count that means nothing.
  *
  * Everything is pure and client-safe: no `pg`, no fetch. The list computes it
- * per row as it renders.
+ * per row as it renders, from what the server already sent.
  */
 
-/** Where a signal comes from — the UI prints an estimate marker on `modelled`. */
+/**
+ * Where a signal comes from.
+ *
+ * Only one value remains. `modelled` used to be the other half of this union
+ * and is gone with the figures that carried it — see the note at the top of the
+ * file. It is kept as a type rather than deleted so the UI's estimate markers
+ * and the preset `basis` field keep their meaning, and so the day a genuinely
+ * modelled signal is introduced it has to be declared as one.
+ */
 export type SignalBasis = 'measured' | 'modelled'
 
+/**
+ * One row's signals: what the roster row states, plus what the medallion tables
+ * measured for that creator.
+ *
+ * Every field that can be absent IS nullable, and null means **not measured**.
+ * It never means zero. An account with no authenticity reading and an account
+ * with an authenticity of 0 are different findings, and collapsing them would
+ * make the honest half of this module dishonest again.
+ */
 export interface CreatorSignals {
-  /* measured */
+  /* from the roster row itself */
   followers: number
   erPct: number
-  verified: boolean
+  /**
+   * Business Connected, from `KolDirectoryRow.connected` — the creator linked
+   * the account through OAuth. It replaced the platform's blue tick, and it is
+   * false for the whole roster until the connect flow ships, so any badge or
+   * match part reading it scores 0 for everyone today.
+   */
+  connected: boolean
   rateFrom: number | null
   rateCount: number
-  /* modelled — see the note above */
-  avgViews: number
-  avgReach: number
-  audienceQuality: number
-  authenticity: number
-  /** Follower growth over the last month, in percent. */
-  growthMonthly: number
-  brandFit: number
-  /** The composite the creator workspace leads with, 0–100. */
-  quality: number
   topCategory: string
-  /** The largest audience segment, e.g. "Wanita 18–24". */
+
+  /* measured elsewhere, and null for most of the roster — see MeasuredSignals */
+  /** `feature.*_audience_analysis.audience_quality_score`. */
+  audienceQuality: number | null
+  /** `feature.*_audience_analysis.authenticity_score`. */
+  authenticity: number | null
+  /** `feature.ig_engagement_analysis.avg_views`, else the profile card's. */
+  avgViews: number | null
+  /**
+   * Views per follower. NOT an estimated reach: reach has no column anywhere on
+   * this server, and the figure that used to sit in this slot was followers
+   * multiplied by a constant.
+   */
+  viewsPerFollower: number | null
+  /**
+   * Follower change since the PREVIOUS snapshot, in percentage points. The gap
+   * is whatever the scraper produced — 10–13 days today — so it must never be
+   * labelled monthly or 30-day.
+   */
+  growthPct: number | null
+  /** Posts per month, null below 21 observed days as well as when absent. */
+  postsPerMonth: number | null
+  /** The audience's largest known segment, when one was measured. */
   topAudience: string | null
 }
 
+/**
+ * Which fields rest on a measurement.
+ *
+ * Every one of them now does, which is the point. The map is kept because the
+ * UI reads it to decide whether to print an estimate marker, and a future
+ * signal that is genuinely derived has to be added here as `modelled` rather
+ * than slipping in unmarked.
+ */
 export const SIGNAL_BASIS: Record<keyof CreatorSignals, SignalBasis> = {
-  followers: 'measured', erPct: 'measured', verified: 'measured',
-  rateFrom: 'measured', rateCount: 'measured',
-  avgViews: 'modelled', avgReach: 'modelled', audienceQuality: 'modelled',
-  authenticity: 'modelled', growthMonthly: 'modelled', brandFit: 'modelled',
-  quality: 'modelled', topCategory: 'measured', topAudience: 'modelled',
+  followers: 'measured', erPct: 'measured', connected: 'measured',
+  rateFrom: 'measured', rateCount: 'measured', topCategory: 'measured',
+  audienceQuality: 'measured', authenticity: 'measured', avgViews: 'measured',
+  viewsPerFollower: 'measured', growthPct: 'measured', postsPerMonth: 'measured',
+  topAudience: 'measured',
 }
 
 /**
  * One row's signals.
  *
- * `sampleIntel` builds a whole workspace payload — trends, content grids,
- * campaign history — and this needs eight numbers out of it. That is still the
- * right call: it is pure arithmetic over a seeded generator, it runs once per
- * visible row, and deriving the same figures a second way here is how two
- * screens start disagreeing about the same creator.
+ * `measured` carries what the server read out of the medallion tables for this
+ * creator, and is absent while a page is loading or when the directory was
+ * asked for rows without `?match=1`. Absent is not empty: every measured field
+ * is null in that case, which is exactly what "we have not looked" should
+ * render as.
+ *
+ * It used to call `sampleIntel(row)` here and take eight numbers out of a
+ * generated workspace payload. Nothing generates anything now.
  */
-export function creatorSignals(row: KolDirectoryRow): CreatorSignals {
-  const intel = sampleIntel(row)
-  const topAge = [...intel.audience.age].sort((a, b) => b.pct - a.pct)[0]
-  const topGender = [...intel.audience.gender].sort((a, b) => b.pct - a.pct)[0]
-
+export function creatorSignals(
+  row: KolDirectoryRow,
+  measured?: MeasuredSignals | null,
+): CreatorSignals {
   return {
     followers: row.followers ?? 0,
     erPct: row.erPct ?? 0,
-    verified: row.verified,
+    connected: row.connected,
     rateFrom: row.rateFrom,
     rateCount: row.rateCount,
-
-    avgViews: intel.kpi.avgViews,
-    avgReach: intel.kpi.avgReach,
-    audienceQuality: intel.audience.qualityScore,
-    authenticity: intel.audience.authenticity,
-    growthMonthly: intel.growth.monthly,
-    brandFit: intel.brandFit.score,
-    quality: intel.quality.score,
     topCategory: row.categories[0] ?? '—',
-    topAudience: topGender && topAge ? `${topGender.label} ${topAge.label}` : null,
+
+    audienceQuality: measured?.audienceQuality ?? null,
+    authenticity: measured?.authenticity ?? null,
+    avgViews: measured?.avgViews ?? null,
+    viewsPerFollower: measured?.viewsPerFollower ?? null,
+    // The roster row carries this column too, and it is the same column the
+    // medallion read. Preferring the measured record keeps one creator's growth
+    // identical on the card and in the match explanation.
+    growthPct: measured?.growthPct ?? row.growthPct ?? null,
+    postsPerMonth: measured?.postsPerMonth ?? null,
+    topAudience: measured?.topCity ? `${measured.topCity.key} ${measured.topCity.pct}%` : null,
   }
 }
 
@@ -106,7 +158,11 @@ export function creatorSignals(row: KolDirectoryRow): CreatorSignals {
 export interface CreatorBadge {
   id: string
   label: string
-  /** `strong` badges rest on measured data; `soft` ones on modelled data. */
+  /**
+   * `strong` badges rest on measured data. `soft` is retained for a badge that
+   * one day rests on something weaker; nothing emits it today, because nothing
+   * here is derived any more.
+   */
   weight: 'strong' | 'soft'
   icon: string
 }
@@ -122,27 +178,45 @@ export interface CreatorBadge {
 export function creatorBadges(s: CreatorSignals): CreatorBadge[] {
   const out: CreatorBadge[] = []
 
-  // Measured first.
+  // From the roster row: always available for every creator.
   if (s.erPct >= 4) out.push({ id: 'er', label: 'High Engagement', weight: 'strong', icon: 'bolt' })
-  if (s.rateCount > 0 && s.verified) {
+  // Both halves are measured, and one of them is currently false roster-wide:
+  // no creator has connected an account yet, so this badge is dormant rather
+  // than wrong. It starts firing the day the connect flow does.
+  if (s.rateCount > 0 && s.connected) {
     out.push({ id: 'ready', label: 'Campaign Ready', weight: 'strong', icon: 'task_alt' })
   }
   if (isCostEfficient(s)) {
     out.push({ id: 'value', label: 'Cost Efficient', weight: 'strong', icon: 'savings' })
   }
 
-  // Then modelled.
-  if (s.growthMonthly >= 5) {
-    out.push({ id: 'growth', label: 'Fast Growing', weight: 'soft', icon: 'trending_up' })
+  /*
+   * From the medallion tables, and therefore absent for most of the roster.
+   *
+   * Each is guarded on `!== null` rather than compared directly, because `null
+   * >= 80` is false in JavaScript but `null >= 0` is TRUE — an unmeasured
+   * creator would silently earn any badge with a non-positive threshold. Every
+   * one of these is a strong badge now: it rests on a real reading or it does
+   * not appear at all.
+   *
+   * `Strong Brand Fit` used to sit here, at `brandFit >= 80`, where brandFit was
+   * a number generated from the creator's own followers and engagement rate with
+   * no knowledge of any brand. It is removed rather than rethresholded: brand
+   * fit is not a badge a creator wears on their own, it is the Brand Match
+   * Engine's verdict against a specific saved Brand Profile, and it is shown as
+   * a Match Status beside the card instead.
+   */
+  if (s.growthPct !== null && s.growthPct >= 5) {
+    out.push({ id: 'growth', label: 'Fast Growing', weight: 'strong', icon: 'trending_up' })
   }
-  if (s.audienceQuality >= 80) {
-    out.push({ id: 'audience', label: 'High Audience Quality', weight: 'soft', icon: 'verified_user' })
+  if (s.audienceQuality !== null && s.audienceQuality >= 80) {
+    out.push({ id: 'audience', label: 'High Audience Quality', weight: 'strong', icon: 'verified_user' })
   }
-  if (s.brandFit >= 80) {
-    out.push({ id: 'fit', label: 'Strong Brand Fit', weight: 'soft', icon: 'handshake' })
+  if (s.authenticity !== null && s.authenticity >= 85) {
+    out.push({ id: 'authentic', label: 'High Authenticity', weight: 'strong', icon: 'verified' })
   }
-  if (s.followers > 0 && s.followers < 50_000 && s.growthMonthly >= 4) {
-    out.push({ id: 'emerging', label: 'Emerging', weight: 'soft', icon: 'auto_awesome' })
+  if (s.followers > 0 && s.followers < 50_000 && s.growthPct !== null && s.growthPct >= 4) {
+    out.push({ id: 'emerging', label: 'Emerging', weight: 'strong', icon: 'auto_awesome' })
   }
 
   return out.slice(0, 3)
@@ -188,9 +262,11 @@ export interface MatchCriteria {
   /** Tier names from `kol_tiers`, unioned, plus the `__untiered` sentinel. */
   tiers: string[]
   follMin: number
+  /** Upper follower bound. 0 means no ceiling. */
+  follMax: number
   erMin: number
   maxRate: number
-  verifiedOnly: boolean
+  connectedOnly: boolean
   /** The active preset, which contributes its own ranking dimension. */
   preset?: PresetId | null
 }
@@ -209,7 +285,7 @@ export interface MatchResult {
 /** Whether the user has expressed enough for a match score to mean anything. */
 export function hasCriteria(c: MatchCriteria): boolean {
   return !!(c.categories.length || c.platform || c.tiers.length || c.follMin
-    || c.erMin || c.maxRate || c.verifiedOnly || c.preset)
+    || c.follMax || c.erMin || c.maxRate || c.connectedOnly || c.preset)
 }
 
 /** How far `value` clears `target`, as 0–100. At or above target is 100. */
@@ -274,8 +350,8 @@ export function matchScore(
       basis: 'measured',
     })
   }
-  if (c.verifiedOnly) {
-    parts.push({ label: 'Verified', pct: row.verified ? 100 : 0, basis: 'measured' })
+  if (c.connectedOnly) {
+    parts.push({ label: 'Connected', pct: row.connected ? 100 : 0, basis: 'measured' })
   }
 
   const preset = c.preset ? PRESET_BY_ID[c.preset] : null
@@ -305,11 +381,23 @@ export interface CreatorPreset {
   /** One line saying what it actually does — shown when the preset is active. */
   desc: string
   /** Real filters it applies, so the server narrows the set before ranking. */
-  filters: Partial<Pick<MatchCriteria, 'erMin' | 'follMin' | 'maxRate' | 'verifiedOnly'>>
+  filters: Partial<Pick<MatchCriteria, 'erMin' | 'follMin' | 'follMax' | 'maxRate' | 'connectedOnly'>>
   /** The dimension it ranks by, 0–100. */
   rank: (s: CreatorSignals) => number
   matchLabel: string
   basis: SignalBasis
+  /**
+   * Set when the KOL database cannot answer this preset, naming the measured
+   * coverage. The chip renders disabled and says this rather than ranking the
+   * loaded page by a number nobody measured.
+   *
+   * Four presets carry it. They were not broken code — they were four questions
+   * asked of columns that are empty, and the ranking they fell back on came
+   * from `sampleIntel`, which invents a deterministic figure per creator id.
+   * A chip that reorders twelve rows by an invented growth rate, over a roster
+   * of 7.7k, is worse than one that says it cannot answer.
+   */
+  unavailable?: string
 }
 
 /**
@@ -327,18 +415,23 @@ export const CREATOR_PRESETS: CreatorPreset[] = [
     id: 'best',
     label: 'Best Performing',
     icon: 'workspace_premium',
-    desc: 'Engagement di atas 3%, diurutkan dari skor kualitas tertinggi.',
+    desc: 'Engagement rate terukur di atas 3% — ambang "Good ER" di platform sumber.',
     filters: { erMin: 3 },
-    rank: s => s.quality,
-    matchLabel: 'Overall quality',
-    basis: 'modelled',
+    // Ranked by the same measured column it filters on, so the ordering and the
+    // result count rest on one number. It used to rank by `s.quality`, which
+    // `sampleIntel` invents.
+    rank: s => Math.min(100, (s.erPct / 8) * 100),
+    matchLabel: 'Engagement rate',
+    basis: 'measured',
   },
   {
     id: 'engagement',
     label: 'High Engagement',
     icon: 'bolt',
-    desc: 'Engagement rate terukur di atas 4% — angka nyata dari platform.',
-    filters: { erMin: 4 },
+    desc: 'Engagement rate terukur di atas 5,5% — ambang "High ER" di platform sumber.',
+    // 5,5% rather than 4%: it is the threshold the source platform uses, and it
+    // is what keeps this chip a different question from Best Performing.
+    filters: { erMin: 5.5 },
     rank: s => Math.min(100, (s.erPct / 8) * 100),
     matchLabel: 'Engagement rate',
     basis: 'measured',
@@ -347,70 +440,81 @@ export const CREATOR_PRESETS: CreatorPreset[] = [
     id: 'growing',
     label: 'Fast Growing',
     icon: 'trending_up',
-    desc: 'Diurutkan dari pertumbuhan follower bulanan tertinggi.',
+    desc: 'Butuh data pertumbuhan follower, yang belum ada untuk hampir seluruh roster.',
     filters: {},
-    rank: s => Math.min(100, (s.growthMonthly / 10) * 100),
+    rank: () => 0,
     matchLabel: 'Growth',
     basis: 'modelled',
+    unavailable: 'Pertumbuhan follower hanya terukur untuk 25 dari 7.720 creator (l2_gold.kol_profile_card.followers_growth).',
   },
   {
     id: 'audience',
     label: 'High Audience Quality',
     icon: 'verified_user',
-    desc: 'Diurutkan dari skor kualitas audiens dan authenticity.',
+    desc: 'Butuh skor kualitas audiens, yang baru terisi untuk segelintir creator.',
     filters: {},
-    rank: s => (s.audienceQuality + s.authenticity) / 2,
+    rank: () => 0,
     matchLabel: 'Audience quality',
     basis: 'modelled',
+    unavailable: 'Skor kualitas audiens & authenticity baru ada untuk 23 dari 7.720 creator (feature.ig/tt_audience_analysis).',
   },
   {
     id: 'brandfit',
     label: 'Best Brand Fit',
     icon: 'handshake',
-    desc: 'Diurutkan dari kecocokan konten dan audiens dengan brand.',
+    desc: 'Butuh analisis kecocokan brand, yang tabelnya masih kosong.',
     filters: {},
-    rank: s => s.brandFit,
+    rank: () => 0,
     matchLabel: 'Brand fit',
     basis: 'modelled',
+    unavailable: 'feature.brand_fit_analysis masih 0 baris — belum ada satu pun skor brand fit di database KOL.',
   },
   {
     id: 'emerging',
     label: 'Emerging Creators',
     icon: 'auto_awesome',
-    desc: 'Di bawah 100rb follower, diurutkan dari pertumbuhan tercepat.',
-    filters: {},
-    rank: s => (s.followers > 0 && s.followers < 100_000
-      ? Math.min(100, (s.growthMonthly / 8) * 100)
-      : 0),
-    matchLabel: 'Emerging',
-    basis: 'modelled',
+    desc: 'Di bawah 100rb follower, diurutkan dari engagement rate terukur tertinggi.',
+    // The follower ceiling is a real server-side bound now (BE: `follMax`), so
+    // this narrows all 7.720 creators instead of hiding the big ones on the
+    // page that happened to load.
+    filters: { follMax: 100_000 },
+    rank: s => Math.min(100, (s.erPct / 8) * 100),
+    matchLabel: 'Engagement rate',
+    basis: 'measured',
   },
   {
     id: 'ready',
     label: 'Campaign Ready',
     icon: 'task_alt',
-    desc: 'Terverifikasi dan sudah punya rate card — bisa langsung ditawar.',
-    filters: { verifiedOnly: true },
-    rank: s => (s.rateCount > 0 ? 100 : 0),
-    matchLabel: 'Campaign readiness',
+    desc: 'Butuh creator yang sudah menghubungkan akunnya, dan belum ada satu pun.',
+    // This chip used to filter on Verified — a real column covering 932 of the
+    // roster. Verified was replaced by Business Connected, which is a stronger
+    // claim (the creator linked the account through OAuth) and is currently
+    // true for nobody. Rather than keep `connectedOnly: true` and ship a chip
+    // that empties the grid in silence, it joins the four presets that say what
+    // they are waiting for. It becomes a one-line change the day connect ships.
+    filters: {},
+    rank: () => 0,
+    matchLabel: 'Connected',
     basis: 'measured',
+    unavailable: 'Belum ada creator yang menghubungkan akunnya lewat OAuth — social_account.platform_user_id + oauth_token masih kosong untuk seluruh roster.',
   },
   {
     id: 'value',
     label: 'Cost Efficient',
     icon: 'savings',
-    desc: 'Diurutkan dari biaya per 1.000 follower termurah — harga rate card nyata.',
+    desc: 'Butuh rate card, yang belum terisi untuk satu creator pun.',
     filters: {},
-    rank: s => {
-      const cpm = cpmOf(s)
-      if (cpm === null) return 0
-      // Full marks at or under a third of the median, tapering to nothing at 2×.
-      return Math.max(0, Math.min(100, Math.round(100 - ((cpm - CPM_MEDIAN / 3) / (CPM_MEDIAN * 2)) * 100)))
-    },
+    rank: () => 0,
     matchLabel: 'Cost efficiency',
     basis: 'measured',
+    unavailable: 'l1_silver.unified_rate_card masih 0 baris dan rate_card_min_fee null untuk semua — belum ada harga untuk dihitung.',
   },
 ]
+
+/** The presets the KOL database can actually answer today. */
+export const availablePresets = (): CreatorPreset[] =>
+  CREATOR_PRESETS.filter(p => !p.unavailable)
 
 const PRESET_BY_ID: Record<string, CreatorPreset> =
   Object.fromEntries(CREATOR_PRESETS.map(p => [p.id, p]))
@@ -435,7 +539,7 @@ export function relaxSuggestions(c: MatchCriteria): string[] {
   else if (c.erMin > 0) out.push(`Turunkan syarat engagement dari ${c.erMin}%.`)
   if (c.follMin >= 100_000) out.push('Perkecil batas minimum follower — creator besar jumlahnya sedikit.')
   else if (c.follMin > 0) out.push('Perkecil batas minimum follower.')
-  if (c.verifiedOnly) out.push('Matikan filter "verified saja" — banyak creator bagus belum terverifikasi.')
+  if (c.connectedOnly) out.push('Matikan filter "connected saja" — belum ada creator yang menghubungkan akunnya, jadi filter ini mengosongkan hasil.')
   if (c.tiers.length) out.push('Lepas filter tier.')
   if (c.categories.length) out.push('Lepas filter kategori, atau coba kategori yang berdekatan.')
   if (c.platform) out.push('Coba platform lain.')

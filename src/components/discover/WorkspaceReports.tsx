@@ -39,6 +39,9 @@ import type { KolProfile } from '@/lib/discover/profile'
 import type { OrderSummary } from '@/lib/discover/orders'
 import type { DiscoverContentPayload, DiscoverPost } from '@/lib/discover/types'
 
+/** Shown wherever the warehouse holds no reading. Never '0', never 'null'. */
+const NOT_MEASURED = 'Belum terukur'
+
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 const initials = (s: string) => s.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || '??'
 
@@ -202,15 +205,28 @@ function CreatorReportTab({
     return next
   })
 
+  /*
+   * Authenticity, Audience quality and Brand fit used to sit in this list.
+   * All three were generated from a hash of the account id with no real source
+   * for tracked accounts, and an exported report is the worst place for such a
+   * number: it leaves the screen, loses every caveat around it, and gets
+   * forwarded to someone who will act on it.
+   *
+   * Followers is real now, and nullable - blank rather than 0 where the account
+   * has never been snapshotted, for the same reason.
+   */
   const rows = [
-    { metric: 'Followers', value: fmtNum(kol.followers.value) },
+    { metric: 'Followers', value: kol.followers.value === null ? NOT_MEASURED : fmtNum(kol.followers.value) },
     { metric: 'Engagement rate', value: `${kol.erPct.value.toFixed(2)}%` },
-    { metric: 'Estimated reach', value: fmtNum(kol.estimatedReach.value) },
-    { metric: 'Authenticity', value: String(kol.authenticity.value) },
-    { metric: 'Audience quality', value: String(kol.audienceQuality.value) },
-    { metric: 'Brand fit', value: String(kol.brandFit.value) },
-    { metric: 'EMV', value: idr(kol.emv.value) },
+    // Nullable now: a real reach measurement, a figure calculated from measured
+    // views, or nothing. Blank-equivalent rather than 0 for the last case.
+    { metric: 'Estimated reach', value: kol.estimatedReach.value === null ? NOT_MEASURED : fmtNum(kol.estimatedReach.value) },
+    { metric: 'EMV', value: kol.emv.value === null ? NOT_MEASURED : idr(kol.emv.value) },
     { metric: 'Posts', value: fmtNum(kol.posts.value) },
+    { metric: 'Tier', value: kol.tier.value ?? NOT_MEASURED },
+    { metric: 'Umur audiens dominan', value: kol.topAge.value ?? NOT_MEASURED },
+    { metric: 'Audiens perempuan %', value: kol.femalePct.value === null ? NOT_MEASURED : String(kol.femalePct.value) },
+    { metric: 'Kota audiens teratas', value: kol.location.value ?? NOT_MEASURED },
   ]
   const cols: ExportColumn<{ metric: string; value: string }>[] = [
     { key: 'metric', header: 'Metric', value: r => r.metric },
@@ -225,7 +241,7 @@ function CreatorReportTab({
     else {
       exportPrintable(name, `
         <h1>${name}</h1>
-        <div class="sub">${kol.category.value} · ${kol.tier.value} · ${kol.location.value}</div>
+        <div class="sub">${kol.tier.value ?? NOT_MEASURED} · ${kol.location.value ?? NOT_MEASURED}</div>
         <table><thead><tr><th>Metric</th><th class="num">Value</th></tr></thead><tbody>
           ${rows.map(r => `<tr><td>${r.metric}</td><td class="num">${r.value}</td></tr>`).join('')}
         </tbody></table>
@@ -295,16 +311,16 @@ function CreatorReportTab({
               <div className="min-w-0">
                 <div style={PJ} className="text-[14px] font-extrabold text-[#111827] truncate">{name}</div>
                 <div className="text-[10.5px] text-[#9ca3af]">
-                  {kol.category.value} · {kol.tier.value} · {kol.location.value}
+                  {kol.tier.value ?? NOT_MEASURED} · {kol.location.value ?? NOT_MEASURED}
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-2 mt-3.5">
               {[
-                ['Followers', fmtNum(kol.followers.value)],
+                ['Followers', kol.followers.value === null ? NOT_MEASURED : fmtNum(kol.followers.value)],
                 ['Eng. rate', `${kol.erPct.value.toFixed(2)}%`],
-                ['EMV', idr(kol.emv.value)],
+                ['EMV', kol.emv.value === null ? NOT_MEASURED : idr(kol.emv.value)],
               ].map(([l, v]) => (
                 <div key={l} className="text-center rounded-lg bg-[#f9fafb] border border-[#e5e7eb] py-2.5">
                   <div style={PJ} className="text-[13px] font-extrabold text-[#111827] tabular-nums truncate px-1">{v}</div>
