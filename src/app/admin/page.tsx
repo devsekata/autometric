@@ -1,12 +1,15 @@
-import { getAllMonitoringData, getAllCategoryData, getRecentSchedulerLogs } from '@/lib/monitoring/queries'
-import AdminMonitoringPage from '@/components/admin/AdminMonitoringPage'
+import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 
-export default async function AdminPage() {
-  const [data, categories, logs] = await Promise.all([
-    getAllMonitoringData(),
-    getAllCategoryData(),
-    getRecentSchedulerLogs(),
-  ])
-
-  return <AdminMonitoringPage data={data} categories={categories} logs={logs} />
+/**
+ * Switched off: sync monitoring reads and writes the analytics warehouse, and the KOL
+ * product uses the KOL database only. The admin layout still requires an
+ * application admin.
+ */
+export default function Page() {
+  return (
+    <div className="p-5">
+      <FeatureUnavailable title="Monitoring sinkronisasi"
+        body="Monitoring dan scheduler sinkronisasi brand membaca data di luar database KOL, jadi dinonaktifkan dulu." />
+    </div>
+  )
 }

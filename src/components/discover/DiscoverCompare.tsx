@@ -67,6 +67,21 @@ interface Contender {
   connected: boolean | null
   category: string | null
   city: string | null
+
+  /* KOL L2 (`l2_gold.kol_profile_card`), carried on the Creator Database row */
+  avgViews: number | null
+  medianViews: number | null
+  viewsAnalyzed: number | null
+  v2fPct: number | null
+  l2vPct: number | null
+  growthPct: number | null
+  postsPerMonth: number | null
+  audienceQuality: number | null
+}
+
+const NO_L2 = {
+  avgViews: null, medianViews: null, viewsAnalyzed: null, v2fPct: null, l2vPct: null,
+  growthPct: null, postsPerMonth: null, audienceQuality: null,
 }
 
 const fromAccount = (a: DirectoryAccount): Contender => ({
@@ -86,6 +101,7 @@ const fromAccount = (a: DirectoryAccount): Contender => ({
   connected: null,
   category: null,
   city: null,
+  ...NO_L2,
 })
 
 const fromRoster = (r: KolDirectoryRow): Contender => ({
@@ -105,6 +121,14 @@ const fromRoster = (r: KolDirectoryRow): Contender => ({
   connected: r.connected,
   category: r.categories[0] ?? null,
   city: r.city,
+  avgViews: r.avgViews,
+  medianViews: r.medianViews,
+  viewsAnalyzed: r.viewsAnalyzedCount,
+  v2fPct: r.v2fPct,
+  l2vPct: r.l2vPct,
+  growthPct: r.growthPct,
+  postsPerMonth: r.postFrequencyMonthly,
+  audienceQuality: r.audienceQualityScore,
 })
 
 /* ── the rows ─────────────────────────────────────────────────────────────── */
@@ -125,7 +149,8 @@ interface MetricGroup {
   rows: MetricRow[]
 }
 
-const noPosts = 'Creator dari roster: platform KOL tidak menyimpan post, jadi angka ini tidak ada.'
+const notMeasured = 'Belum terukur di L2 KOL untuk creator ini.'
+const pct = (v: number | null, digits = 2) => (v === null ? '—' : `${v.toFixed(digits)}%`)
 const notRoster = 'Akun yang di-track: angka ini hanya diterbitkan oleh platform KOL.'
 
 const num = (v: number | null, f: (n: number) => string) => (v === null ? '—' : f(v))
@@ -133,7 +158,7 @@ const num = (v: number | null, f: (n: number) => string) => (v === null ? '—' 
 const GROUPS: MetricGroup[] = [
   {
     title: 'Engagement rate',
-    note: 'Satu-satunya angka yang dimiliki kedua sumber — dan keduanya mengukurnya dengan cara berbeda, jadi tiap sel menyebut asalnya.',
+    note: 'Engagement rate terukur dari feature layer KOL bila ada, selain itu nilai roster KOL — sama dengan kartu Creator Database.',
     rows: [
       {
         label: 'Engagement rate',
@@ -148,32 +173,30 @@ const GROUPS: MetricGroup[] = [
     ],
   },
   {
-    title: 'Dari post yang terkumpul',
-    note: 'Agregat atas konten yang benar-benar di-ingest autometric. Kosong untuk creator roster.',
+    title: 'Performa konten (L2 KOL)',
+    note: 'Dibaca apa adanya dari l2_gold.kol_profile_card, akun yang sama dengan kartu Creator Database. Sel kosong berarti belum terukur, bukan nol.',
     rows: [
       {
-        label: 'Jumlah post', get: c => c.postCount,
-        fmt: c => num(c.postCount, n => String(n)), higherIsBetter: true, missing: () => noPosts,
+        label: 'Avg views', get: c => c.avgViews,
+        fmt: c => (c.avgViews === null ? '—'
+          : `${fmtNum(Math.round(c.avgViews))}${c.viewsAnalyzed ? ` · ${c.viewsAnalyzed} post` : ''}`),
+        higherIsBetter: true, missing: () => notMeasured,
       },
       {
-        label: 'Total views', get: c => c.totalViews,
-        fmt: c => num(c.totalViews, fmtNum), higherIsBetter: true, missing: () => noPosts,
+        label: 'Median views', get: c => c.medianViews,
+        fmt: c => num(c.medianViews, n => fmtNum(Math.round(n))), higherIsBetter: true, missing: () => notMeasured,
       },
       {
-        label: 'Total likes', get: c => c.totalLikes,
-        fmt: c => num(c.totalLikes, fmtNum), higherIsBetter: true, missing: () => noPosts,
+        label: 'Views / followers (V2F)', get: c => c.v2fPct,
+        fmt: c => pct(c.v2fPct), higherIsBetter: true, missing: () => notMeasured,
       },
       {
-        label: 'Total komentar', get: c => c.totalComments,
-        fmt: c => num(c.totalComments, fmtNum), higherIsBetter: true, missing: () => noPosts,
+        label: 'Likes / views (L2V)', get: c => c.l2vPct,
+        fmt: c => pct(c.l2vPct), higherIsBetter: true, missing: () => notMeasured,
       },
       {
-        label: 'Views / post',
-        get: c => (c.postCount && c.totalViews !== null ? c.totalViews / c.postCount : null),
-        fmt: c => (c.postCount && c.totalViews !== null
-          ? fmtNum(Math.round(c.totalViews / c.postCount)) : '—'),
-        higherIsBetter: true,
-        missing: c => (c.source === 'roster' ? noPosts : 'Belum ada post terkumpul.'),
+        label: 'Post / bulan', get: c => c.postsPerMonth,
+        fmt: c => num(c.postsPerMonth, n => n.toFixed(1)), higherIsBetter: true, missing: () => notMeasured,
       },
     ],
   },
@@ -184,6 +207,14 @@ const GROUPS: MetricGroup[] = [
       {
         label: 'Followers', get: c => c.followers,
         fmt: c => num(c.followers, fmtNum), higherIsBetter: true, missing: () => notRoster,
+      },
+      {
+        label: 'Follower growth', get: c => c.growthPct,
+        fmt: c => pct(c.growthPct), higherIsBetter: true, missing: () => notMeasured,
+      },
+      {
+        label: 'Audience quality', get: c => c.audienceQuality,
+        fmt: c => num(c.audienceQuality, n => String(Math.round(n))), higherIsBetter: true, missing: () => notMeasured,
       },
     ],
   },

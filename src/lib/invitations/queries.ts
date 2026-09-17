@@ -1,7 +1,11 @@
 import kolDb, { kolDbWrite } from '@/lib/kolDb'
 import type { Invitation } from './types'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function getPendingInvitationsForUser(userId: string): Promise<Invitation[]> {
+  // Signed-out renders pass ''; the column is a uuid, so answer "none" instead of a query error.
+  if (!UUID_RE.test(userId)) return []
   const { rows } = await kolDb().query<Invitation>(
     `SELECT
        am.id,

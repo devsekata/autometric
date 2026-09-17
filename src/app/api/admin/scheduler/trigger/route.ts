@@ -1,15 +1,19 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { runScheduler } from '@/lib/monitoring/scheduler'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
-// POST /api/admin/scheduler/trigger
-// Protected by admin session — for manual trigger from admin panel
-export async function POST() {
+/**
+ * POST /api/admin/scheduler/trigger
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable() {
   const session = await auth()
-  if (session?.user?.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const summary = await runScheduler('manual-sync')
-  return NextResponse.json(summary)
+  // Admin-only, as before it was switched off.
+  if (session?.user?.role !== 'ADMIN') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return featureUnavailable('Scheduler')
 }
+
+export async function POST(_req: NextRequest) { return unavailable() }

@@ -1,24 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { runScheduler } from '@/lib/monitoring/scheduler'
-import { getSchedulerConfig, shouldRunNow } from '@/lib/monitoring/scheduler-config'
+import { NextRequest } from 'next/server'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
-// POST /api/scheduler/run
-// Protected by Authorization: Bearer <SCHEDULER_SECRET>
-// Crontab — run every hour, config controls which hour(s) actually execute:
-//   0 * * * * curl -s -X POST https://yourdomain.com/api/scheduler/run \
-//     -H "Authorization: Bearer $SCHEDULER_SECRET" >> /var/log/autometric.log 2>&1
-export async function POST(req: NextRequest) {
-  const secret = process.env.SCHEDULER_SECRET
-  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const config = await getSchedulerConfig()
-
-  if (!shouldRunNow(config)) {
-    return NextResponse.json({ skipped: true, reason: 'Not scheduled for this hour' })
-  }
-
-  const summary = await runScheduler('daily-sync')
-  return NextResponse.json(summary)
+/**
+ * POST /api/scheduler/run
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable() {
+  return featureUnavailable('Scheduler')
 }
+
+export async function POST(_req: NextRequest) { return unavailable() }

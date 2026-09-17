@@ -67,9 +67,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!role) return NextResponse.json({ error: 'Organization not found.' }, { status: 404 })
     if (role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden. Only Admins can delete an organization.' }, { status: 403 })
 
-    // An organization must be emptied first: deleting its brands is what releases
-    // the connected accounts' OAuth tokens, and it keeps a single click from
-    // wiping months of tracked data.
+    // An organization must be emptied first, so a single click cannot take its
+    // brands with it. The brands are the agency's rows in KOL `public.brand`.
     const brandCount = await countActiveBrandsForOrg(id)
     if (brandCount > 0) {
       return NextResponse.json(

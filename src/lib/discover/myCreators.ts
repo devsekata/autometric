@@ -17,10 +17,12 @@ import kolDb, { kolDbWrite } from '@/lib/kolDb'
  * `agency_kol_accounts.id`, and a delete would either fail on them or erase
  * their history. Adding the creator again reactivates the same row.
  *
- * KOL SCHEMA GAP: `agency_kol_accounts` has no unique constraint on
- * `(agency_id, kol_account_id)`. Until one exists, `addMyCreator` serialises
- * concurrent adds of the same pair with a transaction-scoped advisory lock, so
- * two clicks cannot both insert.
+ * Duplicates: the pair `(agency_id, kol_account_id)` is unique
+ * (`uq_agency_kol_accounts_agency_kol`, migration `migrations/kol/003`). The
+ * transaction-scoped advisory lock is kept so this path and Add KOL's
+ * `ensureAgencyLink` wait for each other instead of one failing on the index;
+ * a writer outside both that still wins the race surfaces as a unique
+ * violation, which is answered as "already there".
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -100,6 +102,8 @@ export async function addMyCreator(
     return { ok: true, created }
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
+    // Another writer inserted the same link between our check and our insert.
+    if ((err as { code?: string }).code === '23505') return { ok: true, created: false }
     throw err
   } finally {
     client.release()

@@ -45,6 +45,7 @@ import {
 import { avgViewsBasis, creatorIntel, type CreatorIntel } from '@/lib/discover/kolIntel'
 import { tabHref } from '@/lib/discover/tabs'
 import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
+import { useKolFavorites } from './useKolFavorites'
 import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
 import type { KolMeasuredRate } from '@/lib/discover/kolMeasured'
 
@@ -73,12 +74,19 @@ export default function KolCreatorWorkspace({
   const [reload, setReload] = useState(0)
   const [view, setView] = useState<NavId>('profile')
 
-  /** Favorite and Compare use the same per-agency stores as the Creator Database. */
-  const favSel = useDiscoverSelection(orgId, 'fav')
+  /**
+   * Favorite is the signed-in user's, stored in the KOL database; Compare is
+   * this browser's working set, shared with the Creator Database.
+   */
+  const favorites = useKolFavorites(orgId, msg => setToast(msg))
   const compareSel = useDiscoverSelection(orgId, 'compare')
   const selKey = selectionKey('roster', kolId)
-  const fav = favSel.ids.has(selKey)
-  const setFav = (f: (v: boolean) => boolean) => { if (f(fav) !== fav) favSel.toggle(selKey) }
+  const fav = favorites.has(kolId)
+  const toggleFav = () => {
+    void favorites.toggle(kolId).then(on => {
+      if (on !== null) setToast(on ? 'Creator added to Favorites' : 'Dihapus dari favorit')
+    })
+  }
 
   /** My Creators membership of this creator for the current agency (KOL). */
   const [mine, setMine] = useState<boolean | null>(null)
@@ -195,7 +203,7 @@ export default function KolCreatorWorkspace({
       ) : (
         <Loaded
           data={data} intel={intel} view={view} goTo={goTo}
-          fav={fav} setFav={setFav}
+          fav={fav} onFav={toggleFav}
           mine={mine} onMine={() => { void toggleMine() }}
           onCompare={() => {
             if (!compareSel.ids.has(selKey)) compareSel.toggle(selKey)
@@ -253,14 +261,14 @@ export default function KolCreatorWorkspace({
 /* ── loaded page ──────────────────────────────────────────────────────────── */
 
 function Loaded({
-  data, intel, view, goTo, fav, setFav, mine, onMine, onCompare, onAddCampaign, onReport, setToast,
+  data, intel, view, goTo, fav, onFav, mine, onMine, onCompare, onAddCampaign, onReport, setToast,
 }: {
   data: KolCreatorPayload
   intel: CreatorIntel
   view: NavId
   goTo: (id: string) => void
   fav: boolean
-  setFav: (f: (v: boolean) => boolean) => void
+  onFav: () => void
   /** Null while unknown (loading, or the check failed): the button is hidden. */
   mine: boolean | null
   onMine: () => void
@@ -369,7 +377,7 @@ function Loaded({
                   on={mine} onClick={onMine} />
               )}
               <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite" on={fav}
-                onClick={() => { setFav(f => !f); setToast(fav ? 'Dihapus dari favorit' : 'Creator added to Favorites') }} />
+                onClick={onFav} />
               <ActionBtn icon="compare" label="Compare" onClick={onCompare} />
               <ActionBtn icon="lab_profile" label="Report" onClick={onReport} />
               <ActionBtn icon="add" label="Add to Campaign" primary onClick={onAddCampaign} />

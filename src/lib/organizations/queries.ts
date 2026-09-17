@@ -254,13 +254,11 @@ export async function countActiveBrandsForOrg(orgId: string): Promise<number> {
   return rows[0]?.count ?? 0
 }
 
-// Soft delete: the medallion layers hold ON DELETE RESTRICT foreign keys to
-// public.brands, so a real DELETE aborts for any org whose brands have gold
-// data. Marking `deleted_at` hides the org everywhere (every read path filters
-// on it) while the analytics history stays intact. Restoring is a manual
+// Soft delete: marking `deleted_at` hides the agency everywhere (every read
+// path filters on it) while its rows stay intact. Restoring is a manual
 // `UPDATE public.agencies SET deleted_at = NULL` on the KOL server.
 //
-// Callers must ensure the org has no live brands first — see the DELETE route.
+// Callers must ensure the agency has no active brands first — see the DELETE route.
 export async function softDeleteOrg(orgId: string): Promise<boolean> {
   const { rowCount } = await kolDbWrite().query(
     `UPDATE public.agencies SET deleted_at = NOW(), updated_at = NOW()

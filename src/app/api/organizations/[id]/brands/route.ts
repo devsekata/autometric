@@ -1,54 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/auth'
-import { getMemberRole } from '@/lib/organizations/queries'
-import { listBrandsForOrg, createBrand, countBrandsForOrg } from '@/lib/brands/queries'
-import { MAX_BRANDS_PER_ORG, BRAND_QUOTA_MESSAGE } from '@/lib/quotas'
+import { requireOrgMemberById } from '@/lib/reports/access'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
 type Params = { params: Promise<{ id: string }> }
 
-// GET /api/organizations/[id]/brands
-export async function GET(_req: NextRequest, { params }: Params) {
-  try {
-    const session = await auth()
-    const userId = session?.user?.id
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { id } = await params
-    const role = await getMemberRole(id, userId)
-    if (!role) return NextResponse.json({ error: 'Organization not found.' }, { status: 404 })
-
-    const brands = await listBrandsForOrg(id)
-    return NextResponse.json({ data: brands })
-  } catch (err) {
-    console.error('[GET /api/organizations/[id]/brands]', err)
-    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
+/**
+ * GET, POST /api/organizations/[id]/brands
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable(params: Params['params']) {
+  const { id: orgId } = await params
+  if (!(await requireOrgMemberById(orgId))) {
+    return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
   }
+  return featureUnavailable('Brands')
 }
 
-// POST /api/organizations/[id]/brands
-export async function POST(req: NextRequest, { params }: Params) {
-  try {
-    const session = await auth()
-    const userId = session?.user?.id
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { id } = await params
-    const role = await getMemberRole(id, userId)
-    if (!role) return NextResponse.json({ error: 'Organization not found.' }, { status: 404 })
-
-    const body = await req.json()
-    const name = typeof body?.name === 'string' ? body.name.trim() : ''
-    if (!name) return NextResponse.json({ error: 'Brand name is required.' }, { status: 400 })
-    if (name.length > 255) return NextResponse.json({ error: 'Brand name is too long.' }, { status: 400 })
-
-    if (await countBrandsForOrg(id) >= MAX_BRANDS_PER_ORG) {
-      return NextResponse.json({ error: BRAND_QUOTA_MESSAGE }, { status: 409 })
-    }
-
-    const brand = await createBrand(id, name)
-    return NextResponse.json({ data: brand }, { status: 201 })
-  } catch (err) {
-    console.error('[POST /api/organizations/[id]/brands]', err)
-    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
-  }
-}
+export async function GET(_req: NextRequest, { params }: Params) { return unavailable(params) }
+export async function POST(_req: NextRequest, { params }: Params) { return unavailable(params) }

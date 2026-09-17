@@ -1,48 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
-import { insertReportTemplate } from '@/lib/reports/queries'
-import type { ReportTemplateConfig } from '@/lib/reports/data/slideModel'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
-export const runtime = 'nodejs'
+type Params = { params: Promise<{ id: string }> }
 
-interface SaveTemplateBody {
-  name: string
-  sourceBrandName: string | null
-  config: ReportTemplateConfig
-}
-
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+/**
+ * POST /api/organizations/[id]/reports/templates
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable(params: Params['params']) {
   const { id: orgId } = await params
-  const access = await requireOrgMemberById(orgId)
-  if (!access) return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
-
-  let body: SaveTemplateBody
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
+  if (!(await requireOrgMemberById(orgId))) {
+    return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
   }
-
-  const name = (body.name ?? '').trim()
-  if (!name) return NextResponse.json({ error: 'Template name is required.' }, { status: 400 })
-  if (!body.config || !Array.isArray(body.config.slides)) {
-    return NextResponse.json({ error: 'Invalid template config.' }, { status: 400 })
-  }
-
-  try {
-    const id = await insertReportTemplate({
-      organizationId: access.orgId,
-      createdBy: access.userId,
-      name,
-      sourceBrandName: body.sourceBrandName ?? null,
-      config: body.config,
-    })
-    return NextResponse.json({ ok: true, id })
-  } catch (e) {
-    console.error('[reports/templates] DB insert failed:', e)
-    return NextResponse.json({ error: 'Could not save template.' }, { status: 500 })
-  }
+  return featureUnavailable('Reports')
 }
+
+export async function POST(_req: NextRequest, { params }: Params) { return unavailable(params) }

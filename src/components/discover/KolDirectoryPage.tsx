@@ -31,7 +31,9 @@ import {
   type KolFilters,
 } from './KolDirectoryFilters'
 import { useDiscoverCart } from './useDiscoverCart'
-import { idsOf, selectionKey, useDiscoverSelection } from './useDiscoverSelection'
+import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
+import { useKolFavorites } from './useKolFavorites'
+import { useSavedFilters } from './useSavedFilters'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryPayload, KolDirectoryRow,
@@ -346,7 +348,6 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'profile', header: 'Profile URL', value: r => r.profileUrl ?? '' },
 ]
 
-interface SavedList { name: string; filters: KolFilters }
 
 /**
  * Cart and rate cards still live on the analytics warehouse (and the KOL rate
@@ -438,14 +439,6 @@ export default function KolDirectoryPage({
    * and Export / Compare have to work on creators picked across several pages.
    */
   const [selected, setSelected] = useState<Map<string, KolDirectoryRow>>(new Map())
-  /**
-   * Favorites, kept per agency in this browser (the same store Compare uses).
-   * KOL SCHEMA GAP: the KOL database has no favorites table yet, so this is not
-   * shared across devices or users.
-   */
-  const fav = useDiscoverSelection(orgId, 'fav')
-  const isFav = (id: string) => fav.ids.has(selectionKey('roster', id))
-  const favCount = idsOf(fav.ids, 'roster').length
   const compare = useDiscoverSelection(orgId, 'compare')
   const cart = useDiscoverCart(orgId)
   /**
@@ -459,7 +452,6 @@ export default function KolDirectoryPage({
   const [deliverables, setDeliverables] = useState<Deliverable[]>([])
   /** The creator whose price is being set, when the rate dialog is open. */
   const [pricing, setPricing] = useState<KolDirectoryRow | null>(null)
-  const [savedLists, setSavedLists] = useState<SavedList[]>([])
   const [toast, setToast] = useState<string | null>(null)
   /** The Add New KOL dialog — this page's own intake flow into `kol_directory`. */
   const [addOpen, setAddOpen] = useState(false)
@@ -475,6 +467,20 @@ export default function KolDirectoryPage({
     setToast(msg)
     window.setTimeout(() => setToast(null), 2200)
   }, [])
+
+  /** The signed-in user's favorites in this agency (KOL `agency_kol_favorites`). */
+  const fav = useKolFavorites(orgId, flash)
+  const isFav = fav.has
+  const favCount = fav.count
+  const toggleFav = (r: KolDirectoryRow) => {
+    void fav.toggle(r.id).then(on => {
+      if (on !== null) flash(on ? 'Ditambahkan ke favorit' : 'Dihapus dari favorit')
+    })
+  }
+
+  /** The signed-in user's Saved Lists in this agency (KOL `agency_kol_saved_filters`). */
+  const saved = useSavedFilters<KolFilters>(orgId, flash)
+  const savedLists = saved.lists
 
   /**
    * Compare selection, shared with the Compare tab through localStorage.
@@ -493,18 +499,6 @@ export default function KolDirectoryPage({
     flash(was ? `@${r.username} dihapus dari compare` : `@${r.username} ditambahkan ke compare`)
   }, [compare, flash])
 
-  /* saved lists — per org, so one browser can hold several clients' shortlists */
-  const listsKey = `autometric.kolDirectory.lists.${orgId}`
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(listsKey)
-      if (raw) setSavedLists(JSON.parse(raw) as SavedList[])
-    } catch { /* a corrupt entry just means no saved lists */ }
-  }, [listsKey])
-  const persistLists = (next: SavedList[]) => {
-    setSavedLists(next)
-    try { window.localStorage.setItem(listsKey, JSON.stringify(next)) } catch { /* private mode */ }
-  }
 
   /* data */
   useEffect(() => {
@@ -714,7 +708,7 @@ export default function KolDirectoryPage({
     inMine: isMine(r),
     onMine: () => { void toggleMine(r) },
     onOpen: () => openProfile(r),
-    onFav: () => { const was = isFav(r.id); fav.toggle(selectionKey('roster', r.id)); flash(was ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
+    onFav: () => toggleFav(r),
     onCompare: () => toggleCompare(r),
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
     onSimilar: onFindSimilar ? () => onFindSimilar(r.id) : null,
@@ -824,8 +818,8 @@ export default function KolDirectoryPage({
                 </div>
                 {savedLists.length === 0 ? (
                   <div className="text-[11.5px] px-1 pb-1" style={{ color: T.t4 }}>No saved lists yet.</div>
-                ) : savedLists.map((l, i) => (
-                  <div key={l.name + i}
+                ) : savedLists.map(l => (
+                  <div key={l.id}
                     className="flex items-center gap-2 px-1 py-[7px] rounded-lg cursor-pointer hover:bg-[#f7fafc]"
                     onClick={() => {
                       setFilters({ ...KOL_FILTERS_DEFAULT, ...l.filters })
@@ -834,18 +828,20 @@ export default function KolDirectoryPage({
                     <span className="material-symbols-outlined text-[16px]" style={{ color: T.primary }}>bookmark</span>
                     <span style={{ ...PJ, color: T.t1 }} className="flex-1 text-[12px] font-bold truncate">{l.name}</span>
                     <span className="material-symbols-outlined text-[15px]" style={{ color: T.t4 }}
-                      onClick={e => { e.stopPropagation(); persistLists(savedLists.filter((_, j) => j !== i)) }}>
+                      onClick={e => {
+                        e.stopPropagation()
+                        void saved.remove(l.id).then(ok => { if (ok) flash(`Deleted "${l.name}"`) })
+                      }}>
                       delete
                     </span>
                   </div>
                 ))}
                 <div className="mt-1.5 pt-2" style={{ borderTop: `1px solid ${T.outlineSoft}` }}>
                   <Btn kind="ghost" icon="add" full onClick={() => {
-                    const name = window.prompt('Name this saved list:', `Custom List ${savedLists.length + 1}`)
+                    const name = window.prompt('Name this saved list:', `Custom List ${savedLists.length + 1}`)?.trim()
                     if (!name) return
-                    persistLists([...savedLists, { name, filters }])
                     setListsOpen(false)
-                    flash(`Saved list "${name}"`)
+                    void saved.save(name, filters).then(ok => { if (ok) flash(`Saved list "${name}"`) })
                   }}>
                     Save current filters
                   </Btn>
@@ -1017,7 +1013,7 @@ export default function KolDirectoryPage({
           onProfile={() => openProfile(quick)}
           inMine={isMine(quick)} onMine={() => { void toggleMine(quick) }}
           fav={isFav(quick.id)}
-          onFav={() => { const was = isFav(quick.id); fav.toggle(selectionKey('roster', quick.id)); flash(was ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') }}
+          onFav={() => toggleFav(quick)}
           inCompare={inCompare(quick.id)} onCompare={() => toggleCompare(quick)}
           onSimilar={onFindSimilar ? () => onFindSimilar(quick.id) : null}
         />
