@@ -11,33 +11,27 @@
  * username, platform, followers, engagement rate, category, tier and verified.
  * For the creators the warehouse has harvested, `l1_silver.unified_post` also
  * backs likes, comments, views, the format mix and the content grid, and
- * `l1_silver.unified_rate_card` backs the price. Everything else is sampled
- * (see `@/lib/discover/kolSample`) and is stamped with `<SampleTag />` at the
- * figure, not just in a footnote.
+ * `l1_silver.unified_rate_card` backs the price; `l2_gold` and `feature` back
+ * growth, audience, per-post ER and the format ER.
  *
- * Which of the two a given figure is depends on the creator, not on the tile, so
- * sections read the per-field flags in `intel.real` rather than hardcoding
- * `sample` — `@/lib/discover/kolIntel` is what sets them. Where a section can mix
- * the two — Platform Comparison, whose follower counts and rates are real for the
- * 277 creators holding accounts on both platforms — the real columns are left
- * unstamped so the difference is visible in the same table.
+ * Nothing is sampled. A figure with no source for this creator renders as
+ * "Belum terukur" or an `Unavailable` panel — never as a generated number.
  */
 
 import { useCallback, useMemo, useState } from 'react'
 import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, Btn } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import {
-  Bars, Donut, EmptyBlock, Meter, Overlay, Row, SampleTag, ScoreBlock, Split, TrendChart,
+  Bars, Donut, EmptyBlock, Meter, Overlay, Row, Split, TrendChart,
   VIZ, VizCard, StatTile,
 } from './kolViz'
-import {
-  CAMPAIGN_STAGES, type SampleContentItem,
-} from '@/lib/discover/kolSample'
-import { measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
+import type { ContentItem } from '@/lib/discover/kolIntel'
+import { avgViewsBasis, measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import type {
   KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
 import type { GoldFormatDay, GoldHeatmapCell, GoldPost, KolGold } from '@/lib/discover/kolGold'
+import { formatErRows } from '@/lib/discover/kolFormatEr'
 
 export interface SectionProps {
   creator: KolDirectoryRow
@@ -45,12 +39,7 @@ export interface SectionProps {
   rank: KolCreatorRank
   platforms: KolCreatorPlatformRow[]
   similar: KolSimilarRow[]
-  /**
-   * Measured where the warehouse has a source, sampled elsewhere. Sections read
-   * `intel.real` to decide which figures carry the estimate marker rather than
-   * hardcoding `sample` — the same tile is real for a harvested creator and an
-   * estimate for the other 7,695.
-   */
+  /** Measured figures, each null where the warehouse has no source. */
   intel: CreatorIntel
   /**
    * The L2 Gold rollups, when the pipeline has any for this creator. A third
@@ -58,10 +47,9 @@ export interface SectionProps {
    * of time rather than ones this page derives.
    *
    * Null, and each field inside independently empty, so a section renders its
-   * real block only where L2 actually has rows and otherwise falls back to the
-   * sampled block it showed before. Never coalesce a null to zero — `null` here
-   * means "the pipeline could not measure it", which is what the missing
-   * Insights columns are.
+   * real block only where L2 actually has rows and otherwise an unavailable
+   * state. Never coalesce a null to zero — `null` here means "the pipeline could
+   * not measure it", which is what the missing Insights columns are.
    */
   gold: KolGold | null
 }
@@ -72,20 +60,8 @@ const PLATFORM_LABEL: Record<string, string> = {
 export const platformLabel = (k: string | null) => (k ? PLATFORM_LABEL[k] ?? k : '—')
 
 const pctLabel = (n: number) => `${n.toFixed(2)}%`
-const usd = (n: number) => `$${n >= 1000 ? `${(n / 1000).toFixed(1)}K` : n}`
 
 /* ── Performance ──────────────────────────────────────────────────────────── */
-
-type MetricKey = 'erPct' | 'reach' | 'views' | 'followers'
-
-const METRICS: { key: MetricKey; label: string; format: (n: number) => string }[] = [
-  { key: 'erPct', label: 'Engagement rate', format: n => `${n.toFixed(2)}%` },
-  { key: 'reach', label: 'Reach', format: fmtNum },
-  { key: 'views', label: 'Views', format: fmtNum },
-  { key: 'followers', label: 'Followers', format: fmtNum },
-]
-
-const PERIODS = ['30 hari terakhir', '90 hari terakhir', '6 bulan terakhir'] as const
 
 /** Metrics the L2 rollups actually carry. `reach` is absent on purpose: every
  *  `reach_sum` in `kol_metric_daily`/`_monthly` is NULL — it needs the Insights
@@ -108,10 +84,6 @@ type GoldMetricKey = (typeof GOLD_METRICS)[number]['key']
 type GoldGrain = 'daily' | 'monthly'
 
 export function PerformanceSection({ creator, platforms, intel, gold }: SectionProps) {
-  const [metric, setMetric] = useState<MetricKey>('erPct')
-  const [platform, setPlatform] = useState('all')
-  const [period, setPeriod] = useState<string>(PERIODS[2])
-  const m = METRICS.find(x => x.key === metric) ?? METRICS[0]
   const basis = measuredBasis(intel)
 
   const [goldGrain, setGoldGrain] = useState<GoldGrain>('daily')
@@ -180,40 +152,26 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
   /**
    * Real follower growth, straight from `l2_gold.kol_profile_card`. It is the
    * change since the account's PREVIOUS snapshot — 10-13 days apart today, not
-   * a month — so it is never labelled "monthly". Null for the ~99% of the
-   * roster scraped only once; those keep the modelled figure with its marker.
+   * a month — so it is never labelled "monthly". Null for the creators the
+   * pipeline has scraped only once, which is most of the roster; those keep the
+   * modelled figure with its estimate marker.
    */
   const realGrowth = goldCard?.followersGrowth ?? null
 
   const hasGold = goldPoints.length > 0 || (gold?.daily.length ?? 0) > 0
 
-  /**
-   * The period control trims the series rather than refetching: there is only
-   * one sampled series behind it, and a filter that visibly does nothing is
-   * worse than one that does the honest, small thing.
+  /*
+   * The generated six-month series is gone. The real trend is the L2 Gold card
+   * below, which reads `kol_metric_daily` / `kol_metric_monthly` and carries its
+   * own grain and metric controls.
+   *
+   * The Platform / Period / Metric row that sat above it drove nothing once
+   * that series went — and its Metric list still offered Reach, which has no
+   * column. Removed rather than left as controls that change no number.
    */
-  const months = period === PERIODS[0] ? 1 : period === PERIODS[1] ? 3 : 6
-  const points = intel.trend.slice(-Math.max(2, months)).map(p => ({ x: p.month, y: p[metric] }))
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Sub-filters sit in one row above the cards, never inside them. */}
-      <div className="flex items-end gap-2.5 flex-wrap">
-        <Field label="Platform">
-          <Select value={platform} onChange={setPlatform}
-            options={([['all', 'Semua platform']] as [string, string][])
-              .concat(platforms.map(p => [p.platform ?? 'other', platformLabel(p.platform)] as [string, string]))} />
-        </Field>
-        <Field label="Period">
-          <Select value={period} onChange={setPeriod}
-            options={PERIODS.map(p => [p, p] as [string, string])} />
-        </Field>
-        <Field label="Metric">
-          <Select value={metric} onChange={v => setMetric(v as MetricKey)}
-            options={METRICS.map(x => [x.key, x.label] as [string, string])} />
-        </Field>
-      </div>
-
       {hasGold && (
         <VizCard
           title="Performance (terukur, L2 Gold)"
@@ -252,53 +210,57 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
 
       <VizCard title="Performance Overview" subtitle="Rata-rata per konten">
         <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
-          {/* Each tile decides for itself: a harvested creator has real likes,
-              comments and views here, while reach and impressions are modelled
-              for everyone because no post carries them. */}
+          {/* Every tile is a measurement or says it is not. They used to fall
+              back to `kolSample` values behind an estimate marker; nothing here
+              falls back now.
+
+              Reach and Impressions have no column on this server at all -
+              `unified_post.reach` is 0 in all 503 rows - so they are permanently
+              unavailable rather than derived from views. Views are not reach. */}
           <StatTile label="Engagement Rate"
-            value={creator.erPct === null ? 'belum diukur' : pctLabel(creator.erPct)}
+            value={creator.erPct === null ? NOT_MEASURED : pctLabel(creator.erPct)}
             hint={creator.erPct === null ? undefined : 'dari engagement analysis'} />
-          <StatTile label="Reach" value={fmtNum(intel.kpi.avgReach)} sample={!intel.real.reach} />
-          <StatTile label="Impressions" value={fmtNum(intel.performance.impressions)} sample />
-          <StatTile label="Views" value={fmtNum(intel.kpi.avgViews)}
-            sample={!intel.real.views} hint={intel.real.views ? basis : undefined} />
-          <StatTile label="Likes" value={fmtNum(intel.performance.likes)}
-            sample={!intel.real.likes} hint={intel.real.likes ? basis : undefined} />
-          <StatTile label="Comments" value={fmtNum(intel.performance.comments)}
-            sample={!intel.real.comments} hint={intel.real.comments ? basis : undefined} />
-          <StatTile label="Shares" value={fmtNum(intel.performance.shares)} sample={!intel.real.shares} />
-          <StatTile label="Saves" value={fmtNum(intel.performance.saves)} sample={!intel.real.saves} />
+          <StatTile label="Reach" value={NOT_MEASURED} hint="tidak ada kolom reach" />
+          <StatTile label="Impressions" value={NOT_MEASURED} hint="tidak ada kolom impressions" />
+          <StatTile label="Views (rata-rata)"
+            value={intel.kpi.avgViews === null ? NOT_MEASURED : fmtNum(intel.kpi.avgViews)}
+            hint={intel.kpi.avgViews === null ? undefined : avgViewsBasis(creator)} />
+          <StatTile label="Likes (total)"
+            value={intel.performance.likes === null ? NOT_MEASURED : fmtNum(intel.performance.likes)}
+            hint={intel.performance.likes === null ? undefined : basis} />
+          <StatTile label="Comments (total)"
+            value={intel.performance.comments === null ? NOT_MEASURED : fmtNum(intel.performance.comments)}
+            hint={intel.performance.comments === null ? undefined : basis} />
+          <StatTile label="Shares (total)"
+            value={intel.performance.shares === null ? NOT_MEASURED : fmtNum(intel.performance.shares)}
+            hint={intel.performance.shares === null ? undefined : basis} />
+          <StatTile label="Saves (total)"
+            value={intel.performance.saves === null ? NOT_MEASURED : fmtNum(intel.performance.saves)}
+            hint={intel.performance.saves === null ? undefined : basis} />
         </div>
       </VizCard>
 
       <Split
         main={
-          <VizCard title="Performance Trend" subtitle={`${m.label} · ${period.toLowerCase()}`} sample>
-            {/* One metric at a time: two units on one chart would need a second
-                y-axis, which is never the answer. */}
-            <TrendChart points={points} format={m.format} label={m.label} />
-            <p className="text-[9.5px] mt-1.5" style={{ color: T.t4 }}>
-              Titik terakhir menempel pada engagement rate asli creator ini; lima bulan
-              sebelumnya adalah estimasi.
-            </p>
+          <VizCard title="Performance Trend">
+            {hasGold
+              ? (
+                <p className="text-[11px] leading-relaxed" style={{ color: T.t3 }}>
+                  Tren terukur creator ini ada di kartu <b>Performance (terukur, L2 Gold)</b> di
+                  atas, lengkap dengan pilihan harian/bulanan.
+                </p>
+              )
+              : <Unavailable text="Data trend belum tersedia untuk creator ini — pipeline belum mencatat metrik harian maupun bulanan." />}
           </VizCard>
         }
+        /* "Performance Highlights" was three generated sentences — a views
+           delta, a reach delta and a category comparison — all computed from
+           `between()` rather than from any measurement. There is no real
+           period-over-period source for this creator, so the claims are gone
+           rather than re-worded. */
         aside={
-          <VizCard title="Performance Highlights" sample>
-            <div className="flex flex-col gap-3">
-              {intel.highlights.map(h => (
-                <div key={h.headline} className="flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[16px] mt-px"
-                    style={{ color: h.tone === 'good' ? VIZ.good : h.tone === 'warning' ? VIZ.warning : T.t4 }}>
-                    {h.icon}
-                  </span>
-                  <div>
-                    <div style={{ ...PJ, color: T.t1 }} className="text-[11.5px] font-extrabold">{h.headline}</div>
-                    <div className="text-[10.5px] mt-0.5 leading-[1.45]" style={{ color: T.t3 }}>{h.detail}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <VizCard title="Performance Highlights">
+            <Unavailable text="Belum ada pembanding periode sebelumnya untuk creator ini, jadi perubahan views dan reach belum bisa dihitung." />
           </VizCard>
         }
       />
@@ -329,10 +291,12 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
                 <MetricRow label="Followers" cells={platforms.map(p => (p.followers === null ? '—' : fmtNum(p.followers)))} />
                 <MetricRow label="Engagement rate"
                   cells={platforms.map(p => (p.erPct === null ? 'belum diukur' : pctLabel(p.erPct)))} />
-                <MetricRow label="Avg. reach" sample
-                  cells={platforms.map(p => fmtNum(Math.round((p.followers ?? 0) * 0.32)))} />
-                <MetricRow label="Avg. views" sample
-                  cells={platforms.map(p => fmtNum(Math.round((p.followers ?? 0) * 0.41)))} />
+                {/* "Avg. reach" was followers x 0.32 and "Avg. views" was
+                    followers x 0.41 — two arbitrary multipliers with no source,
+                    printed per platform as if measured per platform. Both rows
+                    are removed: reach has no column anywhere on this server, and
+                    per-platform views are not broken out. The creator-level view
+                    average is on the Performance tab, from real posts. */}
               </tbody>
             </table>
           </div>
@@ -347,29 +311,39 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
 
       <Split
         main={
-          <VizCard title="Growth" subtitle="Follower growth" sample>
-            {/* The six-month curve is still modelled — the warehouse holds at
-                most two profile snapshots per account, so there is no history
-                to draw. Only the tile below it is real. */}
-            <TrendChart points={intel.trend.map(p => ({ x: p.month, y: p.followers }))}
-              format={fmtNum} label="Followers" />
+          <VizCard title="Growth" subtitle="Follower growth">
+            {/* The six-month follower curve was generated: the warehouse holds
+                at most two profile snapshots per account, so there is no history
+                to draw and there never was. The real tiles below stay. */}
+            <Unavailable text="Riwayat follower belum tersedia — pipeline baru menyimpan paling banyak dua snapshot profil per akun." />
             <div className="grid gap-2.5 mt-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
               <StatTile label="Current followers"
                 value={creator.followers === null ? '—' : fmtNum(creator.followers)}
                 hint="data asli roster" />
-              {/* Real when the pipeline has two snapshots for this account.
+              {/* Real wherever the pipeline has two snapshots for this account.
                   Deliberately NOT called "Monthly": the window is whatever the
-                  scraper produced between the two snapshots. */}
+                  scraper produced between the two, which is 10-13 days today. */}
               <StatTile label="Sejak snapshot terakhir"
-                value={realGrowth === null ? '—' : `${realGrowth > 0 ? '+' : ''}${realGrowth.toFixed(2)}%`}
-                sample={realGrowth === null}
+                value={realGrowth === null
+                  ? NOT_MEASURED
+                  : `${realGrowth > 0 ? '+' : ''}${realGrowth.toFixed(2)}%`}
                 hint={realGrowth === null
                   ? 'butuh dua snapshot; creator ini baru punya satu'
                   : goldCard?.snapshotDate
                     ? `data asli L2 Gold · snapshot ${goldCard.snapshotDate}`
                     : 'data asli L2 Gold'} />
-              <StatTile label="3 bulan" value={`${intel.growth.threeMonth}%`} sample />
-              <StatTile label="6 bulan" value={`${intel.growth.sixMonth}%`} sample />
+              {/* "3 bulan" and "6 bulan" are gone rather than repointed.
+                  `followers_growth` is defined by the pipeline as
+                  (now - prev) / prev * 100 between CONSECUTIVE SNAPSHOTS, and
+                  the docs are explicit that this is not a fixed window - the gap
+                  is whatever the scraper produced. There is no 3-month or
+                  6-month figure in the database to show, and deriving one from a
+                  single ~10-day reading would be fabricating a trend from one
+                  point. The tile above is the only growth this source supports. */}
+              <StatTile label="3 bulan" value={NOT_MEASURED}
+                hint="database hanya menyimpan perubahan antar snapshot" />
+              <StatTile label="6 bulan" value={NOT_MEASURED}
+                hint="database hanya menyimpan perubahan antar snapshot" />
             </div>
           </VizCard>
         }
@@ -387,29 +361,44 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
  */
 function EngagementBreakdown({ intel }: { intel: CreatorIntel }) {
   const p = intel.performance
-  const total = p.likes + p.comments + p.shares + p.saves || 1
-  const parts = [
+  /*
+   * Only the measured interactions enter the split. A creator with real likes
+   * and comments but no shares column gets a two-bar chart over what was
+   * counted, not a four-bar chart where two bars are zero - a zero bar claims
+   * "this creator gets no shares", which is a different statement from "shares
+   * were never harvested".
+   */
+  const measured = ([
     { label: 'Likes', n: p.likes },
     { label: 'Comments', n: p.comments },
     { label: 'Shares', n: p.shares },
     { label: 'Saves', n: p.saves },
-  ].map(x => ({ label: x.label, pct: Math.round((x.n / total) * 1000) / 10 }))
+  ] as { label: string; n: number | null }[])
+    .filter((x): x is { label: string; n: number } => x.n !== null)
+
+  const total = measured.reduce((sum, x) => sum + x.n, 0)
+  const parts = total > 0
+    ? measured.map(x => ({ label: x.label, pct: Math.round((x.n / total) * 1000) / 10 }))
+    : []
 
   return (
-    <VizCard title="Engagement Breakdown" subtitle="Bagian dari total interaksi" sample>
-      <Bars parts={parts} />
+    <VizCard title="Engagement Breakdown" subtitle="Bagian dari total interaksi">
+      {parts.length === 0
+        ? <Unavailable text="Belum ada interaksi terukur untuk creator ini." />
+        : <Bars parts={parts} />}
       <div className="mt-3">
-        <Row label="Total interaksi" value={fmtNum(total)} sample />
+        {/* Real now: the sum of the measured interactions above. */}
+        <Row label="Total interaksi" value={total > 0 ? fmtNum(total) : NOT_MEASURED} />
       </div>
     </VizCard>
   )
 }
 
-function MetricRow({ label, cells, sample }: { label: string; cells: string[]; sample?: boolean }) {
+function MetricRow({ label, cells }: { label: string; cells: string[] }) {
   return (
     <tr style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
       <td className="py-2" style={{ color: T.t3 }}>
-        <span className="inline-flex items-center gap-1.5">{label}{sample && <SampleTag compact />}</span>
+        <span className="inline-flex items-center gap-1.5">{label}</span>
       </td>
       {cells.map((c, i) => (
         <td key={i} className="py-2 text-right tabular-nums" style={{ ...PJ, color: T.t1, fontWeight: 700 }}>{c}</td>
@@ -426,10 +415,9 @@ const CONTENT_SORTS = [
 ] as const
 
 /**
- * Sorts for the L2 post table. The same three ideas as the sampled grid above,
- * declared separately on purpose: `top` there means the sampled ER, here it
- * means the pipeline's `er_followers`. Sharing one constant would suggest the
- * two tables are ordered by the same number.
+ * Sorts for the L2 post table. Declared apart from `CONTENT_SORTS` because the
+ * two tables hold different post sets (L1 recent twelve vs. L2 up to 200), even
+ * though `top` means the pipeline's `er_followers` in both.
  */
 const GOLD_POST_SORTS = [
   ['top', 'ER tertinggi'], ['recent', 'Terbaru'], ['views', 'Views terbanyak'],
@@ -444,10 +432,8 @@ const POST_ICON: Record<string, string> = {
 const POSTED_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
 
 /**
- * A sampled item's `postedAt` is already a label ("Jan 2026"); a harvested one
- * carries the post's ISO timestamp, which was reaching the overlay raw. Only the
- * timestamp is reformatted — `new Date('Jan 2026')` parses, so handing the label
- * to the same path would silently rewrite it as "1 Jan 2026".
+ * A post's ISO timestamp (or `YYYY-MM-DD`) as a short Indonesian date. Anything
+ * that is not a date is returned untouched.
  */
 function postedLabel(v: string): string {
   if (!/^\d{4}-\d{2}-\d{2}/.test(v)) return v
@@ -513,10 +499,6 @@ function PostCover({
   )
 }
 
-/** Sums that keep null meaning "never measured" instead of collapsing it to 0. */
-const addNullable = (a: number | null, b: number | null): number | null =>
-  a === null && b === null ? null : (a ?? 0) + (b ?? 0)
-
 /** The pipeline stores ER as a fraction 0..1; every screen shows a percentage. */
 const erLabel = (v: number | null) => (v === null ? '\u2014' : `${(v * 100).toFixed(2)}%`)
 
@@ -524,10 +506,9 @@ const erLabel = (v: number | null) => (v === null ? '\u2014' : `${(v * 100).toFi
  * One row per published post, carrying the pipeline's own rank and ER rather
  * than figures this page derives.
  *
- * Sits ABOVE the sampled grid instead of replacing it. The grid holds covers and
- * captions, which `post_metric` does not store; this table holds numbers the
- * grid can only estimate. They are two different things about the same posts, so
- * dropping either would lose something real.
+ * Sits ABOVE the content grid instead of replacing it. The grid holds covers and
+ * captions, which `post_metric` does not store; this table holds the pipeline's
+ * rank and ER. Two different things about the same posts.
  *
  * A column is omitted entirely when no row carries it, rather than rendered as a
  * stack of dashes. `shares` and `saves` are the live case: TikTok reports them
@@ -712,19 +693,6 @@ function GoldPostsCard({ posts }: { posts: GoldPost[] }) {
 }
 
 /**
- * The format mix and the ER behind it, from `l2_gold.content_format_daily`.
- *
- * Replaces the sampled "Content Format" card only for creators the pipeline
- * actually covers; everyone else keeps the estimated one, so no creator loses a
- * card and no card silently changes provenance.
- *
- * ER per format is `sum(engagement) / sum(followersDenom)`, never the mean of
- * the daily `erFollowers`. A ratio is not additive: averaging the daily column
- * weights a day carrying one post the same as a day carrying twenty. The
- * pipeline makes the same choice for its monthly ER, and keeping the denominator
- * on the row is the only reason this page can repeat it.
- */
-/**
  * Posting-time heatmap, 7 rows x 24 columns, Asia/Jakarta.
  *
  * `dow` arrives as Postgres EXTRACT(DOW) — 0 is Sunday — and the hour is
@@ -796,37 +764,20 @@ function HeatmapCard({ cells }: { cells: GoldHeatmapCell[] }) {
   )
 }
 
+/**
+ * The format mix and the ER behind it, from `l2_gold.content_format_daily`.
+ *
+ * Replaces the L1 "Content Format" card for creators the pipeline covers;
+ * everyone else keeps the L1 mix, or an unavailable state.
+ *
+ * ER per format comes from `formatErRows` — see `@/lib/discover/kolFormatEr`
+ * for why engagement and its denominator are summed over the same days only.
+ */
 function GoldFormatsCard({ formats, dominant }: {
   formats: GoldFormatDay[]
   dominant: KolGold['dominantFormat']
 }) {
-  const rows = useMemo(() => {
-    const by = new Map<string, {
-      posts: number; inSample: number
-      engagement: number | null; denom: number | null; views: number | null
-    }>()
-    for (const f of formats) {
-      const cur = by.get(f.mediaType)
-        ?? { posts: 0, inSample: 0, engagement: null, denom: null, views: null }
-      cur.posts += f.postCount
-      cur.inSample += f.postsInSample
-      // ER numerator from the API's engagementForEr: days without a follower
-      // denominator must not add engagement to the ratio.
-      cur.engagement = addNullable(cur.engagement, f.engagementForEr)
-      cur.denom = addNullable(cur.denom, f.followersDenom)
-      cur.views = addNullable(cur.views, f.views)
-      by.set(f.mediaType, cur)
-    }
-    return [...by.entries()]
-      .map(([mediaType, v]) => ({
-        mediaType,
-        ...v,
-        er: v.engagement !== null && v.denom !== null && v.denom > 0
-          ? v.engagement / v.denom
-          : null,
-      }))
-      .sort((a, b) => b.posts - a.posts)
-  }, [formats])
+  const rows = useMemo(() => formatErRows(formats), [formats])
 
   const totalPosts = rows.reduce((a, r) => a + r.posts, 0)
   const days = new Set(formats.map(f => f.date)).size
@@ -844,7 +795,7 @@ function GoldFormatsCard({ formats, dominant }: {
         dominant ? `Dominan: ${dominant.mediaType} (${dominant.pct}%)` : null,
         `${totalPosts} post`,
         `${days} hari tercatat`,
-      ].filter(Boolean).join(' · ')}>
+      ].filter(Boolean).join(' \u00b7 ')}>
       <Bars parts={parts} />
 
       {withEr.length > 0 && (
@@ -881,7 +832,7 @@ function GoldFormatsCard({ formats, dominant }: {
 export function ContentSection({ creator, intel, gold }: SectionProps) {
   const [format, setFormat] = useState('all')
   const [sort, setSort] = useState<string>('top')
-  const [openItem, setOpenItem] = useState<SampleContentItem | null>(null)
+  const [openItem, setOpenItem] = useState<ContentItem | null>(null)
   const [failedCovers, setFailedCovers] = useState<string[]>([])
   const noteCoverFail = useCallback(
     (src: string) => setFailedCovers(f => (f.includes(src) ? f : [...f, src])), [])
@@ -891,8 +842,10 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
 
   const items = useMemo(() => {
     const out = intel.content.recent.filter(c => format === 'all' || c.format === format)
-    if (sort === 'views') return [...out].sort((a, b) => b.views - a.views)
-    if (sort === 'top') return [...out].sort((a, b) => b.erPct - a.erPct)
+    // `?? -1` sorts an unmeasured post below every measured one rather than
+    // treating it as a zero, which would read as a post that flopped.
+    if (sort === 'views') return [...out].sort((a, b) => (b.views ?? -1) - (a.views ?? -1))
+    if (sort === 'top') return [...out].sort((a, b) => (b.erPct ?? -1) - (a.erPct ?? -1))
     return out
   }, [intel.content.recent, format, sort])
 
@@ -917,10 +870,10 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
           <>
           {goldPosts.length > 0 && <GoldPostsCard posts={goldPosts} />}
 
-          <VizCard title="Content Performance" sample={!intel.real.content}
+          <VizCard title="Content Performance"
             subtitle={intel.real.content
-              ? `${intel.measured?.postCount ?? 0} post asli dari warehouse — views, likes dan comments terukur; ER dan sentimen masih estimasi`
-              : 'Roster tidak menyimpan satu pun post untuk creator ini — seluruh konten di bawah estimasi'}
+              ? `${intel.measured?.postCount ?? 0} post asli dari warehouse — setiap angka di bawah terukur atau ditandai belum terukur`
+              : 'Roster tidak menyimpan satu pun post untuk creator ini'}
             action={
               <div className="flex gap-1.5 flex-wrap">
                 <Select value={format} onChange={setFormat}
@@ -947,14 +900,22 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                       onFail={noteCoverFail} />
                     <div className="p-2">
                       <div style={{ ...PJ, color: T.t1 }} className="text-[11px] font-bold truncate">{c.title}</div>
+                      {/* Each figure is the post's own or absent. A post whose
+                          views the harvest missed shows no view count rather
+                          than a zero, and keeps the numbers it does carry. */}
                       <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold mt-0.5">
-                        {fmtNum(c.views)}
+                        {c.views === null ? NOT_MEASURED : fmtNum(c.views)}
                       </div>
                       <div className="text-[10px]" style={{ color: T.t4 }}>
-                        views · ER {c.erPct}% · {fmtNum(c.likes)} likes
+                        {[
+                          c.views === null ? null : 'views',
+                          c.erPct === null ? null : `ER ${c.erPct.toFixed(2)}%`,
+                          c.likes === null ? null : `${fmtNum(c.likes)} likes`,
+                        ].filter(Boolean).join(' · ') || 'belum ada metrik'}
                       </div>
                       <div className="text-[9.5px] mt-0.5" style={{ color: T.t4 }}>
-                        {c.format} · {postedLabel(c.postedAt)}
+                        {c.format}
+                        {c.postedAt ? ` · ${postedLabel(c.postedAt)}` : ''}
                       </div>
                     </div>
                   </button>
@@ -979,20 +940,29 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                 one where L2 has rows, rather than sitting beside it with a
                 second, different number for the same question. */}
             {/* Measured posting-time heatmap. Renders only when the feature
-                layer actually has cells for this creator; nothing is drawn
-                from an estimate. */}
+                layer actually has cells for this creator. */}
             <HeatmapCard cells={gold?.heatmap ?? []} />
             {goldFormats.length > 0 ? (
               <GoldFormatsCard formats={goldFormats} dominant={gold?.dominantFormat ?? null} />
             ) : (
-              <VizCard title="Content Format" sample={!intel.real.formats}
-                subtitle={intel.real.formats ? measuredBasis(intel) : undefined}>
-                <Bars parts={intel.content.formats} />
+              /* `intel.content.formats` is the real mix counted across this
+                 creator's harvested posts now — it used to be a generated
+                 distribution over a hardcoded format list, which is why the
+                 card carried a sample flag it no longer needs. */
+              <VizCard title="Content Format" subtitle={measuredBasis(intel)}>
+                {intel.content.formats.length > 0
+                  ? <Bars parts={intel.content.formats.map(f => ({ label: f.label, pct: f.pct }))} />
+                  : <Unavailable text="Belum ada post creator ini yang dipanen, jadi komposisi format belum bisa dihitung." />}
               </VizCard>
             )}
             {/* The source's "Top hashtags & keywords" panel, which it filled from
                 a written-in list. Counted here across every harvested post, so it
                 only appears for a creator whose posts carry tags. */}
+            {!intel.real.hashtags && (
+              <VizCard title="Top Hashtags">
+                <Unavailable text="Post creator ini belum memuat hashtag yang terpanen — 30 dari 7.432 creator punya data hashtag." />
+              </VizCard>
+            )}
             {intel.real.hashtags && intel.measured && (
               <VizCard title="Top Hashtags"
                 subtitle={`dihitung dari ${intel.measured.postCount} post`}>
@@ -1014,11 +984,51 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                 )}
               </VizCard>
             )}
-            <VizCard title="Content Topic" sample>
-              <Bars parts={intel.content.topics} />
+            {/* Posting cadence as the API returns it: `post_frequency_monthly`
+                from L2, the one agreed unit, over the real first-to-last span.
+                Not recomputed here, so this card and the directory agree. */}
+            <VizCard title="Frekuensi Posting"
+              subtitle={creator.postFrequencyCount
+                ? `dari ${creator.postFrequencyCount} post · ${creator.observationDays ?? '—'} hari`
+                : undefined}>
+              {creator.postFrequencyMonthly === null
+                ? <Unavailable text="Frekuensi posting belum dihitung pipeline untuk creator ini." />
+                : (
+                  <div style={{ ...PJ, color: T.t1 }} className="text-[20px] font-extrabold">
+                    {creator.postFrequencyMonthly.toLocaleString('id-ID', { maximumFractionDigits: 1 })}
+                    <span className="text-[11px] font-bold ml-1.5" style={{ color: T.t3 }}>
+                      post / bulan
+                    </span>
+                    {creator.postFrequencyReliability && (
+                      <span className="text-[10px] font-semibold ml-1.5" style={{ color: T.t4 }}>
+                        · reliabilitas {creator.postFrequencyReliability}
+                      </span>
+                    )}
+                  </div>
+                )}
             </VizCard>
-            <VizCard title="Sentiment" sample>
-              <SentimentBars parts={intel.content.sentiment} />
+            {/* Content Topic was generated from the creator's id. It is the
+                API's `content_topic` now (L2, migration 039), printed with its
+                source: a topic that fell back to the roster category is not
+                one read from the posts. Sentiment reads
+                `feature.*_comments_analysis`, which holds 0 rows. */}
+            <VizCard title="Content Topic"
+              subtitle={creator.contentTopic
+                ? creator.contentTopicSource === 'creator_category_fallback'
+                  ? 'dari kategori roster — belum dari analisis post'
+                  : creator.contentTopicSource ?? undefined
+                : undefined}>
+              {creator.contentTopic
+                ? (
+                  <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                    className="h-7 px-2.5 rounded-lg text-[11.5px] font-bold inline-flex items-center">
+                    {creator.contentTopic}
+                  </span>
+                )
+                : <Unavailable text="Topik konten belum diisi pipeline untuk creator ini." />}
+            </VizCard>
+            <VizCard title="Sentiment">
+              <Unavailable text="Analisis sentimen komentar belum tersedia — tabel comments analysis masih kosong." />
             </VizCard>
           </>
         }
@@ -1031,9 +1041,14 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
 
 function ContentDetail({
   item, creator, onClose,
-}: { item: SampleContentItem | null; creator: KolDirectoryRow; onClose: () => void }) {
-  /** True only for a figure this post actually carries; see `SampleContentItem`. */
-  const isReal = (field: string) => item?.measuredFields?.includes(field) ?? false
+}: { item: ContentItem | null; creator: KolDirectoryRow; onClose: () => void }) {
+  /*
+   * `measuredFields` and the `measured` flag are gone with the overlay that
+   * needed them: every post here is a real harvested post now, and every figure
+   * on it is either the post's own value or null. There is no "real on these
+   * three fields, modelled on the rest" state left to encode.
+   */
+  const num = (v: number | null) => (v === null ? NOT_MEASURED : fmtNum(v))
 
   return (
     <Overlay open={item !== null} title="Content Detail" onClose={onClose}>
@@ -1045,35 +1060,44 @@ function ContentDetail({
                 background={`linear-gradient(135deg,${VIZ.ordinal[1]},${VIZ.ordinal[3]})`} />
             </div>
             <div className="text-[10.5px] mt-2 text-center" style={{ color: T.t4 }}>
-              {item.platform} · {item.format} · {postedLabel(item.postedAt)}
+              {item.platform} · {item.format}
+              {item.postedAt ? ` · ${postedLabel(item.postedAt)}` : ''}
             </div>
           </div>
 
           <div className="flex-1 min-w-[240px]">
             <div className="flex items-center gap-1.5 mb-1.5">
               <span style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold">{item.title}</span>
-              {!item.measured && <SampleTag compact />}
-            </div>
-            <p className="text-[11.5px] leading-[1.6] mb-3" style={{ color: T.t2 }}>{item.caption}</p>
-
-            {/* A harvested post is real on the numbers Instagram/TikTok actually
-                report and modelled on the rest, so each row asks `measuredFields`
-                rather than inheriting one verdict from the card. */}
-            <Row label="Views" value={fmtNum(item.views)} sample={!isReal('views')} />
-            <Row label="Likes" value={fmtNum(item.likes)} sample={!isReal('likes')} />
-            <Row label="Comments" value={fmtNum(item.comments)} sample={!isReal('comments')} />
-            <Row label="Shares" value={fmtNum(item.shares)} sample />
-            <Row label="Saves" value={fmtNum(item.saves)} sample />
-            <Row label="Engagement rate" value={`${item.erPct}%`} sample />
-            <Row label="Sentiment" sample value={
-              <span className="inline-flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px]"
-                  style={{ color: item.sentiment === 'Positif' ? VIZ.good : T.t4 }}>
-                  {item.sentiment === 'Positif' ? 'sentiment_satisfied' : 'sentiment_neutral'}
+              {item.sponsored && (
+                <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                  className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded">
+                  Paid partnership
                 </span>
-                {item.sentiment}
-              </span>
-            } />
+              )}
+            </div>
+            {item.caption && (
+              <p className="text-[11.5px] leading-[1.6] mb-3" style={{ color: T.t2 }}>{item.caption}</p>
+            )}
+
+            {/* Every row is this post's own figure or "Belum terukur".
+                Engagement rate is the pipeline's `post_metric.er_followers`,
+                null where it left it null. Sentiment is gone — the
+                comments-analysis table holds zero rows. */}
+            <Row label="Views" value={num(item.views)} />
+            <Row label="Likes" value={num(item.likes)} />
+            <Row label="Comments" value={num(item.comments)} />
+            {/* Projected from `unified_post` since Phase 4D — real for the
+                creators whose harvest carried them, unavailable otherwise. */}
+            <Row label="Shares" value={num(item.shares)} />
+            <Row label="Saves" value={num(item.saves)} />
+            <Row label="Engagement rate (followers)"
+              value={item.erPct === null ? NOT_MEASURED : `${item.erPct.toFixed(2)}%`} />
+            {item.permalink && (
+              <Row label="Permalink" value={
+                <a href={item.permalink} target="_blank" rel="noreferrer"
+                  style={{ color: T.primary }} className="underline">Buka post</a>
+              } />
+            )}
 
             <div className="mt-3">
               <div className="text-[10.5px] mb-1.5" style={{ color: T.t3 }}>Hashtags</div>
@@ -1087,8 +1111,8 @@ function ContentDetail({
               </div>
             </div>
 
-            {/* A harvested post links to itself; a generated one can only offer
-                the creator's profile, which is the nearest real thing. */}
+            {/* A post without a permalink falls back to the creator's profile,
+                the nearest real thing. */}
             {item.permalink ? (
               <a href={item.permalink} target="_blank" rel="noopener noreferrer"
                 style={{ ...PJ, color: T.primary }}
@@ -1112,31 +1136,6 @@ function ContentDetail({
 }
 
 /** Sentiment wears status colours, so each row carries an icon and a label. */
-function SentimentBars({ parts }: { parts: { label: string; pct: number }[] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {parts.map((s, i) => {
-        const tone = [
-          { c: VIZ.good, icon: 'sentiment_satisfied' },
-          { c: T.t4, icon: 'sentiment_neutral' },
-          { c: VIZ.critical, icon: 'sentiment_dissatisfied' },
-        ][i] ?? { c: T.t4, icon: 'circle' }
-        return (
-          <div key={s.label} className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px]" style={{ color: tone.c }}>{tone.icon}</span>
-            <span className="text-[11px] w-[48px]" style={{ color: T.t3 }}>{s.label}</span>
-            <div className="flex-1 h-[10px] rounded-[4px]" style={{ background: T.outlineSoft }}>
-              <div className="h-full rounded-r-[4px]" style={{ width: `${s.pct}%`, background: tone.c }} />
-            </div>
-            <span style={{ ...PJ, color: T.t1 }} className="text-[11px] font-extrabold w-[38px] text-right tabular-nums">
-              {s.pct}%
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 /* ── Audience Insights ────────────────────────────────────────────────────── */
 
@@ -1191,14 +1190,25 @@ function GoldBreakdown({
   )
 }
 
-export function AudienceSection({ intel, gold }: SectionProps) {
-  const a = intel.audience
+export function AudienceSection({ creator, gold }: SectionProps) {
+  /*
+   * `intel.audience` is gone from this section entirely.
+   *
+   * Every signal below now comes from L2 Gold or `feature.*_audience_analysis`,
+   * and a creator without those rows gets an unavailable state rather than the
+   * seeded gender split, city list, interest tags and authenticity score
+   * `kolSample` used to synthesise. Coverage is 27 of 7,432 creators, so most
+   * of this tab is now empty - which is what the database actually knows.
+   */
   const g = gold?.audience ?? null
+  const q = gold?.audienceQuality ?? null
+  // The composite is the API's L2 value, the same one the header KPI shows;
+  // authenticity and follower quality have no L2 column and come from feature.
+  const aq = creator.audienceQualityScore
 
   // Each breakdown is independently present: a creator can have geo rows and no
-  // interest rows. The sampled card for a dimension is dropped only where L2
-  // actually has that dimension, so the page never shows both for the same idea
-  // with two different numbers.
+  // interest rows. The unavailable card for a dimension shows only where L2 has
+  // nothing for it.
   const hasGender = !!g?.gender.length
   const hasAge = !!g?.age.length
   const hasGeo = !!(g?.countries.length || g?.cities.length)
@@ -1250,14 +1260,48 @@ export function AudienceSection({ intel, gold }: SectionProps) {
         </VizCard>
       )}
 
-      <VizCard title="Audience Quality" sample
-        subtitle="Kualitas audiens dinilai dari aktivitas, perilaku dan sinyal akun">
-        <div className="grid gap-2.5 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
-          <StatTile label="Audience authenticity" value={`${a.authenticity}%`} sample />
-          <StatTile label="Quality score" value={`${a.qualityScore} / 100`} sample />
-          <StatTile label="Potential reach" value={fmtNum(a.potentialReach)} sample />
-        </div>
-        <Meter label="Authenticity" value={a.authenticity} />
+      {/* Real scores, derived by the pipeline from a sampled ~100 real
+          followers per account - see `GoldAudienceQuality`. The three tiles
+          used to be `between(68, 96)` and two numbers computed from it.
+          `Potential reach` is dropped rather than migrated: reach has no source
+          on this server at all, and stays out of scope. */}
+      <VizCard
+        title="Audience Quality"
+        subtitle={q
+          ? 'Dihitung dari sampel follower yang di-scrape — bukan laporan platform'
+          : undefined}
+      >
+        {aq !== null || (q && (q.authenticity !== null || q.followerQuality !== null)) ? (
+          <>
+            <div className="grid gap-2.5 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
+              <StatTile
+                label="Audience authenticity"
+                value={q?.authenticity == null ? NOT_MEASURED : `${q.authenticity}%`}
+              />
+              <StatTile
+                label="Audience quality"
+                value={aq === null ? NOT_MEASURED : `${aq} / 100`}
+                hint={creator.audienceQualityTier ?? undefined}
+              />
+              <StatTile
+                label="Follower quality"
+                value={q?.followerQuality == null ? NOT_MEASURED : `${q.followerQuality} / 100`}
+              />
+            </div>
+            {q?.authenticity != null && <Meter label="Authenticity" value={q.authenticity} />}
+            <p className="text-[9.5px] mt-2.5 leading-[1.5]" style={{ color: T.t4 }}>
+              Authenticity = bagian follower yang tidak berpola akun massal.
+              Follower quality = bagian yang punya nama, tidak privat, dan punya bio/foto.
+              Audience quality = rata-rata keduanya
+              {aq !== null && q?.followerQuality != null
+                && aq === q.followerQuality
+                ? ' — untuk akun ini keduanya sama karena authenticity tidak bisa dihitung.'
+                : '.'}
+            </p>
+          </>
+        ) : (
+          <Unavailable text="Belum ada analisis kualitas audiens untuk creator ini — pipeline baru menganalisis sampel follower untuk sebagian kecil roster." />
+        )}
       </VizCard>
 
       <Split
@@ -1267,348 +1311,173 @@ export function AudienceSection({ intel, gold }: SectionProps) {
              it with two different numbers, and the reader has no way to tell
              which one to believe. The Top Locations and Audience Interests cards
              beside this one already drop out for exactly that reason; these
-             blocks follow the same rule so the whole tab is consistent.
-
-             Generation stays whatever happens: it has no L2 counterpart, so it
-             is the one estimate here that competes with nothing. */
-          <VizCard title="Audience Demographics" sample>
-            {(!hasGender || !hasAge) && (
-              <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
-                {!hasGender && (
-                  <div>
-                    <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
-                      Gender
-                    </div>
-                    <Donut parts={a.gender} centerLabel="audiens" centerValue={`${a.gender[0]?.pct ?? 0}%`} />
-                  </div>
-                )}
-                {!hasAge && (
-                  <div>
-                    <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
-                      Age
-                    </div>
-                    {/* Ordinal ramp: the order of the bands is part of the meaning. */}
-                    <Bars parts={a.age} ordinal />
-                  </div>
-                )}
+             blocks follow the same rule so the whole tab is consistent. */
+          <VizCard title="Audience Demographics">
+            {/* The generated gender donut is gone. When L2 has gender it is
+                drawn by the card above; when it does not, there is nothing to
+                draw and saying so is the whole point. */}
+            {!hasGender && (
+              <div>
+                <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+                  Gender
+                </div>
+                <Unavailable text="Demografi gender audiens belum diinferensi untuk creator ini." />
               </div>
             )}
-            <div className={(!hasGender || !hasAge) ? 'mt-5' : undefined}>
-              <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
-                Generation
+            {/* The generated Age bars and the Generation card are gone.
+                Age has a real path - `l2_gold.audience_demographics_daily` with
+                `audience_type='age'`, rendered above when `hasAge` - which is
+                empty for every creator today; the generated five-band chart that
+                stood in for it is not a smaller version of that, it is a
+                different thing wearing its clothes. Generation had no real
+                counterpart at all and was derived from the generated age split,
+                so it goes with it. */}
+            {!hasAge && (
+              <div className="mt-5">
+                <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+                  Age
+                </div>
+                <Unavailable text="Demografi umur audiens belum tersedia untuk creator manapun di database ini — pipeline baru mengisi gender." />
               </div>
-              <Bars parts={a.generation} />
-            </div>
+            )}
           </VizCard>
         }
         aside={
           <>
+            {/* Both fallbacks removed. `Top Locations` drew four cities off a
+                hardcoded CITIES list, and `Audience Interests` drew a seeded
+                slice of an INTERESTS fixture - neither had any connection to
+                this creator's audience. Creator city is a different fact from
+                audience location and was never a valid stand-in for it. */}
             {!hasGeo && (
-              <VizCard title="Top Locations" sample>
-                <Bars parts={a.location} />
+              <VizCard title="Top Locations">
+                <Unavailable text="Geografi audiens belum diinferensi untuk creator ini." />
               </VizCard>
             )}
             {!hasInterest && (
-              <VizCard title="Audience Interests" sample>
-                <div className="flex flex-wrap gap-1.5">
-                  {a.interests.map(i => (
-                    <span key={i} style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
-                      className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center">
-                      {i}
-                    </span>
-                  ))}
-                </div>
+              <VizCard title="Audience Interests">
+                <Unavailable text="Minat audiens belum diinferensi untuk creator ini." />
               </VizCard>
             )}
           </>
         }
       />
 
-      <Split
-        main={
-          <VizCard title="Audience Authenticity" sample>
-            <Bars parts={a.quality} />
-            <p className="text-[9.5px] mt-2.5 leading-[1.5]" style={{ color: T.t4 }}>
-              Angka authenticity biasanya dihitung dari rasio akun aktif, pola komentar
-              dan lonjakan follower. Roster KOL belum menyimpan satu pun sinyal itu.
-            </p>
-          </VizCard>
-        }
-        aside={
-          <VizCard title="Quality Score" sample>
-            <ScoreBlock score={a.qualityScore} verdict={a.qualityScore >= 85 ? 'Strong' : 'Fair'} />
-          </VizCard>
-        }
-      />
+      {/* "Audience Authenticity" and "Quality Score" both stood here as a
+          second, generated copy of the Audience Quality card above - a seeded
+          Authentic/Suspicious/Inactive split and a seeded 0-100 score with a
+          hand-written verdict. The real scores are in that one card now, from
+          `feature.*_audience_analysis`, so these two are removed rather than
+          duplicated: two cards answering one question with two different
+          numbers is the failure the Audience tab already avoids for gender. */}
     </div>
   )
 }
 
-/* ── Campaign History ─────────────────────────────────────────────────────── */
+/** Shown in a value slot the database cannot fill. Never '0', never a dash. */
+const NOT_MEASURED = 'Belum terukur'
 
-export function CampaignSection({ intel }: SectionProps) {
-  const [open, setOpen] = useState<number | null>(0)
-  const [status, setStatus] = useState('all')
-  const [brand, setBrand] = useState('all')
+/**
+ * The honest stand-in for a panel whose data does not exist.
+ *
+ * Words, never a zero and never a dash: a dash in a chart slot reads as "nothing
+ * to report", and the point is that nobody has measured it. Each call names the
+ * missing table so a reader can tell a coverage gap from a broken screen.
+ */
+function Unavailable({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-xl px-3 py-2.5"
+      style={{ background: T.surfaceVariant }}>
+      <span className="material-symbols-outlined text-[16px] mt-px" style={{ color: T.t4 }}>
+        do_not_disturb_on
+      </span>
+      <p className="text-[11.5px] leading-relaxed" style={{ color: T.t3 }}>{text}</p>
+    </div>
+  )
+}
 
-  const brands = useMemo(
-    () => [...new Set(intel.campaigns.map(c => c.brand))], [intel.campaigns])
-  const rows = useMemo(
-    () => intel.campaigns.filter(c =>
-      (status === 'all' || c.status === status) && (brand === 'all' || c.brand === brand)),
-    [intel.campaigns, status, brand])
+/* -- Campaign History ------------------------------------------------------ */
 
+/**
+ * There is no campaign history for a roster creator, and there is no table that
+ * could hold one: `public.campaigns` and `public.campaign_kols` are both empty
+ * on the KOL server.
+ *
+ * What stood here was a filterable table of two to five generated campaigns per
+ * creator - invented brand names off a `['Nike','Adidas',...]` fixture, invented
+ * budgets in USD, invented ROAS, invented delivery status - plus a
+ * "Collaboration Summary" reporting an on-time delivery rate and a reliability
+ * score for collaborations that never happened.
+ *
+ * That was the most dangerous screen in the workspace. A buyer deciding whether
+ * to trust a creator with a brief reads "on-time delivery 94%" as a fact about
+ * a person, and acts on it. The whole section is replaced by one honest panel.
+ *
+ * Campaigns this workspace's own org has run are a different thing and live in
+ * the Campaign module, which is untouched.
+ */
+export function CampaignSection() {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-end gap-2.5 flex-wrap">
-        <Field label="Status">
-          <Select value={status} onChange={setStatus}
-            options={[['all', 'Semua status'], ['Completed', 'Completed'], ['Running', 'Running']]} />
-        </Field>
-        <Field label="Brand">
-          <Select value={brand} onChange={setBrand}
-            options={([['all', 'Semua brand']] as [string, string][])
-              .concat(brands.map(b => [b, b] as [string, string]))} />
-        </Field>
-      </div>
-
-      <Split
-        main={
-      <VizCard title="Campaign History" sample
-        subtitle="Tabel campaign platform KOL masih kosong — seluruh baris di bawah estimasi">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${T.outline}` }}>
-                {['Campaign', 'Brand', 'Period', 'Deliverables', 'Budget', 'Status', 'Performance'].map(h => (
-                  <th key={h} className="text-left py-2 font-bold whitespace-nowrap" style={{ color: T.t3 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c, i) => (
-                <tr key={i} onClick={() => setOpen(open === i ? null : i)}
-                  className="cursor-pointer hover:bg-[#f9fbfc]"
-                  style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
-                  <td className="py-2.5" style={{ ...PJ, color: T.t1, fontWeight: 700 }}>{c.name}</td>
-                  <td className="py-2.5" style={{ color: T.t2 }}>{c.brand}</td>
-                  <td className="py-2.5 whitespace-nowrap" style={{ color: T.t3 }}>{c.period}</td>
-                  <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>{c.deliverables}</td>
-                  <td className="py-2.5 tabular-nums" style={{ color: T.t2 }}>{usd(c.budgetUsd)}</td>
-                  <td className="py-2.5">
-                    <span style={{
-                      ...PJ,
-                      background: c.status === 'Completed' ? '#eaf5ef' : '#fdf3e7',
-                      color: c.status === 'Completed' ? '#3d8a5f' : '#b5761f',
-                    }} className="text-[9.5px] font-extrabold px-2 py-0.5 rounded-full">
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="py-2.5 tabular-nums" style={{ ...PJ, color: T.primaryDeep, fontWeight: 800 }}>
-                    {c.erPct}% ER
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <VizCard title="Campaign History">
+        <Unavailable text="Database KOL belum menyimpan riwayat campaign untuk creator manapun — tabel campaigns dan campaign_kols masih kosong. Campaign yang organisasi kamu jalankan sendiri tetap tercatat di modul Campaign." />
       </VizCard>
-        }
-        aside={
-          <VizCard title="Collaboration Summary" sample>
-            <Row label="Campaigns completed" value={intel.collaboration.completed} />
-            <Row label="Avg campaign ER" value={`${intel.collaboration.avgCampaignErPct}%`} />
-            <Row label="On-time delivery" value={`${intel.collaboration.onTimePct}%`} />
-            <Row label="Repeat collaborations" value={intel.collaboration.repeat} />
-            <div className="mt-3">
-              <Meter label="Reliability" value={intel.collaboration.reliability} />
-            </div>
-          </VizCard>
-        }
-      />
-
-      {open !== null && rows[open] && (
-        <VizCard title={`Campaign Overview — ${rows[open].name}`} sample>
-          <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
-            <StatTile label="Status" value={rows[open].status} sample />
-            <StatTile label="Deliverables"
-              value={`${rows[open].deliverables} / ${rows[open].deliverables}`} sample />
-            <StatTile label="Budget" value={usd(rows[open].budgetUsd)} sample />
-            <StatTile label="Payment" value={rows[open].paid ? 'Paid' : 'Pending'} sample />
-            <StatTile label="ROAS" value={`${rows[open].roas}x`} sample />
-            <StatTile label="Reach" value={fmtNum(rows[open].reach)} sample />
-            <StatTile label="Engagement" value={fmtNum(rows[open].engagement)} sample />
-          </div>
-
-          <div style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-extrabold mb-2">Campaign Timeline</div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {CAMPAIGN_STAGES.map((s, i) => {
-              const done = i <= rows[open].stage
-              return (
-                <span key={s} className="inline-flex items-center gap-1">
-                  <span style={{
-                    ...PJ,
-                    background: done ? T.surfaceVariant : T.surface,
-                    borderColor: done ? T.primary : T.outline,
-                    color: done ? T.primaryDeep : T.t4,
-                  }} className="h-7 px-2.5 rounded-lg border text-[10.5px] font-bold inline-flex items-center gap-1">
-                    {done && <span className="material-symbols-outlined text-[13px]">check</span>}
-                    {s}
-                  </span>
-                  {i < CAMPAIGN_STAGES.length - 1 && (
-                    <span className="material-symbols-outlined text-[14px]" style={{ color: T.outline }}>
-                      chevron_right
-                    </span>
-                  )}
-                </span>
-              )
-            })}
-          </div>
-        </VizCard>
-      )}
     </div>
   )
 }
 
 /* ── Brand Fit ────────────────────────────────────────────────────────────── */
 
-export function BrandFitSection({ intel }: SectionProps) {
-  const f = intel.brandFit
+/**
+ * Brand Fit had a generated score, verdict, component bars, strengths and
+ * watch-outs, none of which knew anything about a brand. There is no brand-fit
+ * table on the KOL server, so the section says so instead of scoring.
+ */
+export function BrandFitSection() {
   return (
     <div className="flex flex-col gap-4">
-      <Split
-        main={
-          <VizCard title="Brand Fit" sample
-            subtitle="Skor ini butuh data audiens dan riwayat campaign — keduanya belum ada">
-            <div className="flex items-center gap-7 flex-wrap">
-              <div className="w-[128px] flex-shrink-0">
-                <ScoreBlock score={f.score} verdict={f.verdict} />
-              </div>
-              <div className="flex-1 min-w-[240px] flex flex-col gap-2.5">
-                {f.bars.map(b => <Meter key={b.label} label={b.label} value={b.pct} />)}
-              </div>
-            </div>
-          </VizCard>
-        }
-        aside={
-          <>
-            <VizCard title="Why this creator fits" sample>
-              <ul className="flex flex-col gap-2">
-                {f.strengths.map(s => (
-                  <li key={s} className="flex items-start gap-2 text-[11.5px] leading-[1.5]" style={{ color: T.t2 }}>
-                    <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: VIZ.good }}>check_circle</span>
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            </VizCard>
-
-            <VizCard title="Potential Risk" sample>
-              <ul className="flex flex-col gap-2">
-                {f.watchouts.map(s => (
-                  <li key={s} className="flex items-start gap-2 text-[11.5px] leading-[1.5]" style={{ color: T.t2 }}>
-                    <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: VIZ.warning }}>warning</span>
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            </VizCard>
-          </>
-        }
-      />
+      <VizCard title="Brand Fit">
+        <Unavailable text="Skor brand fit belum tersedia — database KOL belum punya analisis kecocokan creator dengan brand, jadi tidak ada skor yang ditampilkan." />
+      </VizCard>
     </div>
   )
 }
 
-/* ── AI Insights ──────────────────────────────────────────────────────────── */
+/* -- AI Insights ----------------------------------------------------------- */
 
-export function AiSection({ creator, rank, intel }: SectionProps) {
-  const ai = intel.ai
+/**
+ * The generated layer is gone.
+ *
+ * `ai.summary`, `ai.strengths`, `ai.watchouts`, `ai.suggestion` and the 30/90/180-day
+ * growth predictions were template strings interpolated over generated numbers -
+ * no model ran, nothing was analysed, and the copy asserted conclusions
+ * ("audiensnya didominasi perempuan Millennials") that no table backs.
+ *
+ * The one paragraph here that was always real stays: the creator's actual
+ * standing in the roster, computed from `kol_directory` follower counts and
+ * engagement rates by `getKolCreator`. It is labelled as what it is.
+ *
+ * No replacement template was written. An "AI Insights" panel that generates
+ * fluent sentences from a hash is worse than an empty one, because fluency is
+ * what makes a reader believe it.
+ */
+export function AiSection({ creator, rank }: SectionProps) {
   return (
     <div className="flex flex-col gap-4">
-      <VizCard title="AI Summary" sample>
-        <p className="text-[12.5px] leading-[1.65]" style={{ color: T.t2 }}>{ai.summary}</p>
-        {/* The one paragraph on this tab that is not sampled. */}
-        <div className="mt-3 rounded-xl px-3 py-2.5" style={{ background: T.surfaceVariant }}>
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="material-symbols-outlined text-[15px]" style={{ color: T.primary }}>verified</span>
-            <span style={{ ...PJ, color: T.primaryDeep }} className="text-[10.5px] font-extrabold uppercase tracking-wide">
-              Dari data asli
-            </span>
-          </div>
-          <p className="text-[11.5px] leading-[1.6]" style={{ color: T.t2 }}>
-            @{creator.username} berada di peringkat <b>#{rank.followersRank.toLocaleString('id-ID')}</b> dari{' '}
-            {rank.rosterTotal.toLocaleString('id-ID')} creator berdasarkan followers
-            {rank.categoryName && rank.categoryFollowersRank !== null && (
-              <> — dan <b>#{rank.categoryFollowersRank}</b> di kategori {rank.categoryName}{' '}
-              ({rank.categoryTotal.toLocaleString('id-ID')} creator)</>
-            )}
-            {rank.erRank !== null && (
-              <>. Engagement rate-nya peringkat <b>#{rank.erRank.toLocaleString('id-ID')}</b> dari{' '}
-              {rank.erMeasuredTotal.toLocaleString('id-ID')} creator yang pernah diukur</>
-            )}.
-          </p>
-        </div>
+      <VizCard title="AI Insights">
+        <Unavailable text="Belum ada analisis AI untuk creator ini. Insight otomatis akan muncul setelah data konten dan audiens creator cukup untuk dianalisis." />
       </VizCard>
 
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))' }}>
-        <VizCard title="Strengths" sample>
-          <ul className="flex flex-col gap-2">
-            {ai.strengths.map(s => (
-              <li key={s} className="flex items-start gap-2 text-[11.5px]" style={{ color: T.t2 }}>
-                <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: VIZ.good }}>check</span>
-                {s}
-              </li>
-            ))}
-          </ul>
-        </VizCard>
-
-        <VizCard title="Watch-outs" sample>
-          <ul className="flex flex-col gap-2">
-            {ai.watchouts.map(s => (
-              <li key={s} className="flex items-start gap-2 text-[11.5px]" style={{ color: T.t2 }}>
-                <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: VIZ.warning }}>warning</span>
-                {s}
-              </li>
-            ))}
-          </ul>
-        </VizCard>
-      </div>
-
-      <Split
-        main={
-          <VizCard title="Predicted Growth" sample>
-            <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))' }}>
-              <StatTile label="Current" value={creator.followers === null ? '—' : fmtNum(creator.followers)}
-                hint="data asli" />
-              <StatTile label="30 hari" value={fmtNum(ai.predicted.d30)} sample />
-              <StatTile label="90 hari" value={fmtNum(ai.predicted.d90)} sample />
-              <StatTile label="6 bulan" value={fmtNum(ai.predicted.m6)} sample />
-            </div>
-          </VizCard>
-        }
-        aside={
-          <>
-            <VizCard title="Recommended Campaign" sample>
-              <Row label="Campaign type" value={ai.suggestion.campaignType} />
-              <Row label="Best content" value={ai.suggestion.content} />
-              <Row label="Objective" value={ai.suggestion.objective} />
-              <Row label="Posting time" value={ai.suggestion.postingTime} />
-            </VizCard>
-
-            <VizCard title="Suggested Brands" sample>
-              <div className="flex flex-wrap gap-1.5">
-                {intel.suggestedBrands.map(b => (
-                  <span key={b} style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
-                    className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center">
-                    {b}
-                  </span>
-                ))}
-              </div>
-            </VizCard>
-          </>
-        }
-      />
+      <VizCard title="Posisi di roster" subtitle="Dihitung dari data asli kol_directory">
+        <p className="text-[12.5px] leading-[1.65]" style={{ color: T.t2 }}>
+          @{creator.username} berada di peringkat <b>#{rank.followersRank.toLocaleString('id-ID')}</b> dari{' '}
+          {rank.rosterTotal.toLocaleString('id-ID')} creator berdasarkan followers
+          {rank.categoryName && rank.categoryFollowersRank !== null && (
+            <> — dan <b>#{rank.categoryFollowersRank}</b> di kategori {rank.categoryName}{' '}
+            ({rank.categoryTotal.toLocaleString('id-ID')} creator)</>
+          )}.
+        </p>
+      </VizCard>
     </div>
   )
 }

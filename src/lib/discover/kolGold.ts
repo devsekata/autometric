@@ -303,6 +303,30 @@ export interface GoldFormatDay {
   erFollowers: number | null
 }
 
+/**
+ * The three audience-quality scores, from `feature.{ig,tt}_audience_analysis`.
+ *
+ * Derived, not reported: `skor_kualitas()` in `pipeline/audience_inference.py`
+ * computes them from the ~100 followers the scraper samples per account.
+ *
+ *   followerQuality  share of sampled followers with a name, not private, and a
+ *                    bio or profile picture.
+ *   authenticity     share that do NOT match the bulk-account pattern.
+ *   audienceQuality  the mean of the two; falls back to `followerQuality` alone
+ *                    when authenticity could not be computed.
+ *
+ * Every field is nullable: the pipeline writes NULL rather than 0 where the
+ * signal was unavailable. These replace the generated `audience.qualityScore`
+ * and `audience.authenticity` that `kolSample` used to put on the same tiles.
+ */
+export interface GoldAudienceQuality {
+  followerQuality: number | null
+  authenticity: number | null
+  audienceQuality: number | null
+  /** Which platform's analysis row this came from. */
+  platform: string | null
+}
+
 export interface KolGold {
   /** One card per account the creator owns; empty when L2 has none. */
   cards: GoldProfileCard[]
@@ -345,6 +369,8 @@ export interface KolGold {
    * them with AT TIME ZONE 'Asia/Jakarta'; do not shift them again.
    */
   heatmap: GoldHeatmapCell[]
+  /** Null when no `feature.*_audience_analysis` row exists for this creator. */
+  audienceQuality: GoldAudienceQuality | null
 }
 
 export interface GoldDominantFormat {
@@ -456,7 +482,7 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, heat] =
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, heat, quality] =
     await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
@@ -711,6 +737,32 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         WHERE ksa.kol_id = $1 AND e.best_posting_time_heatmap IS NOT NULL`,
       [kolId],
     ),
+
+    // Audience-quality scores. Instagram and TikTok keep separate analysis
+    // tables with identical columns, so they are unioned and the newest row
+    // wins: two follower samples are not averaged into an audience that
+    // does not exist.
+    db.query<{
+      follower_quality_score: string | null; authenticity_score: string | null
+      audience_quality_score: string | null; platform: string | null
+    }>(
+      `SELECT q.follower_quality_score, q.authenticity_score,
+              q.audience_quality_score, q.platform
+         FROM (
+           SELECT a.social_account_id, a.follower_quality_score, a.authenticity_score,
+                  a.audience_quality_score, 'instagram' AS platform, a.updated_at
+             FROM feature.ig_audience_analysis a
+            UNION ALL
+           SELECT a.social_account_id, a.follower_quality_score, a.authenticity_score,
+                  a.audience_quality_score, 'tiktok', a.updated_at
+             FROM feature.tt_audience_analysis a
+         ) q
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = q.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY q.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
   ])
 
   // Dominant format: most posts, ties broken by engagement then by name so the
@@ -935,5 +987,14 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
     heatmap,
 
     audience: hasAudience ? buildAudience() : null,
+
+    audienceQuality: quality.rows.length
+      ? {
+        followerQuality: num(quality.rows[0].follower_quality_score),
+        authenticity: num(quality.rows[0].authenticity_score),
+        audienceQuality: num(quality.rows[0].audience_quality_score),
+        platform: quality.rows[0].platform,
+      }
+      : null,
   }
 }

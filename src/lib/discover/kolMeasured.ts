@@ -11,18 +11,30 @@ import { toIso } from './util'
  *
  *   * `l1_silver.unified_post` — 221 posts across 23 creators, with likes,
  *     comments, views, caption, permalink, cover image and media type.
- *   * `l1_silver.unified_rate_card` — 9,210 priced deliverables covering 7,230
- *     of the 7,718 roster creators, in IDR.
+ *   * `l1_silver.unified_rate_card` — 8.856 priced deliverables across 6.959
+ *     creators, measured 13 Sep 2026 right after the roster sync that filled it.
+ *     This line has been wrong in both directions: it once claimed 9.210 rows
+ *     from a stale snapshot, was corrected to 0 on 12 Sep when the table was
+ *     genuinely empty, and is now non-zero again. Re-measure before trusting it
+ *     rather than reading the count off this comment.
  *
  * Both are reached from `public.kol_directory` through `public.kol_social_account`,
  * which maps a roster row to the social accounts it owns. A creator can hold more
  * than one (Instagram and TikTok), and posts hang off the account rather than the
  * creator, so the join fans in rather than out.
  *
- * Everything the workspace shows beyond this is still sampled: audience
- * demographics, campaign history, brand fit and the AI summary all live in
- * tables that exist but hold zero rows (`feature.*_audience_analysis`,
- * `feature.*_brand_fit_analysis`, `public.campaigns`, `public.campaign_kols`).
+ * Nothing the workspace shows is sampled any more — Phases 4A-4D replaced or
+ * removed every generated field. What is genuinely absent is absent:
+ *
+ *   `public.campaigns` / `public.campaign_kols`   0 rows — no campaign history
+ *   `feature.*_comments_analysis`                 0 rows — no sentiment
+ *   `feature.*_post_analysis.content_category`    NULL in all 503 — no topics
+ *   `unified_post.reach`                          0 in all 503 — no reach
+ *
+ * `feature.*_audience_analysis` is NOT in that list: it holds 27 rows and now
+ * backs the Audience tab. And `feature.*_brand_fit_analysis`, named here
+ * previously as an empty table, **does not exist at all** — brand matching is
+ * the Brand Match Engine's, scored from `public.kol_directory`.
  *
  * Nulls here are deliberate and are never coalesced to zero. `reach`, `shares`
  * and `saved` come back empty for every post harvested so far, and a zero would
@@ -32,6 +44,8 @@ import { toIso } from './util'
 
 export interface KolMeasuredPost {
   id: string
+  /** The platform's own post id — the key `l2_gold.post_metric` is joined on. */
+  contentId: string | null
   /** ISO timestamp of the post, or null when the harvest carried none. */
   date: string | null
   /** Raw warehouse value (`clips`, `feed`, `CAROUSEL`, …), kept for grouping. */
@@ -44,7 +58,16 @@ export interface KolMeasuredPost {
   likes: number | null
   comments: number | null
   views: number | null
-  /** Tags the post actually carries; 78 of the 221 harvested posts have some. */
+  /**
+   * Per-post shares and saves, from the same row as the rest.
+   *
+   * They were already summed into `totals` but not projected here, so the post
+   * detail showed them as unavailable for the 10-11 creators who actually have
+   * them. Measured 12 Sep 2026: 291 of 503 harvested posts carry each.
+   */
+  shares: number | null
+  saves: number | null
+  /** Tags the post actually carries. */
   hashtags: string[]
   /** The platform's own paid-partnership flag, not an inference from the caption. */
   sponsored: boolean
@@ -131,14 +154,19 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
 
   const [agg, recent, rates, tags, sponsored] = await Promise.all([
     db.query<{
-      media_type: string | null; n: number
+      media_type: string | null; n: number; n_likes: number
       likes: string | null; comments: string | null; views: string | null
       shares: string | null; reach: string | null; saved: string | null
       first_at: Date | string | null; last_at: Date | string | null
     }>(
+      // `likes = -1` is Instagram's "likes hidden" sentinel, which the pipeline
+      // leaves as-is in every layer (migration 013). Summed raw it drags the
+      // total down by one per hidden post, so it is filtered out here and the
+      // average divides by the posts that actually carry a count.
       `SELECT p.media_type,
               COUNT(*)::int   AS n,
-              SUM(p.likes)    AS likes,
+              SUM(p.likes)   FILTER (WHERE p.likes >= 0)      AS likes,
+              COUNT(p.likes) FILTER (WHERE p.likes >= 0)::int AS n_likes,
               SUM(p.comments) AS comments,
               SUM(p.views)    AS views,
               SUM(p.shares)   AS shares,
@@ -154,16 +182,19 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
     ),
 
     db.query<{
-      id: string; at: Date | string | null; media_type: string | null
+      id: string; content_id: string | null; at: Date | string | null; media_type: string | null
       caption: string | null; title: string | null
       permalink: string | null; cover_image: string | null
       likes: string | null; comments: string | null; views: string | null
+      shares: string | null; saved: string | null
       hashtags: string[] | null; is_sponsored: boolean | null
     }>(
-      `SELECT p.id,
+      `SELECT p.id, p.content_id,
               COALESCE(p.posted_at, p.date::timestamptz) AS at,
               p.media_type, p.caption, p.title, p.permalink, p.cover_image,
-              p.likes, p.comments, p.views, p.hashtags, p.is_sponsored
+              CASE WHEN p.likes < 0 THEN NULL ELSE p.likes END AS likes,
+              p.comments, p.views, p.shares, p.saved,
+              p.hashtags, p.is_sponsored
          FROM public.kol_social_account ksa
          JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
         WHERE ksa.kol_id = $1
@@ -227,6 +258,7 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
   const likes = total('likes')
   const comments = total('comments')
   const views = total('views')
+  const likesCounted = agg.rows.reduce((a, r) => a + r.n_likes, 0)
 
   return {
     postCount,
@@ -238,7 +270,11 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
       reach: total('reach'),
       saved: total('saved'),
     },
-    averages: { likes: avg(likes), comments: avg(comments), views: avg(views) },
+    averages: {
+      likes: likes === null || likesCounted === 0 ? null : Math.round(likes / likesCounted),
+      comments: avg(comments),
+      views: avg(views),
+    },
     formats: [...agg.rows]
       .sort((a, b) => b.n - a.n)
       .map(r => ({
@@ -248,6 +284,7 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
       })),
     recent: recent.rows.map(r => ({
       id: r.id,
+      contentId: r.content_id,
       date: toIso(r.at),
       mediaType: r.media_type,
       format: postFormatLabel(r.media_type),
@@ -259,6 +296,8 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
       likes: num(r.likes),
       comments: num(r.comments),
       views: num(r.views),
+      shares: num(r.shares),
+      saves: num(r.saved),
       hashtags: r.hashtags ?? [],
       sponsored: r.is_sponsored === true,
     })),
