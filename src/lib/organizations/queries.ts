@@ -1,4 +1,4 @@
-import pool from '@/lib/db'
+import kolDb, { kolDbWrite } from '@/lib/kolDb'
 import type { Organization } from './types'
 
 export type { Organization as OrgRow }
@@ -97,7 +97,7 @@ const ORG_SELECT = `
 export async function getOrgBasicBySlug(
   slug: string
 ): Promise<{ id: string; name: string; slug: string } | null> {
-  const { rows } = await pool.query<{ id: string; name: string; slug: string }>(
+  const { rows } = await kolDb().query<{ id: string; name: string; slug: string }>(
     `SELECT id, name, slug FROM public.agencies WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`,
     [slug]
   )
@@ -109,7 +109,7 @@ export async function getMemberRole(
   userId: string
 ): Promise<'ADMIN' | 'MEMBER' | null> {
   if (!isUserId(userId)) return null
-  const { rows } = await pool.query<{ role: 'ADMIN' | 'MEMBER' }>(
+  const { rows } = await kolDb().query<{ role: 'ADMIN' | 'MEMBER' }>(
     // Joining agencies keeps every org-scoped API in step with the soft
     // delete: once the agency is marked deleted, role lookups return null and
     // the routes answer 404 instead of operating on a deleted agency.
@@ -141,7 +141,7 @@ const isUserId = (v: string | null | undefined): v is string => !!v && UUID_RE.t
 export async function listOrgsForUser(userId: string): Promise<Organization[]> {
   if (!isUserId(userId)) return []
   try {
-    const { rows } = await pool.query(
+    const { rows } = await kolDb().query(
       `${ORG_SELECT} ORDER BY o.created_at DESC`,
       [userId]
     )
@@ -168,7 +168,7 @@ export async function getOrgForUser(
   userId: string
 ): Promise<Organization | null> {
   if (!isUserId(userId)) return null
-  const { rows } = await pool.query(
+  const { rows } = await kolDb().query(
     `${ORG_SELECT} AND o.id = $2`,
     [userId, orgId]
   )
@@ -180,7 +180,7 @@ export async function getOrgBySlugForUser(
   userId: string
 ): Promise<Organization | null> {
   if (!isUserId(userId)) return null
-  const { rows } = await pool.query(
+  const { rows } = await kolDb().query(
     `${ORG_SELECT} AND o.slug = $2`,
     [userId, slug]
   )
@@ -192,13 +192,13 @@ export async function createOrg(
   slug: string,
   userId: string
 ): Promise<Organization> {
-  const client = await pool.connect()
+  const client = await kolDbWrite().connect()
   try {
     await client.query('BEGIN')
 
     const { rows: orgRows } = await client.query<{ id: string; name: string; slug: string; created_at: string }>(
-      `INSERT INTO public.agencies (name, slug, created_by)
-       VALUES ($1, $2, $3)
+      `INSERT INTO public.agencies (name, slug, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
        RETURNING id, name, slug, created_at`,
       [name, slug, userId]
     )
@@ -232,7 +232,7 @@ export async function updateOrg(
   name: string,
   userId: string
 ): Promise<Organization | null> {
-  const { rowCount } = await pool.query(
+  const { rowCount } = await kolDbWrite().query(
     `UPDATE public.agencies
      SET name = $1, updated_at = NOW()
      WHERE id = $2 AND deleted_at IS NULL`,
@@ -248,11 +248,11 @@ export async function updateOrg(
 // public.brands, so a real DELETE aborts for any org whose brands have gold
 // data. Marking `deleted_at` hides the org everywhere (every read path filters
 // on it) while the analytics history stays intact. Restoring is a manual
-// `UPDATE organizations SET deleted_at = NULL`.
+// `UPDATE public.agencies SET deleted_at = NULL` on the KOL server.
 //
 // Callers must ensure the org has no live brands first — see the DELETE route.
 export async function softDeleteOrg(orgId: string): Promise<boolean> {
-  const { rowCount } = await pool.query(
+  const { rowCount } = await kolDbWrite().query(
     `UPDATE public.agencies SET deleted_at = NOW(), updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL`,
     [orgId]

@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PJ, TOKENS as T, fmtNum, initialsOf, RosterAvatar } from './ui'
+import { Overlay } from './kolViz'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import AddKolDirectoryModal from './AddKolDirectoryModal'
 import {
@@ -30,7 +31,7 @@ import {
   type KolFilters,
 } from './KolDirectoryFilters'
 import { useDiscoverCart } from './useDiscoverCart'
-import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
+import { idsOf, selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryPayload, KolDirectoryRow,
@@ -335,11 +336,23 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'rising', header: 'Rising creator', value: r => (r.risingCreator === null ? '' : r.risingCreator ? 'Ya' : 'Tidak') },
   { key: 'categories', header: 'Categories', value: r => r.categories.join(' · ') },
   { key: 'status', header: 'Data status', value: r => r.status },
+  { key: 'verified', header: 'Verified', value: r => (r.verified ? 'Ya' : 'Tidak') },
+  { key: 'connected', header: 'Connected', value: r => (r.connected ? 'Ya' : 'Tidak') },
+  { key: 'agency', header: 'Agency', value: r => r.agency ?? '' },
+  { key: 'rateFrom', header: 'Rate card from (IDR)', value: r => r.rateFrom ?? '' },
+  { key: 'rateCount', header: 'Priced deliverables', value: r => r.rateCount },
+  { key: 'myCreators', header: 'In My Creators', value: r => (r.inMyCreators ? 'Ya' : 'Tidak') },
   { key: 'updated', header: 'Last refreshed', value: r => r.lastRefreshedAt ?? '' },
   { key: 'profile', header: 'Profile URL', value: r => r.profileUrl ?? '' },
 ]
 
 interface SavedList { name: string; filters: KolFilters }
+
+/**
+ * Cart and rate cards still live on the analytics warehouse (and the KOL rate
+ * card stays empty), so the cart actions are hidden until Ordering is on KOL.
+ */
+const ORDERING_AVAILABLE = false
 
 /* ── page ─────────────────────────────────────────────────────────────────── */
 
@@ -350,11 +363,17 @@ interface SavedList { name: string; filters: KolFilters }
  * the actions beside it stay: they describe the result set, not the page.
  */
 export default function KolDirectoryPage({
-  orgId, orgSlug, embedded = false, initialQuery = '', onAddCreator, onFindSimilar,
+  orgId, orgSlug, embedded = false, initialQuery = '', onAddCreator, onFindSimilar, scope = 'database',
 }: {
   orgId: string
   orgSlug: string
   embedded?: boolean
+  /**
+   * `database` is the whole Creator Database; `mine` is this agency's My
+   * Creators — the same cards and filters, narrowed server-side to creators the
+   * agency holds an active `agency_kol_accounts` link to.
+   */
+  scope?: 'database' | 'mine'
   /**
    * What to search for on arrival — the Discovery hub's search box hands its
    * query over this way. Seeded into both `query` and `search` so the first
@@ -419,7 +438,14 @@ export default function KolDirectoryPage({
    * and Export / Compare have to work on creators picked across several pages.
    */
   const [selected, setSelected] = useState<Map<string, KolDirectoryRow>>(new Map())
-  const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  /**
+   * Favorites, kept per agency in this browser (the same store Compare uses).
+   * KOL SCHEMA GAP: the KOL database has no favorites table yet, so this is not
+   * shared across devices or users.
+   */
+  const fav = useDiscoverSelection(orgId, 'fav')
+  const isFav = (id: string) => fav.ids.has(selectionKey('roster', id))
+  const favCount = idsOf(fav.ids, 'roster').length
   const compare = useDiscoverSelection(orgId, 'compare')
   const cart = useDiscoverCart(orgId)
   /**
@@ -437,6 +463,13 @@ export default function KolDirectoryPage({
   const [toast, setToast] = useState<string | null>(null)
   /** The Add New KOL dialog — this page's own intake flow into `kol_directory`. */
   const [addOpen, setAddOpen] = useState(false)
+  /**
+   * My Creators toggles made on this page since the last load, so a card flips
+   * immediately; the server's `inMyCreators` is the truth underneath.
+   */
+  const [mineOverride, setMineOverride] = useState<Record<string, boolean>>({})
+  /** The creator whose Quick Insight drawer is open. */
+  const [quick, setQuick] = useState<KolDirectoryRow | null>(null)
 
   const flash = useCallback((msg: string) => {
     setToast(msg)
@@ -459,12 +492,6 @@ export default function KolDirectoryPage({
     compare.toggle(selectionKey('roster', r.id))
     flash(was ? `@${r.username} dihapus dari compare` : `@${r.username} ditambahkan ke compare`)
   }, [compare, flash])
-
-  const toggle = (set: Set<string>, id: string) => {
-    const next = new Set(set)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    return next
-  }
 
   /* saved lists — per org, so one browser can hold several clients' shortlists */
   const listsKey = `autometric.kolDirectory.lists.${orgId}`
@@ -494,6 +521,7 @@ export default function KolDirectoryPage({
    * it does for a creator nobody has priced — no worse a state than the truth.
    */
   useEffect(() => {
+    if (!ORDERING_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -515,6 +543,7 @@ export default function KolDirectoryPage({
       sort: sort.key, dir: sort.dir, page: String(page), pageSize: String(PAGE_SIZE),
     })
     if (search) params.set('q', search)
+    if (scope === 'mine') params.set('scope', 'mine')
     if (!facetsLoaded.current) params.set('facets', '1')
 
     let cancelled = false
@@ -533,13 +562,14 @@ export default function KolDirectoryPage({
         if (cancelled) return
         setRows(d.rows)
         setTotal(d.total)
+        setMineOverride({})
         if (d.facets) { setFacets(d.facets); facetsLoaded.current = true }
       })
       .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [orgId, search, filterKey, sort, page, reload])
+  }, [orgId, search, filterKey, sort, page, reload, scope])
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const fCount = activeFilterCount(filters)
@@ -637,14 +667,58 @@ export default function KolDirectoryPage({
     router.push(`/organizations/${orgSlug}/discover/kol-directory/${r.id}`)
   }
 
+  const isMine = (r: KolDirectoryRow) => mineOverride[r.id] ?? r.inMyCreators === true
+
+  /**
+   * Export from the page head: the selected creators when there is a
+   * selection (table view), otherwise the creators on this page.
+   */
+  const exportCurrent = (format: 'csv' | 'xlsx') => () => {
+    const picked = selected.size ? selectedRows : rows
+    if (!picked.length) { flash('Tidak ada creator untuk diexport'); return }
+    const out = picked.map(r => ({ ...r, inMyCreators: isMine(r) }))
+    const file = scope === 'mine' ? 'my-creators' : 'kol-directory'
+    if (format === 'csv') exportCsv(out, EXPORT_COLUMNS, file)
+    else exportExcel(out, EXPORT_COLUMNS, file)
+    flash(`Exporting ${out.length} creators as ${format === 'csv' ? 'CSV' : 'Excel'}`)
+  }
+
+  /** Add to / remove from My Creators — `agency_kol_accounts` on the KOL server. */
+  const toggleMine = async (r: KolDirectoryRow) => {
+    const was = isMine(r)
+    setMineOverride(m => ({ ...m, [r.id]: !was }))
+    try {
+      const res = was
+        ? await fetch(`/api/organizations/${orgId}/discover/my-creators/${r.id}`, { method: 'DELETE' })
+        : await fetch(`/api/organizations/${orgId}/discover/my-creators`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kolId: r.id }),
+          })
+      // Removing one that is already gone is the outcome that was asked for.
+      if (!res.ok && !(was && res.status === 404)) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error || `HTTP ${res.status}`)
+      }
+      flash(was ? `@${r.username} dihapus dari My Creators` : `@${r.username} ditambahkan ke My Creators`)
+      if (scope === 'mine' && was) setReload(n => n + 1)
+    } catch (e) {
+      setMineOverride(m => ({ ...m, [r.id]: was }))
+      flash(`My Creators gagal diperbarui: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   const cardProps = (r: KolDirectoryRow) => ({
     creator: r,
-    fav: favorites.has(r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
+    fav: isFav(r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
+    inMine: isMine(r),
+    onMine: () => { void toggleMine(r) },
     onOpen: () => openProfile(r),
-    onFav: () => { setFavorites(s => toggle(s, r.id)); flash(favorites.has(r.id) ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
+    onFav: () => { const was = isFav(r.id); fav.toggle(selectionKey('roster', r.id)); flash(was ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') },
     onCompare: () => toggleCompare(r),
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
     onSimilar: onFindSimilar ? () => onFindSimilar(r.id) : null,
+    onQuick: () => setQuick(r),
   })
 
   const topCategories = (facets?.categories ?? []).slice(0, 6)
@@ -658,20 +732,30 @@ export default function KolDirectoryPage({
           <div>
             {!embedded && (
               <h2 style={{ ...PJ, color: T.t1 }} className="text-[21px] font-extrabold tracking-[-0.03em]">
-                KOL Directory
+                {scope === 'mine' ? 'My Creators' : 'KOL Directory'}
               </h2>
             )}
             <p className="text-[12.5px] mt-[5px]" style={{ color: T.t3 }}>
               {loading && !rows.length ? 'Memuat direktori…' : (
                 <>
-                  {total.toLocaleString('id-ID')} of {rosterTotal.toLocaleString('id-ID')} creators
+                  {scope === 'mine'
+                    ? `${total.toLocaleString('id-ID')} creators di My Creators`
+                    : `${total.toLocaleString('id-ID')} of ${rosterTotal.toLocaleString('id-ID')} creators`}
                   {fCount > 0 && ` · ${fCount} filter${fCount > 1 ? 's' : ''} applied`}
-                  {` · ${favorites.size} favorites · ${compare.ids.size} in compare`}
+                  {` · ${favCount} favorites · ${compare.ids.size} in compare`}
                 </>
               )}
             </p>
           </div>
           <div className="flex gap-[9px]">
+            <Btn kind="ghost" icon="download" onClick={exportCurrent('csv')}
+              title={selected.size ? `Export ${selected.size} creator terpilih ke CSV` : 'Export creator di halaman ini ke CSV'}>
+              CSV
+            </Btn>
+            <Btn kind="ghost" icon="table_view" onClick={exportCurrent('xlsx')}
+              title={selected.size ? `Export ${selected.size} creator terpilih ke Excel` : 'Export creator di halaman ini ke Excel'}>
+              Excel
+            </Btn>
             <Btn kind="ghost" icon="compare" onClick={() => router.push(tabHref(orgSlug, 'compare'))}
               title="Bandingkan creator yang dipilih berdampingan">
               Compare{compare.ids.size > 0 && <Count n={compare.ids.size} />}
@@ -848,6 +932,10 @@ export default function KolDirectoryPage({
                 </span>
                 <p className="text-[12px] mt-2" style={{ color: T.t4 }}>Memuat…</p>
               </div>
+            ) : rows.length === 0 && scope === 'mine' && !dirty ? (
+              <Empty icon="group_add" tint="#cfe0f1" title="Belum ada creator di My Creators"
+                body="Tambahkan creator dari Creator Database lewat tombol orang (+) di kartunya, atau daftarkan akun baru dengan Add KOL."
+                action={<Btn kind="primary" icon="person_add" onClick={() => setAddOpen(true)}>Add KOL</Btn>} />
             ) : rows.length === 0 ? (
               <Empty icon="person_search" tint="#cfe0f1" title="No creators match your filters"
                 body="Try a different keyword or clear filters."
@@ -865,6 +953,9 @@ export default function KolDirectoryPage({
                     allOnPage={pageAllSelected} onToggleAll={toggleAllOnPage}
                     inCart={inCart}
                     onCart={r => (inCart(r.id) ? removeFromCart(r) : addToCart(r))}
+                    isMine={isMine}
+                    onMine={r => { void toggleMine(r) }}
+                    onQuick={setQuick}
                     onOpen={openProfile}
                     onSimilar={onFindSimilar ? r => onFindSimilar(r.id) : null}
                   />
@@ -893,7 +984,7 @@ export default function KolDirectoryPage({
                     <b style={PJ} className="text-[12.5px]">{selected.size} selected</b>
                     <div className="flex-1" />
                     <BulkBtn icon="compare" onClick={bulkCompare}>Add to Compare</BulkBtn>
-                    <BulkBtn icon="add_shopping_cart" onClick={bulkCart}>Add to Cart</BulkBtn>
+                    {ORDERING_AVAILABLE && <BulkBtn icon="add_shopping_cart" onClick={bulkCart}>Add to Cart</BulkBtn>}
                     <BulkBtn icon="ios_share" onClick={() => { exportCsv(selectedRows, EXPORT_COLUMNS, 'kol-directory'); flash(`Exporting ${selected.size} creators as CSV`) }}>
                       CSV
                     </BulkBtn>
@@ -919,6 +1010,19 @@ export default function KolDirectoryPage({
         </div>
       </div>
 
+      {quick && (
+        <QuickInsight
+          row={quick}
+          onClose={() => setQuick(null)}
+          onProfile={() => openProfile(quick)}
+          inMine={isMine(quick)} onMine={() => { void toggleMine(quick) }}
+          fav={isFav(quick.id)}
+          onFav={() => { const was = isFav(quick.id); fav.toggle(selectionKey('roster', quick.id)); flash(was ? 'Dihapus dari favorit' : 'Ditambahkan ke favorit') }}
+          inCompare={inCompare(quick.id)} onCompare={() => toggleCompare(quick)}
+          onSimilar={onFindSimilar ? () => onFindSimilar(quick.id) : null}
+        />
+      )}
+
       {pricing && (
         <RosterRateDialog
           orgId={orgId}
@@ -942,6 +1046,7 @@ export default function KolDirectoryPage({
 
       {addOpen && (
         <AddKolDirectoryModal
+          orgId={orgId}
           onClose={() => setAddOpen(false)}
           onKolAdded={() => {
             setAddOpen(false)
@@ -965,11 +1070,12 @@ export default function KolDirectoryPage({
 /* ── card ─────────────────────────────────────────────────────────────────── */
 
 function CreatorCard({
-  creator: c, fav, inCompare, inCart, onOpen, onFav, onCompare, onCart, onSimilar,
+  creator: c, fav, inCompare, inCart, inMine, onOpen, onFav, onCompare, onCart, onMine, onSimilar, onQuick,
 }: {
   creator: KolDirectoryRow
-  fav: boolean; inCompare: boolean; inCart: boolean
-  onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void
+  fav: boolean; inCompare: boolean; inCart: boolean; inMine: boolean
+  onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void; onMine: () => void
+  onQuick: () => void
   /** Null when the page was mounted without a Smart Discovery destination. */
   onSimilar: (() => void) | null
 }) {
@@ -989,11 +1095,17 @@ function CreatorCard({
         <span className="absolute rounded-full" style={{ width: 90, height: 90, top: -40, right: 20, background: 'rgba(255,255,255,.16)' }} />
         <span className="absolute rounded-full" style={{ width: 50, height: 50, bottom: -24, right: 90, background: 'rgba(255,255,255,.16)' }} />
         <div className="absolute top-[9px] right-[9px] flex gap-1.5 z-[3]">
+          <IconToggle on={false} onClick={onQuick} icon="bolt" title="Quick Insight" activeColor={T.primary} solid />
+          <IconToggle on={inMine} onClick={onMine} icon={inMine ? 'how_to_reg' : 'person_add'}
+            title={inMine ? 'Di My Creators — klik untuk menghapus' : 'Tambahkan ke My Creators'}
+            activeColor={T.primary} solid />
           <IconToggle on={fav} onClick={onFav} icon="favorite" title="Favorite" activeColor={T.accent} filled />
           <IconToggle on={inCompare} onClick={onCompare} icon={inCompare ? 'check' : 'add'} title="Add to compare"
             activeColor={T.primary} solid />
-          <IconToggle on={inCart} onClick={onCart} icon={inCart ? 'shopping_cart_checkout' : 'add_shopping_cart'}
-            title={inCart ? 'In cart' : 'Add to cart'} activeColor="#3d8a5f" solid />
+          {ORDERING_AVAILABLE && (
+            <IconToggle on={inCart} onClick={onCart} icon={inCart ? 'shopping_cart_checkout' : 'add_shopping_cart'}
+              title={inCart ? 'In cart' : 'Add to cart'} activeColor="#3d8a5f" solid />
+          )}
           {/* Find Similar sits with the other per-row actions rather than inside
               the opened profile, so "more like this one" is answerable while
               scanning the list — which is when the thought occurs. */}
@@ -1093,10 +1205,144 @@ function CreatorCard({
   )
 }
 
+/* ── quick insight ────────────────────────────────────────────────────────── */
+
+/**
+ * Creator Quick Insight — the short read on one creator without leaving the
+ * list (D39). Everything comes from the row the list already loaded from the
+ * KOL database; an unmeasured value says so instead of showing zero.
+ */
+function QuickInsight({
+  row: c, onClose, onProfile, inMine, onMine, fav, onFav, inCompare, onCompare, onSimilar,
+}: {
+  row: KolDirectoryRow
+  onClose: () => void
+  onProfile: () => void
+  inMine: boolean; onMine: () => void
+  fav: boolean; onFav: () => void
+  inCompare: boolean; onCompare: () => void
+  onSimilar: (() => void) | null
+}) {
+  const ident = identityOf(c)
+  const st = statusOf(c.status)
+  const NA = 'Belum terukur'
+  const pct = (v: number | null, digits = 1) => (v === null ? NA : `${v.toFixed(digits)}%`)
+  const num = (v: number | null) => (v === null ? NA : fmtNum(v))
+  const inferred = (value: string | null, source: string | null, flag: string) =>
+    value === null ? NA : source === flag ? `${value} (perkiraan)` : value
+
+  const sections: { title: string; rows: [string, string][] }[] = [
+    {
+      title: 'Performa',
+      rows: [
+        ['Followers', num(c.followers)],
+        ['Growth', c.growthPct === null ? NA : growthLabel(c.growthPct)],
+        ['Engagement rate', c.erPct === null ? NA : erLabel(c.erPct)],
+        ['Avg views', c.avgViews === null ? NA
+          : `${fmtNum(Math.round(c.avgViews))}${c.viewsAnalyzedCount ? ` · ${c.viewsAnalyzedCount} post` : ''}`],
+        ['Views / followers', pct(c.v2fPct)],
+        ['Likes / views', pct(c.l2vPct)],
+        ['Post / bulan', c.postFrequencyMonthly === null ? NA
+          : `${c.postFrequencyMonthly.toFixed(1)}${c.postFrequencyReliability ? ` · reliabilitas ${c.postFrequencyReliability}` : ''}`],
+        ['Stabilitas performa', c.performanceStability ?? NA],
+      ],
+    },
+    {
+      title: 'Audiens',
+      rows: [
+        ['Kualitas audiens', c.audienceQualityScore === null ? NA
+          : `${Math.round(c.audienceQualityScore)}${c.audienceQualityTier ? ` (${c.audienceQualityTier})` : ''}`],
+        ['Gender', c.femalePct === null || c.malePct === null ? NA
+          : `P ${c.femalePct.toFixed(1)}% · L ${c.malePct.toFixed(1)}%`
+            + (c.genderKnownPct !== null ? ` · dari ${c.genderKnownPct.toFixed(0)}% audiens yang diketahui` : '')],
+        ['Minat utama', inferred(c.audienceInterestTop, c.audienceInterestSource, 'content_inferred')],
+      ],
+    },
+    {
+      title: 'Konten',
+      rows: [
+        ['Topik', inferred(c.contentTopic, c.contentTopicSource, 'creator_category_fallback')],
+        ['Format dominan', c.formatDominant ?? NA],
+        ['Konten berbayar', c.paidRatio === null ? NA
+          : `${c.paidRatio.toFixed(1)}%${c.paidSignalCount ? ` dari ${c.paidSignalCount} post` : ''}`],
+        ['Share rate', pct(c.shareRate)],
+      ],
+    },
+    {
+      title: 'Data',
+      rows: [
+        ['Kategori', c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'],
+        ['Tier', c.tier ?? 'Untiered'],
+        ['Rate card', c.rateFrom === null ? 'Belum ada' : `mulai ${idrShort(c.rateFrom)}`],
+        ['Agency', c.agency ?? '—'],
+        ['Status data', `${c.status} · ${sinceLabel(c.lastRefreshedAt)}`],
+      ],
+    },
+  ]
+
+  return (
+    <Overlay open title="Quick Insight" side="right" onClose={onClose}
+      footer={
+        <div className="flex gap-2 w-full">
+          <Btn kind="primary" icon="open_in_new" onClick={onProfile} full>Buka profil lengkap</Btn>
+        </div>
+      }>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-12 h-12 rounded-[14px] overflow-hidden flex items-center justify-center shrink-0"
+          style={{ background: gradOf(bannerFor(c.id)) }}>
+          <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[17px]" />
+        </div>
+        <div className="min-w-0">
+          <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold truncate">{ident.primary}</div>
+          <div className="text-[11.5px] truncate" style={{ color: T.t4 }}>
+            {[ident.handle, c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null, c.city].filter(Boolean).join(' · ') || '—'}
+          </div>
+          <span className="inline-flex items-center gap-1 mt-1 rounded-[7px] px-2 py-[2px] text-[9.5px] font-extrabold"
+            style={{ ...PJ, background: st.bg, color: st.fg }}>
+            <span className="material-symbols-outlined text-[12px]">{st.icon}</span>{c.status}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        <Btn kind={inMine ? 'secondary' : 'ghost'} icon={inMine ? 'how_to_reg' : 'person_add'} onClick={onMine}>
+          {inMine ? 'Di My Creators' : 'Tambah ke My Creators'}
+        </Btn>
+        <Btn kind={fav ? 'secondary' : 'ghost'} icon="favorite" onClick={onFav}>{fav ? 'Favorit' : 'Favorite'}</Btn>
+        <Btn kind={inCompare ? 'secondary' : 'ghost'} icon={inCompare ? 'check' : 'compare'} onClick={onCompare}>Compare</Btn>
+        {onSimilar && <Btn kind="ghost" icon="auto_awesome" onClick={onSimilar}>Similar</Btn>}
+      </div>
+
+      {c.bio && (
+        <p className="text-[12px] leading-relaxed mb-4 whitespace-pre-line" style={{ color: T.t2 }}>{c.bio}</p>
+      )}
+
+      <div className="flex flex-col gap-4">
+        {sections.map(sec => (
+          <section key={sec.title}>
+            <h4 style={{ ...PJ, color: T.t4 }} className="text-[10px] font-extrabold uppercase tracking-[.06em] mb-1.5">
+              {sec.title}
+            </h4>
+            <dl className="rounded-xl border divide-y" style={{ borderColor: T.outline }}>
+              {sec.rows.map(([k, v]) => (
+                <div key={k} className="flex items-start justify-between gap-3 px-3 py-2">
+                  <dt className="text-[11.5px]" style={{ color: T.t3 }}>{k}</dt>
+                  <dd className="text-[11.5px] font-bold text-right tabular-nums"
+                    style={{ ...PJ, color: v === NA ? T.t4 : T.t1 }}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+      </div>
+    </Overlay>
+  )
+}
+
 /* ── table ────────────────────────────────────────────────────────────────── */
 
 function DirectoryTable({
-  rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, onOpen, onSimilar,
+  rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, isMine, onMine, onQuick, onOpen, onSimilar,
 }: {
   rows: KolDirectoryRow[]
   cols: Record<ColKey, boolean>
@@ -1108,6 +1354,9 @@ function DirectoryTable({
   onToggleAll: () => void
   inCart: (id: string) => boolean
   onCart: (r: KolDirectoryRow) => void
+  isMine: (r: KolDirectoryRow) => boolean
+  onMine: (r: KolDirectoryRow) => void
+  onQuick: (r: KolDirectoryRow) => void
   onOpen: (r: KolDirectoryRow) => void
   /** Null when the page was mounted without a Smart Discovery destination. */
   onSimilar: ((r: KolDirectoryRow) => void) | null
@@ -1192,6 +1441,18 @@ function DirectoryTable({
                 </Td>
                 <Td last={i === rows.length - 1} right>
                   <span className="inline-flex items-center gap-1.5 justify-end">
+                    <span onClick={e => { e.stopPropagation(); onQuick(r) }}
+                      title="Quick Insight"
+                      className="material-symbols-outlined text-[18px] cursor-pointer"
+                      style={{ color: T.t4 }}>
+                      bolt
+                    </span>
+                    <span onClick={e => { e.stopPropagation(); onMine(r) }}
+                      title={isMine(r) ? 'Di My Creators — klik untuk menghapus' : 'Tambahkan ke My Creators'}
+                      className="material-symbols-outlined text-[18px] cursor-pointer"
+                      style={{ color: isMine(r) ? T.primary : T.t4 }}>
+                      {isMine(r) ? 'how_to_reg' : 'person_add'}
+                    </span>
                     {onSimilar && (
                       <span onClick={e => { e.stopPropagation(); onSimilar(r) }}
                         title="Find similar creators"
@@ -1200,12 +1461,14 @@ function DirectoryTable({
                         auto_awesome
                       </span>
                     )}
-                    <span onClick={e => { e.stopPropagation(); onCart(r) }}
-                      title={inCart(r.id) ? 'In cart' : 'Add to cart'}
-                      className="material-symbols-outlined text-[18px] cursor-pointer"
-                      style={{ color: inCart(r.id) ? T.primary : T.t4 }}>
-                      {inCart(r.id) ? 'shopping_cart_checkout' : 'add_shopping_cart'}
-                    </span>
+                    {ORDERING_AVAILABLE && (
+                      <span onClick={e => { e.stopPropagation(); onCart(r) }}
+                        title={inCart(r.id) ? 'In cart' : 'Add to cart'}
+                        className="material-symbols-outlined text-[18px] cursor-pointer"
+                        style={{ color: inCart(r.id) ? T.primary : T.t4 }}>
+                        {inCart(r.id) ? 'shopping_cart_checkout' : 'add_shopping_cart'}
+                      </span>
+                    )}
                   </span>
                 </Td>
               </tr>

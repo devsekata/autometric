@@ -1,6 +1,4 @@
 import { getMembersByOrgId } from '@/lib/organizations/members'
-import { listDirectory } from './directory'
-import { isPaymentConfigured } from './payment'
 import type { WorkspaceSettingsData } from '@/components/discover/WorkspaceSettings'
 
 /**
@@ -38,15 +36,9 @@ export async function getWorkspaceSettingsData(
     console.error('[discover/settings] members failed:', e)
   }
 
+  // Tracked-account platforms came from the analytics warehouse, which the KOL
+  // product no longer reads; the list stays empty until that data is on KOL.
   const platformCounts = new Map<string, number>()
-  try {
-    const dir = await listDirectory(org.id)
-    for (const a of dir.accounts) {
-      platformCounts.set(a.platform, (platformCounts.get(a.platform) ?? 0) + 1)
-    }
-  } catch (e) {
-    console.error('[discover/settings] directory failed:', e)
-  }
 
   return {
     orgName: org.name,
@@ -63,7 +55,9 @@ export async function getWorkspaceSettingsData(
     platforms: [...platformCounts.entries()]
       .map(([platform, accounts]) => ({ platform, accounts }))
       .sort((a, b) => b.accounts - a.accounts),
-    paymentConfigured: isPaymentConfigured(),
+    // Same test as `isPaymentConfigured()`, without importing the ordering
+    // module (which still carries the warehouse pool).
+    paymentConfigured: !!process.env.MIDTRANS_SERVER_KEY,
     // Read on the server only — the key itself never reaches the client, just
     // whether one is set.
     aiConfigured: !!process.env.GEMINI_API_KEY,

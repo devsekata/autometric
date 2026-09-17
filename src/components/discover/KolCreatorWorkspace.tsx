@@ -44,6 +44,7 @@ import {
 } from './KolCreatorSections'
 import { avgViewsBasis, creatorIntel, type CreatorIntel } from '@/lib/discover/kolIntel'
 import { tabHref } from '@/lib/discover/tabs'
+import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import type { KolCreatorPayload } from '@/lib/discover/kolDirectory'
 import type { KolMeasuredRate } from '@/lib/discover/kolMeasured'
 
@@ -72,7 +73,42 @@ export default function KolCreatorWorkspace({
   const [reload, setReload] = useState(0)
   const [view, setView] = useState<NavId>('profile')
 
-  const [fav, setFav] = useState(false)
+  /** Favorite and Compare use the same per-agency stores as the Creator Database. */
+  const favSel = useDiscoverSelection(orgId, 'fav')
+  const compareSel = useDiscoverSelection(orgId, 'compare')
+  const selKey = selectionKey('roster', kolId)
+  const fav = favSel.ids.has(selKey)
+  const setFav = (f: (v: boolean) => boolean) => { if (f(fav) !== fav) favSel.toggle(selKey) }
+
+  /** My Creators membership of this creator for the current agency (KOL). */
+  const [mine, setMine] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setMine(null)
+    fetch(`/api/organizations/${orgId}/discover/my-creators?ids=${kolId}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { ids: string[] }) => { if (!cancelled) setMine(d.ids.includes(kolId)) })
+      .catch(() => { if (!cancelled) setMine(null) })
+    return () => { cancelled = true }
+  }, [orgId, kolId])
+
+  const toggleMine = async () => {
+    if (mine === null) return
+    const was = mine
+    setMine(!was)
+    try {
+      const res = was
+        ? await fetch(`/api/organizations/${orgId}/discover/my-creators/${kolId}`, { method: 'DELETE' })
+        : await fetch(`/api/organizations/${orgId}/discover/my-creators`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kolId }),
+          })
+      if (!res.ok && !(was && res.status === 404)) throw new Error(`HTTP ${res.status}`)
+      setToast(was ? 'Dihapus dari My Creators' : 'Ditambahkan ke My Creators')
+    } catch {
+      setMine(was)
+      setToast('My Creators gagal diperbarui')
+    }
+  }
   const [compareTray, setCompareTray] = useState(false)
   const [campaignOpen, setCampaignOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
@@ -160,7 +196,12 @@ export default function KolCreatorWorkspace({
         <Loaded
           data={data} intel={intel} view={view} goTo={goTo}
           fav={fav} setFav={setFav}
-          onCompare={() => { setCompareTray(true); setToast('Ditambahkan ke compare') }}
+          mine={mine} onMine={() => { void toggleMine() }}
+          onCompare={() => {
+            if (!compareSel.ids.has(selKey)) compareSel.toggle(selKey)
+            setCompareTray(true)
+            setToast('Ditambahkan ke compare')
+          }}
           onAddCampaign={() => setCampaignOpen(true)}
           onReport={() => setReportOpen(true)}
           setToast={setToast}
@@ -212,7 +253,7 @@ export default function KolCreatorWorkspace({
 /* ── loaded page ──────────────────────────────────────────────────────────── */
 
 function Loaded({
-  data, intel, view, goTo, fav, setFav, onCompare, onAddCampaign, onReport, setToast,
+  data, intel, view, goTo, fav, setFav, mine, onMine, onCompare, onAddCampaign, onReport, setToast,
 }: {
   data: KolCreatorPayload
   intel: CreatorIntel
@@ -220,6 +261,9 @@ function Loaded({
   goTo: (id: string) => void
   fav: boolean
   setFav: (f: (v: boolean) => boolean) => void
+  /** Null while unknown (loading, or the check failed): the button is hidden. */
+  mine: boolean | null
+  onMine: () => void
   onCompare: () => void
   onAddCampaign: () => void
   onReport: () => void
@@ -320,6 +364,10 @@ function Loaded({
             </div>
 
             <div className="flex items-center gap-1.5 flex-wrap pb-0.5">
+              {mine !== null && (
+                <ActionBtn icon={mine ? 'how_to_reg' : 'person_add'} label={mine ? 'In My Creators' : 'Add to My Creators'}
+                  on={mine} onClick={onMine} />
+              )}
               <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite" on={fav}
                 onClick={() => { setFav(f => !f); setToast(fav ? 'Dihapus dari favorit' : 'Creator added to Favorites') }} />
               <ActionBtn icon="compare" label="Compare" onClick={onCompare} />

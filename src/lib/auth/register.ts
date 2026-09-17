@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import pool from '@/lib/db'
+import kolDb, { kolDbWrite } from '@/lib/kolDb'
 import transporter from '@/lib/email/client'
 import { otpEmailTemplate } from '@/lib/email/templates/otp'
 import { generateOtp, hashOtp } from '@/lib/otp'
@@ -19,8 +19,8 @@ export async function registerUser(input: RegisterInput): Promise<RegisterResult
   const { name, email, password } = input
 
   // Check if email already registered
-  const existing = await pool.query(
-    'SELECT id FROM users WHERE email = $1',
+  const existing = await kolDb().query(
+    'SELECT id FROM public.user WHERE email = $1',
     [email]
   )
   if (existing.rowCount && existing.rowCount > 0) {
@@ -28,8 +28,8 @@ export async function registerUser(input: RegisterInput): Promise<RegisterResult
   }
 
   // Delete any previous OTP for this email
-  await pool.query(
-    "DELETE FROM otp_verifications WHERE email = $1 AND purpose = 'register'",
+  await kolDbWrite().query(
+    "DELETE FROM public.otp_verifications WHERE email = $1 AND purpose = 'register'",
     [email]
   )
 
@@ -38,9 +38,9 @@ export async function registerUser(input: RegisterInput): Promise<RegisterResult
   const passwordHash = await bcrypt.hash(password, 12)
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
 
-  await pool.query(
-    `INSERT INTO otp_verifications (email, otp_hash, name, password_hash, purpose, expires_at)
-     VALUES ($1, $2, $3, $4, 'register', $5)`,
+  await kolDbWrite().query(
+    `INSERT INTO public.otp_verifications (email, otp_hash, name, password_hash, purpose, expires_at, created_at)
+     VALUES ($1, $2, $3, $4, 'register', $5, NOW())`,
     [email, otpHash, name, passwordHash, expiresAt]
   )
 

@@ -58,7 +58,8 @@ export default function kolDb(): Pool {
 
 /**
  * The write-capable counterpart to `kolDb()`, for the "Add New KOL" pipeline
- * only. Same server, same credentials (there is no separate read/write user on
+ * and — since DEC-12 — KOL identity and tenant writes (auth, OTP, agencies,
+ * agency_members). Same server, same credentials (there is no separate read/write user on
  * this database) — kept as a distinct pool and a distinct function so that
  * every call site says, by which function it imported, whether it intends to
  * write to the commercial roster. Grep for `kolDbWrite` to find everything that

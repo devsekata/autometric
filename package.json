@@ -18,6 +18,8 @@
     "verify:creators": "dotenv -e .env.local -- npx tsx scripts/verify-creator-intake.ts",
     "verify:profile-real": "dotenv -e .env.local -- npx tsx scripts/verify-creator-profile-real.ts",
     "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
+    "verify:my-creators": "dotenv -e .env.local -- npx tsx scripts/verify-my-creators.ts",
+    "verify:export": "npx tsx scripts/verify-discover-export.ts",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],

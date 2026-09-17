@@ -141,7 +141,7 @@ export const DISCOVER_TABS: DiscoverTab[] = [
         id: 'mine',
         label: 'My Creators',
         icon: 'folder_shared',
-        subtitle: 'View and manage the creators your organization has added — your own creator roster. Add an account, check its profiling status, then narrow the list with filters.',
+        subtitle: 'The creators your organization keeps — added from the Creator Database or through Add KOL. Filter them like the database, open a profile, or remove one from the list.',
       },
       {
         // The warehouse side. It is the roster with post-level history, so the

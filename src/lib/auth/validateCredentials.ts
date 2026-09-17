@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import pool from '@/lib/db'
+import kolDb from '@/lib/kolDb'
 
 type ValidateResult = {
   id:    string
@@ -12,7 +12,8 @@ export async function validateCredentials(
   email: string,
   password: string
 ): Promise<ValidateResult> {
-  const result = await pool.query(
+  // Identity for the KOL product lives on the KOL server (DEC-11).
+  const result = await kolDb().query(
     'SELECT id, email, name, role, password_hash FROM public.user WHERE email = $1',
     [email]
   )

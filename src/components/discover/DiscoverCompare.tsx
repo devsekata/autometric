@@ -218,14 +218,12 @@ export default function DiscoverCompare({
   const [view, setView] = useState<'grid' | 'table'>('grid')
   const compare = useDiscoverSelection(orgId, 'compare')
 
-  useEffect(() => {
-    let cancelled = false
-    fetch(`/api/organizations/${orgId}/discover/directory`)
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: DirectoryPayload) => { if (!cancelled) setData(d) })
-      .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
-    return () => { cancelled = true }
-  }, [orgId])
+  /**
+   * Tracked accounts came from the analytics warehouse, which the KOL product
+   * no longer reads, so Compare works on Creator Database creators only. The
+   * account half stays wired but empty; a stored `account` selection is ignored.
+   */
+  useEffect(() => { setData({ accounts: [], platforms: [] }) }, [])
 
   /** The roster ids currently selected, as a stable key for the fetch below. */
   const rosterIds = useMemo(

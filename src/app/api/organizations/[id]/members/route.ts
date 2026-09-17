@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   }
 }
 
-// POST /api/organizations/[id]/members — any member can invite
+// POST /api/organizations/[id]/members — any member can invite; only an Admin can grant Admin
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const session = await auth()
@@ -42,6 +42,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!email) return NextResponse.json({ error: 'Email is required.' }, { status: 400 })
     if (!['ADMIN', 'MEMBER'].includes(role)) {
       return NextResponse.json({ error: 'Role must be ADMIN or MEMBER.' }, { status: 400 })
+    }
+    if (role === 'ADMIN' && requesterRole !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden. Only Admins can invite someone as Admin.' }, { status: 403 })
     }
 
     const result = await inviteMember(id, email, role as 'ADMIN' | 'MEMBER', userId)

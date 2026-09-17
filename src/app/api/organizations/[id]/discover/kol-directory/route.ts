@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import { listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
+import { myCreatorIdsAmong } from '@/lib/discover/myCreators'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -94,6 +95,9 @@ export async function GET(req: NextRequest, { params }: Params) {
       verifiedOnly: sp.get('verified') === '1',
       updatedWithinDays: num('updatedWithin'),
       agency: sp.get('agency'),
+      // My Creators: the agency is the org in the URL, whose membership was
+      // checked above — never a value the client chooses.
+      agencyId: sp.get('scope') === 'mine' ? access.orgId : null,
       sort: sp.get('sort'),
       dir: sp.get('dir'),
       page: num('page') ?? 1,
@@ -103,6 +107,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 
     // Only the first load asks for facets; later filter changes reuse them.
     if (sp.get('facets') === '1') data.facets = await listKolFacets()
+
+    // Every card draws an add/remove toggle for My Creators.
+    const mine = await myCreatorIdsAmong(access.orgId, data.rows.map(r => r.id))
+    for (const r of data.rows) r.inMyCreators = mine.has(r.id)
 
     return NextResponse.json(data)
   } catch (err) {

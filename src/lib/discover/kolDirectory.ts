@@ -218,6 +218,8 @@ export interface KolDirectoryRow {
   rateFrom: number | null
   /** How many distinct deliverables carry a price. */
   rateCount: number
+  /** Whether the requesting agency has this creator in My Creators; set by the route. */
+  inMyCreators?: boolean
 }
 
 export interface KolDirectoryFacets {
@@ -315,6 +317,12 @@ export interface KolDirectoryQuery {
   updatedWithinDays?: number | null
   /** Agency name, matched exactly against public.agencies.name. */
   agency?: string | null
+  /**
+   * My Creators: only creators this agency holds an active link to in
+   * `agency_kol_accounts`. Matched on the id, never the name, and only ever set
+   * by a route that has already checked the caller's membership of it.
+   */
+  agencyId?: string | null
   sort?: string | null
   dir?: string | null
   page?: number
@@ -786,6 +794,14 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
                  JOIN public.agencies ag ON ag.id = a.agency_id
                                         AND ag.deleted_at IS NULL
                 WHERE a.kol_account_id = b.id AND ag.name = $16))
+         -- My Creators. Same EXISTS shape as the agency-name filter, keyed on
+         -- the agency id and limited to links that are still active.
+         AND ($35::uuid    IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.agency_kol_accounts a
+                WHERE a.kol_account_id = b.id
+                  AND a.agency_id = $35
+                  AND a.is_active IS TRUE))
          AND ($9::bigint   IS NULL OR b.followers >= $9)
          AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
          -- Rate card ceiling. EXISTS rather than a join so a creator with three
@@ -886,6 +902,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.audienceInterest?.length ? query.audienceInterest : null,
       query.audienceGeoKey || null,
       query.audienceGeoLevel || null,
+      query.agencyId || null,
     ],
   )
 

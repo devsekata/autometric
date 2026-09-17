@@ -56,10 +56,8 @@ import { useActiveKol } from './useActiveKol'
 import DiscoverDirectoryView from './DiscoverDirectoryView'
 import KolDirectoryPage from './KolDirectoryPage'
 import DiscoverHub from './DiscoverHub'
-import CreatorRoster from './CreatorRoster'
-import CreatorProfilingScreen from './CreatorProfilingScreen'
-import AddCreatorModal from './AddCreatorModal'
-import CreatorDetail from './CreatorDetail'
+import AddKolDirectoryModal from './AddKolDirectoryModal'
+import FeatureUnavailable from './FeatureUnavailable'
 import SmartDiscovery from './SmartDiscovery'
 import DiscoverCart from './DiscoverCart'
 import DiscoverRates from './DiscoverRates'
@@ -98,6 +96,14 @@ const PER_KOL_SECTIONS: Record<string, KolSection> = {
 const STRIP_ANCHOR: Record<string, string> = {
   ordering: 'cart',
 }
+
+/**
+ * Tracked Accounts, their per-account analysis and Ordering still read the
+ * analytics warehouse, which the KOL product does not use. Off until their
+ * data is on the KOL database.
+ */
+const TRACKED_AVAILABLE = false
+const ORDERING_AVAILABLE = false
 
 export interface DiscoverWorkspaceProps {
   orgId: string
@@ -231,23 +237,20 @@ export default function DiscoverWorkspace({
   )
 
   /**
-   * Re-run profiling on a creator that already exists, then follow the run.
-   *
-   * The intake modal offers this when the handle you typed is already in the
-   * database: the creator is not new, but the data may be stale. The roster has
-   * its own copy of this because it also has a list to reload afterwards; here
-   * there is nothing to reload, because following the run is a navigation.
+   * Screens whose data still lives on the analytics warehouse. The KOL product
+   * reads the KOL database only, so each shows a "temporarily unavailable"
+   * notice instead of its component.
    */
-  const refreshExisting = useCallback(async (creatorId: string) => {
-    try {
-      await fetch(`/api/organizations/${orgId}/discover/creators/${creatorId}/refresh`, { method: 'POST' })
-    } catch (err) {
-      // The progress screen is where a failed run is reported, and it is where
-      // this is going either way — so a failed kick-off needs no second notice.
-      console.error('[discover] refresh could not be started:', err)
-    }
-    goCreator('profiling', creatorId)
-  }, [orgId, goCreator])
+  const UNAVAILABLE_NOW: string | null =
+    tab === 'negotiation' ? 'Negotiation'
+    : tab === 'order' ? 'Ordering, Rate Card & Cart'
+    : tab === 'discovery' ? 'Content discovery'
+    : tab === 'campaign' ? 'Campaign'
+    : tab === 'audience' ? 'Audience'
+    : tab === 'assistant' ? 'AI Assistant'
+    : tab === 'reports' ? 'Reports'
+    : tab === 'settings' && view === 'discover' ? 'Pengaturan Discover'
+    : null
 
   const kolName = activeKol.ready ? activeKol.kol?.username : undefined
   const creatorSection = tab === 'directory' && view ? PER_KOL_SECTIONS[view] : undefined
@@ -379,7 +382,7 @@ export default function DiscoverWorkspace({
                   Add KOL
                 </button>
               )}
-              <CartBar orgId={orgId} tab={tab} view={view} go={go} />
+              {ORDERING_AVAILABLE && <CartBar orgId={orgId} tab={tab} view={view} go={go} />}
             </>
           }
         />
@@ -425,7 +428,7 @@ export default function DiscoverWorkspace({
         {tab === 'directory' && !creatorSection && !view && (
           <DiscoverHub
             orgId={orgId}
-            onOpenCreator={id => goCreator('creator', id)}
+            onOpenCreator={id => router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onOpenRosterCreator={id =>
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onFindSimilar={(id, source) => goFindSimilar(id, source)}
@@ -446,7 +449,13 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {tab === 'directory' && !creatorSection && view === 'tracked' && (
+        {tab === 'directory' && !creatorSection && view === 'tracked' && !TRACKED_AVAILABLE && (
+          <FeatureUnavailable title="Tracked Accounts"
+            body="Akun tracked (akun brand dan kompetitor) masih disimpan di luar database KOL, jadi dinonaktifkan dulu."
+            actionLabel="Buka Creator Database" onAction={() => go('directory', 'database')} />
+        )}
+
+        {tab === 'directory' && !creatorSection && view === 'tracked' && TRACKED_AVAILABLE && (
           <DiscoverDirectoryView
             orgId={orgId}
             orgSlug={orgSlug}
@@ -467,7 +476,13 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {tab === 'directory' && creatorSection && (
+        {tab === 'directory' && creatorSection && !TRACKED_AVAILABLE && (
+          <FeatureUnavailable title="Analisis akun tracked"
+            body="Analisis per akun ini membaca akun tracked di luar database KOL. Profil creator dari Creator Database tetap tersedia."
+            actionLabel="Buka Creator Database" onAction={() => go('directory', 'database')} />
+        )}
+
+        {tab === 'directory' && creatorSection && TRACKED_AVAILABLE && (
           <KolSectionView
             orgId={orgId}
             orgSlug={orgSlug}
@@ -480,41 +495,28 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {/* My Creators — the org's own roster and the intake flow — plus Smart
-            Discovery beside it. The two drill-downs read `?creator=`; without
-            one there is nothing to show, so they fall back to the roster rather
-            than to an empty shell. */}
+        {/* My Creators — this agency's creators on the KOL server: the Creator
+            Database cards, narrowed to the agency's active links. Plus Smart
+            Discovery beside it. */}
         {creatorScreen === 'mine' && (
-          <CreatorRoster
+          <KolDirectoryPage
             orgId={orgId}
+            orgSlug={orgSlug}
             embedded
-            onAddCreator={goAddKol}
-            onOpenCreator={id => goCreator('creator', id)}
-            onOpenProfiling={id => goCreator('profiling', id)}
-            onFindSimilar={id => goFindSimilar(id, 'creator')}
+            scope="mine"
+            onFindSimilar={id => goFindSimilar(id, 'roster')}
           />
         )}
 
-        {creatorScreen === 'profiling' && creatorId && (
-          <CreatorProfilingScreen
-            orgId={orgId}
-            creatorId={creatorId}
-            onViewProfile={id => goCreator('creator', id)}
-            onAddAnother={() => go('directory', 'database', { add: '1' })}
-            onGoToDiscovery={() => go('directory', 'database')}
-            onFindSimilar={id => goFindSimilar(id, 'creator')}
-            onBackToRoster={() => goCreator('mine')}
-          />
-        )}
-
-        {creatorScreen === 'creator' && creatorId && (
-          <CreatorDetail
-            orgId={orgId}
-            creatorId={creatorId}
-            onBack={() => goCreator('mine')}
-            onFollowRun={id => goCreator('profiling', id)}
-            onFindSimilar={id => goFindSimilar(id, 'creator')}
-            onDeleted={() => goCreator('mine')}
+        {/* The old per-org creator copy (profiling runs and snapshots) lived on
+            the analytics warehouse. A My Creators entry now opens the creator's
+            Creator Database profile instead; old `?creator=` links land here. */}
+        {(creatorScreen === 'profiling' || creatorScreen === 'creator') && creatorId && (
+          <FeatureUnavailable
+            title={creatorScreen === 'profiling' ? 'Profiling creator' : 'Detail creator lama'}
+            body="Data creator sekarang dibaca dari Creator Database di database KOL. Buka creator dari My Creators untuk melihat profilnya."
+            actionLabel="Buka My Creators"
+            onAction={() => goCreator('mine')}
           />
         )}
 
@@ -524,7 +526,7 @@ export default function DiscoverWorkspace({
             embedded
             referenceId={creatorId}
             referenceSource={referenceSource}
-            onOpenCreator={id => goCreator('creator', id)}
+            onOpenCreator={id => router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onOpenRosterCreator={id =>
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onGoToRoster={() => goCreator('mine')}
@@ -537,7 +539,11 @@ export default function DiscoverWorkspace({
             onGoToPlanning={() => go('order', 'ordering')} />
         )}
 
-        {tab === 'negotiation' && (
+        {UNAVAILABLE_NOW && (
+          <FeatureUnavailable title={UNAVAILABLE_NOW} />
+        )}
+
+        {tab === 'negotiation' && !UNAVAILABLE_NOW && (
           <NegotiationWorkspace
             orgId={orgId}
             onGoToCart={() => go('order', 'cart')}
@@ -545,7 +551,7 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {tab === 'order' && view === 'ratecards' && (
+        {tab === 'order' && view === 'ratecards' && !UNAVAILABLE_NOW && (
           <DiscoverRates
             orgId={orgId}
             onNegotiate={() => go('negotiation')}
@@ -556,7 +562,7 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {tab === 'order' && view === 'cart' && (
+        {tab === 'order' && view === 'cart' && !UNAVAILABLE_NOW && (
           <DiscoverCart
             orgId={orgId}
             onGoToRates={() => go('order', 'ratecards')}
@@ -569,7 +575,7 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {tab === 'order' && view === 'ordering' && (
+        {tab === 'order' && view === 'ordering' && !UNAVAILABLE_NOW && (
           <CampaignBuilder
             orgId={orgId}
             orgSlug={orgSlug}
@@ -580,21 +586,21 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {tab === 'order' && view === 'orders' && (
+        {tab === 'order' && view === 'orders' && !UNAVAILABLE_NOW && (
           <OrdersWorkspace orgId={orgId} orgSlug={orgSlug} onGoToCart={() => go('order', 'cart')} />
         )}
 
-        {tab === 'discovery' && <DiscoverContent orgId={orgId} orgSlug={orgSlug} embedded />}
-        {tab === 'campaign' && <CampaignsWorkspace orgId={orgId} orgSlug={orgSlug} embedded />}
-        {tab === 'audience' && <DiscoverAudience orgId={orgId} embedded />}
-        {tab === 'assistant' && <DiscoverAssistant orgId={orgId} embedded />}
+        {tab === 'discovery' && !UNAVAILABLE_NOW && <DiscoverContent orgId={orgId} orgSlug={orgSlug} embedded />}
+        {tab === 'campaign' && !UNAVAILABLE_NOW && <CampaignsWorkspace orgId={orgId} orgSlug={orgSlug} embedded />}
+        {tab === 'audience' && !UNAVAILABLE_NOW && <DiscoverAudience orgId={orgId} embedded />}
+        {tab === 'assistant' && !UNAVAILABLE_NOW && <DiscoverAssistant orgId={orgId} embedded />}
 
-        {tab === 'reports' && view === 'discover' && <DiscoverReports orgId={orgId} embedded />}
-        {tab === 'reports' && view === 'workspace' && (
+        {tab === 'reports' && view === 'discover' && !UNAVAILABLE_NOW && <DiscoverReports orgId={orgId} embedded />}
+        {tab === 'reports' && view === 'workspace' && !UNAVAILABLE_NOW && (
           <WorkspaceReports orgId={orgId} orgSlug={orgSlug} embedded />
         )}
 
-        {tab === 'settings' && view === 'discover' && (
+        {tab === 'settings' && view === 'discover' && !UNAVAILABLE_NOW && (
           <DiscoverSettings orgId={orgId} orgSlug={orgSlug} embedded />
         )}
         {tab === 'settings' && view === 'workspace' && (
@@ -611,15 +617,14 @@ export default function DiscoverWorkspace({
           outcome ends in a navigation, so there is never a list left behind
           that needs reloading in place. */}
       {addHere && openAddCreator && (
-        <AddCreatorModal
+        <AddKolDirectoryModal
           orgId={orgId}
           initialInput={addInput}
           // Closing drops `?add=1` and `?url=` and leaves you exactly where you
           // were, rather than on a URL that reopens the dialog on reload.
           onClose={() => go('directory', view ?? 'database')}
-          onProfilingStarted={creator => goCreator('profiling', creator.id)}
-          onViewExisting={id => goCreator('creator', id)}
-          onRefreshExisting={refreshExisting}
+          // Add KOL links the creator to this agency, so it lands in My Creators.
+          onKolAdded={() => goCreator('mine')}
         />
       )}
     </div>

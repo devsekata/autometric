@@ -1,6 +1,4 @@
-import { listKolDirectory } from './kolDirectory'
-import { getCreator, listCreators } from './creatorStore'
-import type { CreatorProfile } from './creatorFlow'
+import { listKolDirectory, type KolDirectoryQuery, type KolDirectoryRow } from './kolDirectory'
 
 /**
  * Smart Discovery — "find me more creators like this one".
@@ -86,38 +84,12 @@ export interface SimilarResult {
 
 /* ── reference ────────────────────────────────────────────────────────────── */
 
-function fromOrgCreator(c: CreatorProfile): SimilarReference {
-  return {
-    id: c.id,
-    source: 'creator',
-    username: c.username,
-    displayName: c.displayName,
-    avatarUrl: c.avatarUrl,
-    platform: c.platform,
-    categories: c.category ? [c.category] : [],
-    city: c.city,
-    followers: c.followers,
-    erPct: c.erPct,
-    tier: c.tier,
-    profileUrl: c.profileUrl,
-    hashtags: (c.content?.hashtags ?? []).map(h => h.tag),
-    rateFrom: null,
-  }
-}
-
-async function loadReference(orgId: string, id: string, source: CandidateSource): Promise<SimilarReference | null> {
-  if (source === 'creator') {
-    const c = await getCreator(orgId, id)
-    return c ? fromOrgCreator(c) : null
-  }
-  const { rows } = await listKolDirectory({ ids: [id] })
-  const r = rows[0]
-  if (!r) return null
+function fromRow(r: KolDirectoryRow, source: CandidateSource): SimilarReference {
   return {
     id: r.id,
-    source: 'roster',
+    source,
     username: r.username,
-    displayName: null,
+    displayName: r.displayName ?? null,
     avatarUrl: r.avatarUrl,
     platform: r.platform,
     categories: r.categories,
@@ -129,6 +101,17 @@ async function loadReference(orgId: string, id: string, source: CandidateSource)
     hashtags: [],
     rateFrom: r.rateFrom,
   }
+}
+
+/**
+ * Both sources are the KOL Creator Database. `creator` is a creator in this
+ * agency's My Creators (an active `agency_kol_accounts` link), so the lookup is
+ * narrowed to the agency; `roster` is any creator in the database.
+ */
+async function loadReference(orgId: string, id: string, source: CandidateSource): Promise<SimilarReference | null> {
+  const { rows } = await listKolDirectory({ ids: [id], agencyId: source === 'creator' ? orgId : null })
+  const r = rows[0]
+  return r ? fromRow(r, source) : null
 }
 
 /* ── scoring ──────────────────────────────────────────────────────────────── */
@@ -365,101 +348,90 @@ export async function findSimilarCreators(
     }
   }
 
-  /* Own roster. */
-  const own = (await listCreators(orgId, {
+  /**
+   * Ask for the reference's own neighbourhood, not the top of the roster.
+   *
+   * `LIMIT 60` has to fall somewhere, and sorting by followers descending puts
+   * it on the sixty largest accounts on the platform — so a 42K creator was
+   * being compared against creators with fourteen million followers, none of
+   * which is a similar creator by any reading. Asking for everyone above half
+   * the reference's size, ascending, lands the window on the band the
+   * reference actually sits in.
+   *
+   * The same question is asked twice: once inside this agency's My Creators,
+   * once across the whole Creator Database.
+   */
+  const ask = (category: string | null, agencyId: string | null) => listKolDirectory({
     platform,
-    tier: constraints.tier ?? null,
-    status: 'ready',
-  }))
-    .filter(c => c.id !== reference.id)
-    .filter(c => !constraints.city || (c.city ?? '').toLowerCase() === constraints.city.toLowerCase())
+    // The category narrows 7.7k rows to something the scorer can rank without
+    // reading the whole roster. Absent when the reference has no category —
+    // then the follower band does the narrowing on its own.
+    category,
+    tiers: constraints.tier ? [constraints.tier] : [],
+    minFollowers: reference.followers ? Math.round(reference.followers * 0.5) : null,
+    maxRate,
+    agencyId,
+    pageSize: 60,
+    sort: 'followers',
+    dir: reference.followers ? 'asc' : 'desc',
+  } satisfies KolDirectoryQuery)
 
-  // Content characteristics live on the full profile, not the summary, and topic
-  // overlap needs them. Fetched only for the org's own creators, which is a
-  // small list — the roster has no post history to fetch.
-  const ownDetailed = await Promise.all(own.map(c => getCreator(orgId, c.id)))
-  const ownCandidates: SimilarReference[] = ownDetailed
-    .filter((c): c is CreatorProfile => !!c)
-    .map(fromOrgCreator)
+  /**
+   * Narrow by category, but never let it be the reason nothing comes back.
+   *
+   * The roster names its categories in its own words, so a creator filed under
+   * a label the roster does not use matches no row at all — and the search
+   * would return an empty list that reads as "no similar creators exist"
+   * rather than "your label is not one of theirs". When the narrow ask finds
+   * nothing, the same query runs without the category and the scorer ranks what
+   * platform and audience size return.
+   */
+  const askWidening = async (agencyId: string | null) => {
+    let rows = (await ask(reference.categories[0] ?? null, agencyId)).rows
+    let widened = false
+    if (!rows.length && reference.categories.length) {
+      rows = (await ask(null, agencyId)).rows
+      widened = rows.length > 0
+    }
+    return { rows, widened }
+  }
 
-  /* Commercial roster. */
+  const inCity = (r: KolDirectoryRow) =>
+    !constraints.city || (r.city ?? '').toLowerCase() === constraints.city.toLowerCase()
+
+  let ownCandidates: SimilarReference[] = []
   let rosterCandidates: SimilarReference[] = []
   try {
-    /**
-     * Ask for the reference's own neighbourhood, not the top of the roster.
-     *
-     * `LIMIT 60` has to fall somewhere, and sorting by followers descending puts
-     * it on the sixty largest accounts on the platform — so a 42K creator was
-     * being compared against creators with fourteen million followers, none of
-     * which is a similar creator by any reading. Asking for everyone above half
-     * the reference's size, ascending, lands the window on the band the
-     * reference actually sits in.
-     */
-    const ask = (category: string | null) => listKolDirectory({
-      platform,
-      // The category narrows 7.7k rows to something the scorer can rank without
-      // reading the whole roster. Absent when the reference has no category —
-      // then the follower band does the narrowing on its own.
-      category,
-      tiers: constraints.tier ? [constraints.tier] : [],
-      minFollowers: reference.followers ? Math.round(reference.followers * 0.5) : null,
-      maxRate,
-      pageSize: 60,
-      sort: 'followers',
-      dir: reference.followers ? 'asc' : 'desc',
-    })
-
-    /**
-     * Narrow by category, but never let it be the reason nothing comes back.
-     *
-     * The roster names its categories in its own words, so a creator we filed
-     * under `Tech` matches no roster row at all — and the search would return an
-     * empty list that reads as "no similar creators exist" rather than "your
-     * label is not one of theirs". When the narrow ask finds nothing, the same
-     * query runs without the category and the scorer ranks what platform and
-     * audience size return.
-     */
-    let rows = (await ask(reference.categories[0] ?? null)).rows
-    if (!rows.length && reference.categories.length) {
-      rows = (await ask(null)).rows
-      if (rows.length) {
-        notes.push(
-          `No creator in the database carries the category "${reference.categories[0]}", so the comparison used platform, audience size and engagement instead.`,
-        )
-      }
-    }
-
-    rosterCandidates = rows
+    /* My Creators. */
+    const own = await askWidening(orgId)
+    ownCandidates = own.rows
       .filter(r => r.id !== reference.id)
-      .filter(r => !constraints.city || (r.city ?? '').toLowerCase() === constraints.city.toLowerCase())
-      .map(r => ({
-        id: r.id,
-        source: 'roster' as const,
-        username: r.username,
-        displayName: null,
-        avatarUrl: r.avatarUrl,
-        platform: r.platform,
-        categories: r.categories,
-        city: r.city,
-        followers: r.followers,
-        erPct: r.erPct,
-        tier: r.tier,
-        profileUrl: r.profileUrl,
-        hashtags: [],
-        rateFrom: r.rateFrom,
-      }))
+      .filter(inCity)
+      .map(r => fromRow(r, 'creator'))
+
+    /* The whole Creator Database, minus what My Creators already offered. */
+    const ownIds = new Set(ownCandidates.map(c => c.id))
+    const roster = await askWidening(null)
+    rosterCandidates = roster.rows
+      .filter(r => r.id !== reference.id && !ownIds.has(r.id))
+      .filter(inCity)
+      .map(r => fromRow(r, 'roster'))
+
+    if (roster.widened) {
+      notes.push(
+        `No creator in the database carries the category "${reference.categories[0]}", so the comparison used platform, audience size and engagement instead.`,
+      )
+    }
   } catch (err) {
     // The KOL database is on a private network and is unreachable from some
     // environments. Saying so is the difference between "no similar creators
-    // exist" and "we could not look at most of them".
-    notes.push(
-      'The commercial KOL roster could not be reached, so only creators in your own database were compared.',
-    )
-    console.warn('[creator similar] roster unavailable:', err instanceof Error ? err.message : err)
+    // exist" and "we could not look at any of them".
+    notes.push('The Creator Database could not be reached, so no creators could be compared.')
+    console.warn('[creator similar] KOL database unavailable:', err instanceof Error ? err.message : err)
   }
 
   if (!ownCandidates.length && !rosterCandidates.length) {
-    notes.push('There is nothing to compare against yet — add and profile more creators, or loosen the constraints.')
+    notes.push('There is nothing to compare against yet — add creators to My Creators, or loosen the constraints.')
   }
 
   /**
