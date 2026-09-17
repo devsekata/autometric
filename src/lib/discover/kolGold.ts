@@ -136,6 +136,48 @@ export interface GoldProfileCard {
    * Posts with zero or unknown views sit out of both sides of the fraction.
    */
   l2vPct: number | null
+  /**
+   * Calculated metrics, migrations 037/038. Every one of them is carried
+   * through from `l2_gold.kol_profile_card` untouched — the formulas live in
+   * the warehouse (`feature.*_engagement_analysis`, `*_audience_analysis`)
+   * and the labels in `metrics_thresholds.py`. Nothing here recomputes.
+   *
+   * Null throughout means "not calculable yet", never zero.
+   */
+  growthClass: string | null
+  dailyGrowth: number | null
+  projected30d: number | null
+  projectedFollowers30d: number | null
+  previousFollowers: number | null
+  daysBetween: number | null
+  femalePct: number | null
+  malePct: number | null
+  genderKnownPct: number | null
+  genderReliability: string | null
+  paidRatio: number | null
+  paidSignalCount: number | null
+  shareRate: number | null
+  postFrequencyDaily: number | null
+  postFrequencyMonthly: number | null
+  postFrequencyCount: number | null
+  observationDays: number | null
+  postFrequencyReliability: string | null
+  monitoringErPct: number | null
+  monitoringPriority: string | null
+  saveRate: number | null
+  viralFrequency: number | null
+  viralPostCount: number | null
+  contentTopic: string | null
+  contentTopicSource: string | null
+  formatDominant: string | null
+  audienceQualityScore: number | null
+  audienceQualityTier: string | null
+  audienceInterestTop: string | null
+  audienceInterestSource: string | null
+  erStddevPp: number | null
+  erPeriods: number | null
+  performanceStability: string | null
+  risingCreator: boolean | null
   /** When the pipeline took this snapshot — the honest "last refreshed". */
   snapshotDate: string | null
 }
@@ -251,6 +293,13 @@ export interface GoldFormatDay {
    * of `erFollowers`.
    */
   followersDenom: number | null
+  /**
+   * `engagement`, but only when this day has a follower denominator; null
+   * otherwise. The ER numerator: summing `engagement` instead would count
+   * posts whose followers are not in the denominator (the same rule as
+   * `kol_metric_monthly.engagement_for_er_sum` and the feature-layer ER).
+   */
+  engagementForEr: number | null
   erFollowers: number | null
 }
 
@@ -419,6 +468,26 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       views_analyzed_count: number | null
       avg_views: string | null; median_views: string | null
       view_to_follower_ratio: string | null; like_to_view_ratio: string | null
+      growth_class: string | null; daily_growth: string | null
+      projected_30d: string | null; projected_followers_30d: string | null
+      previous_followers: string | null
+      days_between: number | null
+      female_pct: string | null; male_pct: string | null
+      gender_known_pct: string | null; gender_reliability: string | null
+      paid_ratio: string | null; paid_signal_count: number | null
+      share_rate: string | null
+      post_frequency_daily: string | null; post_frequency_monthly: string | null
+      post_frequency_count: number | null; observation_days: number | null
+      post_frequency_reliability: string | null
+      monitoring_er_pct: string | null; monitoring_priority: string | null
+      save_rate: string | null; viral_frequency: string | null
+      viral_post_count: number | null
+      content_topic: string | null; content_topic_source: string | null
+      format_dominant: string | null
+      audience_quality_score: string | null; audience_quality_tier: string | null
+      audience_interest_top: string | null; audience_interest_source: string | null
+      er_stddev_pp: string | null; er_periods: number | null
+      performance_stability: string | null; rising_creator: boolean | null
       profile_snapshot_date: Date | string | null
     }>(
       `SELECT c.platform, c.username, c.display_name, c.avatar_url, c.profile_url,
@@ -427,6 +496,21 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
               c.followers_growth,
               c.views_analyzed_count, c.avg_views, c.median_views,
               c.view_to_follower_ratio, c.like_to_view_ratio,
+              c.growth_class, c.daily_growth, c.projected_30d,
+              c.projected_followers_30d,
+              c.previous_followers, c.days_between,
+              c.female_pct, c.male_pct, c.gender_known_pct, c.gender_reliability,
+              c.paid_ratio, c.paid_signal_count, c.share_rate,
+              c.post_frequency_daily, c.post_frequency_monthly,
+              c.post_frequency_count, c.observation_days,
+              c.post_frequency_reliability,
+              c.monitoring_er_pct, c.monitoring_priority,
+              c.save_rate, c.viral_frequency, c.viral_post_count,
+              c.content_topic, c.content_topic_source, c.format_dominant,
+              c.audience_quality_score, c.audience_quality_tier,
+              c.audience_interest_top, c.audience_interest_source,
+              c.er_stddev_pp, c.er_periods, c.performance_stability,
+              c.rising_creator,
               c.profile_snapshot_date
          FROM public.kol_social_account ksa
          JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
@@ -590,12 +674,17 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       post_count: string | null; posts_in_sample: string | null
       likes_sum: string | null; comments_sum: string | null; views_sum: string | null
       engagement_sum: string | null; followers_denom_sum: string | null
+      engagement_for_er_sum: string | null
       er_followers_daily: string | null
     }>(
       `SELECT f.metric_date, f.platform, f.media_type,
               f.post_count, f.posts_in_sample,
               f.likes_sum, f.comments_sum, f.views_sum,
-              f.engagement_sum, f.followers_denom_sum, f.er_followers_daily
+              f.engagement_sum, f.followers_denom_sum,
+              -- ER numerator: only days that have a follower denominator.
+              CASE WHEN f.followers_denom_sum > 0 THEN f.engagement_sum END
+                AS engagement_for_er_sum,
+              f.er_followers_daily
          FROM public.kol_social_account ksa
          JOIN l2_gold.content_format_daily f
            ON f.social_account_id = ksa.social_account_id
@@ -743,6 +832,40 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       medianViews: num(r.median_views),
       v2fPct: num(r.view_to_follower_ratio),
       l2vPct: num(r.like_to_view_ratio),
+      growthClass: r.growth_class,
+      dailyGrowth: num(r.daily_growth),
+      projected30d: num(r.projected_30d),
+      projectedFollowers30d: num(r.projected_followers_30d),
+      previousFollowers: num(r.previous_followers),
+      daysBetween: r.days_between,
+      femalePct: num(r.female_pct),
+      malePct: num(r.male_pct),
+      genderKnownPct: num(r.gender_known_pct),
+      genderReliability: r.gender_reliability,
+      paidRatio: num(r.paid_ratio),
+      paidSignalCount: r.paid_signal_count,
+      shareRate: num(r.share_rate),
+      postFrequencyDaily: num(r.post_frequency_daily),
+      postFrequencyMonthly: num(r.post_frequency_monthly),
+      postFrequencyCount: r.post_frequency_count,
+      observationDays: r.observation_days,
+      postFrequencyReliability: r.post_frequency_reliability,
+      monitoringErPct: num(r.monitoring_er_pct),
+      monitoringPriority: r.monitoring_priority,
+      saveRate: num(r.save_rate),
+      viralFrequency: num(r.viral_frequency),
+      viralPostCount: r.viral_post_count,
+      contentTopic: r.content_topic,
+      contentTopicSource: r.content_topic_source,
+      formatDominant: r.format_dominant,
+      audienceQualityScore: num(r.audience_quality_score),
+      audienceQualityTier: r.audience_quality_tier,
+      audienceInterestTop: r.audience_interest_top,
+      audienceInterestSource: r.audience_interest_source,
+      erStddevPp: num(r.er_stddev_pp),
+      erPeriods: r.er_periods,
+      performanceStability: r.performance_stability,
+      risingCreator: r.rising_creator,
       snapshotDate: toDateOnly(r.profile_snapshot_date),
     })),
 
@@ -804,6 +927,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       views: num(r.views_sum),
       engagement: num(r.engagement_sum),
       followersDenom: num(r.followers_denom_sum),
+      engagementForEr: num(r.engagement_for_er_sum),
       erFollowers: num(r.er_followers_daily),
     })),
 

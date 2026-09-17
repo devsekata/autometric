@@ -74,11 +74,22 @@ const SORTOPTS: [SortKey, string][] = [
   ['avgviews', 'Avg views'],
   ['medviews', 'Median views'],
   ['v2f', 'View-to-follower'],
+  // Calculated metrics (037/038). Only the numeric ones are offered: the
+  // three label columns are categories, and sorting them alphabetically would
+  // put 'High' before 'Low' by accident rather than by rank.
+  ['paidratio', 'Paid ratio'],
+  ['sharerate', 'Share rate'],
+  ['postfreq', 'Post frequency'],
+  ['female', 'Female %'],
+  ['male', 'Male %'],
+  ['saverate', 'Save rate'],
+  ['viralfreq', 'Viral frequency'],
   ['recent', 'Last updated'],
   ['name', 'Name'],
 ]
 type SortKey = 'followers' | 'engagement' | 'growth' | 'avgviews' | 'medviews'
-  | 'v2f' | 'recent' | 'name'
+  | 'v2f' | 'paidratio' | 'sharerate' | 'postfreq' | 'female' | 'male'
+  | 'saverate' | 'viralfreq' | 'recent' | 'name'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' }
 
 /** Optional table columns — the source's COLDEFS. */
@@ -95,6 +106,30 @@ const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => stri
   // under the labels that registry gives them.
   v2f: { label: 'V2F', get: r => ratioLabel(r.v2fPct), sort: 'v2f' },
   l2v: { label: 'L2V', get: r => ratioLabel(r.l2vPct) },
+  // Calculated metrics. Every one of them prints an em dash when null — a
+  // creator the pipeline could not measure is not a creator scoring zero.
+  growthclass: { label: 'Growth class', get: r => r.growthClass ?? '—' },
+  paidratio: { label: 'Paid ratio', get: r => ratioLabel(r.paidRatio), sort: 'paidratio' },
+  sharerate: { label: 'Share rate', get: r => ratioLabel(r.shareRate), sort: 'sharerate' },
+  // Monthly only. The daily basis is deliberately not offered as a column:
+  // one agreed unit, so two numbers cannot disagree on screen.
+  postfreq: { label: 'Posts / month', get: r => freqLabel(r.postFrequencyMonthly), sort: 'postfreq' },
+  postfreqrel: { label: 'Freq. reliability', get: r => r.postFrequencyReliability ?? '—' },
+  female: { label: 'Female %', get: r => ratioLabel(r.femalePct), sort: 'female' },
+  male: { label: 'Male %', get: r => ratioLabel(r.malePct), sort: 'male' },
+  genderrel: { label: 'Gender reliability', get: r => r.genderReliability ?? '—' },
+  priority: { label: 'Monitoring priority', get: r => r.monitoringPriority ?? '—' },
+  // Discovery filters, migration 039. Topic and interest print their source
+  // alongside when it is not the observed one, so an inferred value never
+  // reads as a measured one in a table cell.
+  topic: { label: 'Content topic', get: r => topikLabel(r.contentTopic, r.contentTopicSource) },
+  format: { label: 'Format', get: r => r.formatDominant ?? '—' },
+  saverate: { label: 'Save rate', get: r => ratioLabel(r.saveRate), sort: 'saverate' },
+  viralfreq: { label: 'Viral freq.', get: r => ratioLabel(r.viralFrequency), sort: 'viralfreq' },
+  audquality: { label: 'Audience quality', get: r => r.audienceQualityTier ?? '—' },
+  audinterest: { label: 'Audience interest', get: r => topikLabel(r.audienceInterestTop, r.audienceInterestSource) },
+  stability: { label: 'Stability', get: r => r.performanceStability ?? '—' },
+  rising: { label: 'Rising', get: r => risingLabel(r.risingCreator) },
   reach: { label: 'Est. Reach', get: r => reachLabel(r) },
   platform: { label: 'Platform', get: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '—') },
   category: { label: 'Category', get: r => (r.categories.length ? r.categories.join(' · ') : '—') },
@@ -204,6 +239,33 @@ const viewsLabel = (n: number | null) => (n === null ? '—' : fmtNum(Math.round
  */
 const ratioLabel = (n: number | null) => (n === null ? '—' : `${n.toFixed(2)}%`)
 
+/**
+ * Posts per month. Two decimals, because an account posting once a quarter
+ * lands at 0.33 and rounding it to 0 would read as "never posts".
+ *
+ * Em dash, never zero: null here means the observation window was a single
+ * day or there were no valid posts at all, and neither is a frequency of nil.
+ */
+const freqLabel = (n: number | null) => (n === null ? '—' : n.toFixed(2))
+
+/**
+ * A topic or interest, with a marker when it did not come from the primary
+ * source. `creator_category_fallback` means the roster category stood in for
+ * real content classification; `content_inferred` means the creator's own
+ * content topic stood in for unknown audience interest. Printing either
+ * without the marker would present a substitute as a measurement.
+ */
+const topikLabel = (v: string | null, sumber: string | null) => {
+  if (v === null) return '—'
+  return sumber === 'content' || sumber === 'audience' ? v : `${v} *`
+}
+
+/**
+ * Rising creator. Three states, not two: null is "growth never measured",
+ * which is not the same as "measured and not rising".
+ */
+const risingLabel = (v: boolean | null) => (v === null ? '—' : v ? 'Ya' : 'Tidak')
+
 /** 1 … 4 5 [6] 7 8 … 644 — the roster is far too long for a button per page. */
 function pageWindow(current: number, count: number): (number | '…')[] {
   if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1)
@@ -234,6 +296,43 @@ const EXPORT_COLUMNS: ExportColumn<KolDirectoryRow>[] = [
   { key: 'v2f', header: 'V2F (%)', value: r => r.v2fPct ?? '' },
   { key: 'l2v', header: 'L2V (%)', value: r => r.l2vPct ?? '' },
   { key: 'viewsBasis', header: 'Posts with views (basis)', value: r => r.viewsAnalyzedCount ?? '' },
+  // Calculated metrics, raw. Each numeric column is followed by the
+  // denominator that makes it auditable in a spreadsheet — a 0% paid ratio
+  // over 0 known posts is a different fact from 0% over 200.
+  { key: 'growthClass', header: 'Growth class', value: r => r.growthClass ?? '' },
+  { key: 'dailyGrowth', header: 'Daily growth (followers/day)', value: r => r.dailyGrowth ?? '' },
+  // Growth 30D is a PROJECTION from the measured daily rate, not observed
+  // thirty-day growth - the headers say so rather than leaving a reader to
+  // assume the snapshots were a month apart.
+  { key: 'projected30d', header: 'Projected growth 30d (followers)', value: r => r.projected30d ?? '' },
+  { key: 'projectedFollowers30d', header: 'Projected followers 30d', value: r => r.projectedFollowers30d ?? '' },
+  { key: 'paidRatio', header: 'Paid ratio (%)', value: r => r.paidRatio ?? '' },
+  { key: 'paidBasis', header: 'Posts with paid signal (basis)', value: r => r.paidSignalCount ?? '' },
+  { key: 'shareRate', header: 'Share rate (%)', value: r => r.shareRate ?? '' },
+  { key: 'postFreqMonthly', header: 'Posts / month', value: r => r.postFrequencyMonthly ?? '' },
+  { key: 'postFreqCount', header: 'Valid posts (basis)', value: r => r.postFrequencyCount ?? '' },
+  { key: 'observationDays', header: 'Observation days (basis)', value: r => r.observationDays ?? '' },
+  { key: 'postFreqRel', header: 'Post frequency reliability', value: r => r.postFrequencyReliability ?? '' },
+  { key: 'femalePct', header: 'Female (%)', value: r => r.femalePct ?? '' },
+  { key: 'malePct', header: 'Male (%)', value: r => r.malePct ?? '' },
+  { key: 'genderKnown', header: 'Gender known (%)', value: r => r.genderKnownPct ?? '' },
+  { key: 'genderRel', header: 'Gender reliability', value: r => r.genderReliability ?? '' },
+  { key: 'monitoringEr', header: 'ER used for priority (%)', value: r => r.monitoringErPct ?? '' },
+  { key: 'priority', header: 'Monitoring priority', value: r => r.monitoringPriority ?? '' },
+  { key: 'saveRate', header: 'Save rate (%)', value: r => r.saveRate ?? '' },
+  { key: 'viralFreq', header: 'Viral frequency (%)', value: r => r.viralFrequency ?? '' },
+  { key: 'viralPosts', header: 'Viral posts (basis)', value: r => r.viralPostCount ?? '' },
+  { key: 'contentTopic', header: 'Content topic', value: r => r.contentTopic ?? '' },
+  { key: 'contentTopicSrc', header: 'Content topic source', value: r => r.contentTopicSource ?? '' },
+  { key: 'format', header: 'Dominant format', value: r => r.formatDominant ?? '' },
+  { key: 'audQualityScore', header: 'Audience quality score', value: r => r.audienceQualityScore ?? '' },
+  { key: 'audQualityTier', header: 'Audience quality', value: r => r.audienceQualityTier ?? '' },
+  { key: 'audInterest', header: 'Audience interest', value: r => r.audienceInterestTop ?? '' },
+  { key: 'audInterestSrc', header: 'Audience interest source', value: r => r.audienceInterestSource ?? '' },
+  { key: 'erStddev', header: 'ER std dev (pp)', value: r => r.erStddevPp ?? '' },
+  { key: 'erPeriods', header: 'ER periods (basis)', value: r => r.erPeriods ?? '' },
+  { key: 'stability', header: 'Performance stability', value: r => r.performanceStability ?? '' },
+  { key: 'rising', header: 'Rising creator', value: r => (r.risingCreator === null ? '' : r.risingCreator ? 'Ya' : 'Tidak') },
   { key: 'categories', header: 'Categories', value: r => r.categories.join(' · ') },
   { key: 'status', header: 'Data status', value: r => r.status },
   { key: 'updated', header: 'Last refreshed', value: r => r.lastRefreshedAt ?? '' },

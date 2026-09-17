@@ -257,7 +257,7 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
               for everyone because no post carries them. */}
           <StatTile label="Engagement Rate"
             value={creator.erPct === null ? 'belum diukur' : pctLabel(creator.erPct)}
-            hint={creator.erPct === null ? undefined : 'dari roster KOL'} />
+            hint={creator.erPct === null ? undefined : 'dari engagement analysis'} />
           <StatTile label="Reach" value={fmtNum(intel.kpi.avgReach)} sample={!intel.real.reach} />
           <StatTile label="Impressions" value={fmtNum(intel.performance.impressions)} sample />
           <StatTile label="Views" value={fmtNum(intel.kpi.avgViews)}
@@ -810,7 +810,9 @@ function GoldFormatsCard({ formats, dominant }: {
         ?? { posts: 0, inSample: 0, engagement: null, denom: null, views: null }
       cur.posts += f.postCount
       cur.inSample += f.postsInSample
-      cur.engagement = addNullable(cur.engagement, f.engagement)
+      // ER numerator from the API's engagementForEr: days without a follower
+      // denominator must not add engagement to the ratio.
+      cur.engagement = addNullable(cur.engagement, f.engagementForEr)
       cur.denom = addNullable(cur.denom, f.followersDenom)
       cur.views = addNullable(cur.views, f.views)
       by.set(f.mediaType, cur)

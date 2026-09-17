@@ -331,7 +331,7 @@ export function InsightsSection({ creator, rank, platforms, similar, intel }: Se
   return (
     <div className="flex flex-col gap-4">
       <VizCard title="✦ Key Opportunities"
-        subtitle="Kecuali yang bertanda, seluruhnya dihitung dari roster">
+        subtitle="Kecuali yang bertanda, dihitung dari roster; engagement dari engagement analysis">
         <ol className="flex flex-col">
           {items.map((it, i) => (
             <li key={it.title} className="flex items-start gap-3 py-3"

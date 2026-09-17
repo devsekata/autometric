@@ -51,7 +51,73 @@ export interface KolFilters {
    * bound" and "exactly flat" distinguishable without a nullable slider.
    */
   growth: GrowthKey
+  /**
+   * Calculated metrics (migrations 037/038).
+   *
+   * The numeric four use 0 to mean "no bound", the convention every other
+   * slider here already follows. That is safe for these in a way it was not
+   * for growth: a female share, paid ratio or post frequency of exactly 0 is
+   * either meaningless or indistinguishable from unfiltered, so no real
+   * answer is lost by spending 0 on "Any".
+   *
+   * `paidMax` is a CEILING — the question is "not mostly ads", not "at least
+   * this much advertising" — so its "no bound" value is 100, not 0.
+   */
+  femaleMin: number
+  maleMin: number
+  paidMax: number
+  postFreqMin: number
+  shareMin: number
+  /** Label filters. Empty string = Any. */
+  growthClass: string
+  freqReliability: string
+  priority: string
+  /**
+   * Discovery filters, migration 039. Same convention as the block above:
+   * 0 means "no bound" for the two numeric ones, empty string means Any for
+   * the label ones.
+   */
+  saveMin: number
+  viralMin: number
+  risingOnly: boolean
+  contentTopic: string
+  formatDominant: string
+  audQuality: string
+  stability: string
+  audInterest: string
+  /** Audience location. The level is sent alongside the key so a province
+   *  named like a city cannot answer a city question. */
+  geoKey: string
+  geoLevel: string
 }
+
+/** Label vocabularies, in step with the warehouse. Display only. */
+/**
+ * Content-topic and audience-interest vocabulary. Both filters draw on the
+ * SAME list because the warehouse classifies both with the same lexicon
+ * (`audience_inference.INTEREST`) - that is what makes "creator posts about
+ * food" and "audience is interested in food" comparable at all.
+ */
+export const TOPIC_OPTIONS = [
+  '', 'beauty', 'business', 'education', 'entertainment', 'fashion', 'finance',
+  'fitness', 'food', 'gaming', 'health', 'music', 'parenting', 'photography',
+  'religion', 'sports', 'technology', 'travel',
+] as const
+export const FORMAT_OPTIONS = ['', 'Video', 'Carousel', 'Image'] as const
+export const STABILITY_OPTIONS = [
+  '', 'High Stability', 'Medium Stability', 'Low Stability',
+] as const
+export const GEO_LEVEL_OPTIONS = ['', 'city', 'province', 'island', 'country'] as const
+
+/**
+ * The label vocabularies, kept in step with `metrics_thresholds.py`. They are
+ * display strings only — the thresholds that produce them live in the
+ * warehouse, and nothing here recomputes a label.
+ */
+export const GROWTH_CLASS_OPTIONS = [
+  '', 'High Growth', 'Medium Growth', 'Low Growth', 'Negative Growth',
+] as const
+export const TINGKAT_OPTIONS = ['', 'High', 'Medium', 'Low'] as const
 
 /**
  * Growth bands. Bounds are percentage points of change since the account's
@@ -71,6 +137,11 @@ export type GrowthKey = (typeof GROWTH_PRESETS)[number]['key']
 export const KOL_FILTERS_DEFAULT: KolFilters = {
   category: '', platform: '', tier: '', follMin: 0, erMin: 0, maxRate: 0,
   connectedOnly: false, verifiedOnly: false, updatedWithin: 0, agency: '', growth: '',
+  femaleMin: 0, maleMin: 0, paidMax: 100, postFreqMin: 0, shareMin: 0,
+  growthClass: '', freqReliability: '', priority: '',
+  saveMin: 0, viralMin: 0, risingOnly: false, contentTopic: '',
+  formatDominant: '', audQuality: '', stability: '', audInterest: '',
+  geoKey: '', geoLevel: '',
 }
 
 /**
@@ -110,6 +181,11 @@ export function activeFilterCount(f: KolFilters): number {
   return [
     f.platform !== '', f.tier !== '', f.follMin > 0, f.erMin > 0, f.maxRate > 0,
     f.connectedOnly, f.verifiedOnly, f.updatedWithin > 0, f.agency !== '', f.growth !== '',
+    f.femaleMin > 0, f.maleMin > 0, f.paidMax < 100, f.postFreqMin > 0,
+    f.shareMin > 0, f.growthClass !== '', f.freqReliability !== '', f.priority !== '',
+    f.saveMin > 0, f.viralMin > 0, f.risingOnly, f.contentTopic !== '',
+    f.formatDominant !== '', f.audQuality !== '', f.stability !== '',
+    f.audInterest !== '', f.geoKey !== '',
   ].filter(Boolean).length
 }
 
@@ -129,6 +205,28 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
     const g = GROWTH_PRESETS.find(x => x.key === f.growth)
     if (g?.min != null) p.growthMin = String(g.min)
     if (g?.max != null) p.growthMax = String(g.max)
+  }
+  if (f.femaleMin > 0) p.femaleMin = String(f.femaleMin)
+  if (f.maleMin > 0) p.maleMin = String(f.maleMin)
+  // Only sent when it actually bounds something: 100 is the whole range.
+  if (f.paidMax < 100) p.paidMax = String(f.paidMax)
+  if (f.postFreqMin > 0) p.postFreqMin = String(f.postFreqMin)
+  if (f.shareMin > 0) p.shareMin = String(f.shareMin)
+  if (f.growthClass) p.growthClass = f.growthClass
+  if (f.freqReliability) p.freqReliability = f.freqReliability
+  if (f.priority) p.priority = f.priority
+  if (f.saveMin > 0) p.saveMin = String(f.saveMin)
+  if (f.viralMin > 0) p.viralMin = String(f.viralMin)
+  if (f.risingOnly) p.rising = '1'
+  if (f.contentTopic) p.topic = f.contentTopic
+  if (f.formatDominant) p.format = f.formatDominant
+  if (f.audQuality) p.audQuality = f.audQuality
+  if (f.stability) p.stability = f.stability
+  if (f.audInterest) p.interest = f.audInterest
+  if (f.geoKey) {
+    p.geoKey = f.geoKey
+    // Level only travels with a key; on its own it would filter nothing.
+    if (f.geoLevel) p.geoLevel = f.geoLevel
   }
   return p
 }
@@ -404,6 +502,130 @@ export function KolFilterPanel({
               ))}
             </select>
           </div>
+          {/* Calculated metrics (037/038). Ranges follow the existing Range
+              component; the three label filters follow the Growth select. No
+              new filter pattern is introduced. */}
+          <Range label="Min. female %" min={0} max={100} step={1} value={filters.femaleMin}
+            display={filters.femaleMin ? `>= ${filters.femaleMin}%` : 'Any'}
+            onChange={v => onChange({ femaleMin: v })} />
+          <Range label="Min. male %" min={0} max={100} step={1} value={filters.maleMin}
+            display={filters.maleMin ? `>= ${filters.maleMin}%` : 'Any'}
+            onChange={v => onChange({ maleMin: v })} />
+          <Range label="Max. paid ratio" min={0} max={100} step={1} value={filters.paidMax}
+            display={filters.paidMax < 100 ? `<= ${filters.paidMax}%` : 'Any'}
+            onChange={v => onChange({ paidMax: v })} />
+          <Range label="Min. post / bulan" min={0} max={60} step={1} value={filters.postFreqMin}
+            display={filters.postFreqMin ? `>= ${filters.postFreqMin}` : 'Any'}
+            onChange={v => onChange({ postFreqMin: v })} />
+          <Range label="Min. share rate" min={0} max={20} step={0.5} value={filters.shareMin}
+            display={filters.shareMin ? `>= ${filters.shareMin}%` : 'Any'}
+            onChange={v => onChange({ shareMin: v })} />
+          <div className="my-[7px] mb-2.5">
+            <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+              <span>Growth class</span>
+            </div>
+            <select value={filters.growthClass}
+              onChange={e => onChange({ growthClass: e.target.value })}
+              className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+              style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+              {GROWTH_CLASS_OPTIONS.map(k => (
+                <option key={k || 'any'} value={k}>{k || 'Any'}</option>
+              ))}
+            </select>
+          </div>
+          <div className="my-[7px] mb-2.5">
+            <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+              <span>Post frequency reliability</span>
+            </div>
+            <select value={filters.freqReliability}
+              onChange={e => onChange({ freqReliability: e.target.value })}
+              className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+              style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+              {TINGKAT_OPTIONS.map(k => (
+                <option key={k || 'any'} value={k}>{k || 'Any'}</option>
+              ))}
+            </select>
+          </div>
+          <div className="my-[7px] mb-2.5">
+            <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+              <span>Monitoring priority</span>
+            </div>
+            <select value={filters.priority}
+              onChange={e => onChange({ priority: e.target.value })}
+              className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+              style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+              {TINGKAT_OPTIONS.map(k => (
+                <option key={k || 'any'} value={k}>{k || 'Any'}</option>
+              ))}
+            </select>
+          </div>
+          {/* Discovery filters, migration 039. Same Range + select patterns
+              as everything above; no new component is introduced. */}
+          <Range label="Min. save rate" min={0} max={20} step={0.5} value={filters.saveMin}
+            display={filters.saveMin ? `>= ${filters.saveMin}%` : 'Any'}
+            onChange={v => onChange({ saveMin: v })} />
+          <Range label="Min. viral frequency" min={0} max={100} step={5} value={filters.viralMin}
+            display={filters.viralMin ? `>= ${filters.viralMin}%` : 'Any'}
+            onChange={v => onChange({ viralMin: v })} />
+          <label className="flex items-center gap-2 text-[10.5px] my-[7px]"
+            style={{ color: T.t1 }}>
+            <input type="checkbox" checked={filters.risingOnly}
+              onChange={e => onChange({ risingOnly: e.target.checked })} />
+            <span>Rising creator saja (Growth &gt;= 5%)</span>
+          </label>
+          {([
+            ['Content topic', 'contentTopic', TOPIC_OPTIONS],
+            ['Content format', 'formatDominant', FORMAT_OPTIONS],
+            ['Audience quality', 'audQuality', TINGKAT_OPTIONS],
+            ['Performance stability', 'stability', STABILITY_OPTIONS],
+            ['Audience interest', 'audInterest', TOPIC_OPTIONS],
+          ] as const).map(([label, key, opsi]) => (
+            <div className="my-[7px] mb-2.5" key={key}>
+              <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+                <span>{label}</span>
+              </div>
+              <select value={filters[key] as string}
+                onChange={e => onChange({ [key]: e.target.value } as Partial<KolFilters>)}
+                className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+                style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+                {opsi.map(k => (
+                  <option key={k || 'any'} value={k}>{k || 'Any'}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+          <div className="my-[7px] mb-2.5">
+            <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+              <span>Audience location</span>
+            </div>
+            <div className="flex gap-1.5">
+              <input value={filters.geoKey} placeholder="mis. Bandung / Bali"
+                onChange={e => onChange({ geoKey: e.target.value })}
+                className="flex-1 text-[10.5px] rounded-md px-2 py-1.5 border"
+                style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }} />
+              <select value={filters.geoLevel}
+                onChange={e => onChange({ geoLevel: e.target.value })}
+                className="text-[10.5px] rounded-md px-2 py-1.5 border"
+                style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+                {GEO_LEVEL_OPTIONS.map(k => (
+                  <option key={k || 'any'} value={k}>{k || 'Semua tingkat'}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
+            Save rate hanya ada di TikTok. Topik konten diklasifikasi dari caption
+            dan hashtag post nyata; bila tidak ada post yang terbaca, kategori
+            roster dipakai sebagai cadangan dan ditandai berbeda. Audience
+            location dipisah per tingkat -- Bali dan Lampung adalah provinsi,
+            bukan kota.
+          </p>
+          <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
+            Gender, paid ratio, post frequency dan share rate baru terukur untuk
+            sebagian kecil roster; memasang minimum akan menyembunyikan creator
+            yang belum pernah diukur — bukan menandainya nol. Share rate hanya
+            ada di TikTok: Instagram publik tidak melaporkan share.
+          </p>
           <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
             Engagement rate hanya terukur pada sebagian roster — memasang minimum
             akan menyembunyikan creator yang belum pernah diukur. Rate card ada

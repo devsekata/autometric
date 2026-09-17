@@ -92,6 +92,110 @@ export interface KolDirectoryRow {
    * sides of the fraction rather than counted as zero.
    */
   l2vPct: number | null
+  /**
+   * Follower change since the previous snapshot as a percentage, and the
+   * working-threshold label over it. Both from `l2_gold.kol_profile_card`:
+   * computed in `l1_silver.sp_build_unified_profile`, labelled by
+   * `metrics_thresholds.py`, never recomputed here.
+   *
+   * `growthClass` is null exactly when `growthPct` is. An account with one
+   * snapshot has no growth yet, which is not the same as growing badly.
+   */
+  growthClass: string | null
+  /** Followers gained per day between the two snapshots. Not a percentage. */
+  dailyGrowth: number | null
+  /**
+   * Growth 30D. `projected30d` is the projected DELTA over thirty days
+   * (`dailyGrowth * 30`), and `projectedFollowers30d` is that delta applied to
+   * the CURRENT snapshot. For 100 -> 125 over 25 days: delta 30, followers 155.
+   *
+   * A projection, not observed thirty-day growth: real snapshot gaps are
+   * 10-15 days, and this extrapolates the measured daily rate. It never
+   * requires the snapshots to be exactly 30 days apart.
+   *
+   * Both may be negative, and neither is clamped: an account losing followers
+   * is exactly what this is meant to surface.
+   */
+  projected30d: number | null
+  projectedFollowers30d: number | null
+  /**
+   * Audience gender split with `unknown` EXCLUDED from the denominator, so the
+   * two always add to 100 when present. `genderKnownPct` says how much of the
+   * audience that split actually covers - on this roster unknown dominates,
+   * so it is not decoration.
+   */
+  femalePct: number | null
+  malePct: number | null
+  genderKnownPct: number | null
+  /** High/Medium/Low over `genderKnownPct`. Rates the DATA, not the creator. */
+  genderReliability: string | null
+  /**
+   * Sponsored posts over posts whose sponsorship is KNOWN, percent.
+   * `paidSignalCount` is that denominator: without it a 0% cannot be told
+   * apart from "nothing was ever measured".
+   */
+  paidRatio: number | null
+  paidSignalCount: number | null
+  /**
+   * Shares over engagement (likes + comments + shares), percent. Null on
+   * Instagram, which never reports shares - null, not zero. Deliberately NOT
+   * shares/views: that is the old prototype's definition, not this one.
+   */
+  shareRate: number | null
+  /**
+   * Post frequency, MONTHLY ONLY - the agreed unit - over the REAL span
+   * between first and last post, never a fixed window.
+   *
+   * `postFrequencyDaily` is kept as the basis behind it (monthly is daily x 30)
+   * but stays out of the table, filters and export: one agreed unit, so two
+   * numbers cannot disagree on screen. There is deliberately no weekly or
+   * yearly variant.
+   */
+  postFrequencyDaily: number | null
+  postFrequencyMonthly: number | null
+  postFrequencyCount: number | null
+  observationDays: number | null
+  /**
+   * High/Medium/Low from span AND post count together. Null when there is no
+   * valid post at all - null is "not yet judgeable", not "Low".
+   */
+  postFrequencyReliability: string | null
+  /**
+   * The ER that produced `monitoringPriority`, carried so the label can be
+   * audited. Not a competing source of truth for ER.
+   */
+  monitoringErPct: number | null
+  /** High/Medium/Low over ER. A null ER stays null - never Low. */
+  monitoringPriority: string | null
+  /**
+   * Discovery filters, migration 039. All carried through from
+   * `l2_gold.kol_profile_card` untouched.
+   *
+   * The two `*Source` fields are what keep inferred from passing as observed:
+   * `contentTopicSource` is 'creator_category_fallback' when the topic came
+   * from the roster category rather than from real posts, and
+   * `audienceInterestSource` is 'content_inferred' when audience interest was
+   * entirely unknown and the creator's own content topic stood in for it.
+   * A UI that prints the value without the source would be misleading.
+   */
+  saveRate: number | null
+  viralFrequency: number | null
+  viralPostCount: number | null
+  contentTopic: string | null
+  contentTopicSource: string | null
+  formatDominant: string | null
+  audienceQualityScore: number | null
+  audienceQualityTier: string | null
+  audienceInterestTop: string | null
+  audienceInterestSource: string | null
+  /** Standard deviation of historical ER in PERCENTAGE POINTS, and how many
+   *  periods produced it. Fewer than three and `performanceStability` is null:
+   *  two points always look steady. */
+  erStddevPp: number | null
+  erPeriods: number | null
+  performanceStability: string | null
+  /** Growth >= 5%. Null when growth is unmeasured - null is NOT false. */
+  risingCreator: boolean | null
   /** Business Connected: platform_user_id AND oauth_token both set. */
   connected: boolean
   /** Platform badge (blue tick). Separate from `connected` -- never derived
@@ -162,6 +266,37 @@ export interface KolDirectoryQuery {
   /** Percentage points. Null means no bound; 0 is a real bound, not "any". */
   minGrowth?: number | null
   maxGrowth?: number | null
+  /**
+   * Calculated-metric filters (migrations 037/038).
+   *
+   * Each drops rows whose metric is NULL while the filter is ON, and brings
+   * them back the moment it is cleared - the rule `updatedWithinDays` already
+   * follows. That is deliberate: "female audience >= 60%" cannot be answered
+   * for a creator whose audience gender is unknown, and quietly counting them
+   * as passing would be worse than leaving them out.
+   */
+  minFemalePct?: number | null
+  minMalePct?: number | null
+  maxPaidRatio?: number | null
+  minPostFrequencyMonthly?: number | null
+  minShareRate?: number | null
+  /** Category filters. An absent or empty array means "no bound". */
+  growthClass?: string[] | null
+  postFrequencyReliability?: string[] | null
+  monitoringPriority?: string[] | null
+  /** Discovery filters, migration 039. Same NULL-drops-while-active rule. */
+  minSaveRate?: number | null
+  minViralFrequency?: number | null
+  risingOnly?: boolean
+  contentTopic?: string[] | null
+  formatDominant?: string[] | null
+  audienceQualityTier?: string[] | null
+  performanceStability?: string[] | null
+  audienceInterest?: string[] | null
+  /** Audience location. `audienceGeoLevel` narrows which hierarchy level the
+   *  key is matched against, so a city name cannot match a province row. */
+  audienceGeoKey?: string | null
+  audienceGeoLevel?: string | null
   connectedOnly?: boolean
   /**
    * Platform badge only. A SEPARATE axis from `connectedOnly` and never a
@@ -211,6 +346,16 @@ const SORT_COLUMNS: Record<string, string> = {
   avgviews: 'avg_views',
   medviews: 'median_views',
   v2f: 'v2f_pct',
+  // Calculated metrics. Only the numeric ones are rankable - the three label
+  // columns are categories, and ordering 'High' before 'Low' alphabetically
+  // would be an accident dressed up as a ranking.
+  paidratio: 'paid_ratio',
+  sharerate: 'share_rate',
+  postfreq: 'post_frequency_monthly',
+  female: 'female_pct',
+  male: 'male_pct',
+  saverate: 'save_rate',
+  viralfreq: 'viral_frequency',
 }
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
@@ -326,6 +471,19 @@ const ER_LATERAL = `
 /** Measured metric first, roster column as fallback. See ER_LATERAL. */
 const ER_PCT = 'COALESCE(fer.engagement_rate::float, kd.engagement_rate::float)'
 
+/**
+ * Engagement rate from the feature layer ONLY: the source of truth for the
+ * creator profile and its ER ranking (audit 17 Sep 2026).
+ *
+ * The directory list keeps `ER_PCT` so its filter and sort do not lose the
+ * ~1,700 creators that only have a roster value. The profile does not:
+ * `kol_directory.engagement_rate` is a different definition (average of
+ * per-post ratios over the current follower count, no shares), so showing it
+ * there, or ranking a feature value against it, mixes two metrics. A creator
+ * without a feature value reads "belum diukur" on the profile instead.
+ */
+const FEATURE_ER_PCT = 'fer.engagement_rate::float'
+
 const BASE = `
   SELECT kd.id,
          kd.username,
@@ -357,6 +515,7 @@ const BASE = `
          cats.keys                                 AS category_keys,
          kd.followers_count                        AS followers,
          ${ER_PCT}                                 AS er_pct,
+         ${FEATURE_ER_PCT}                         AS feature_er_pct,
          t.name                                    AS tier,
          -- Connected -- the business definition, not the platform's blue tick.
          -- A creator is Connected when they have actually linked the account
@@ -398,6 +557,41 @@ const BASE = `
          g.median_views::float                     AS median_views,
          g.view_to_follower_ratio::float           AS v2f_pct,
          g.like_to_view_ratio::float               AS l2v_pct,
+         -- Calculated metrics, migrations 037/038. Same float-cast reason as
+         -- growth_pct above. The label columns are text and need no cast.
+         g.growth_class                            AS growth_class,
+         g.daily_growth::float                     AS daily_growth,
+         g.projected_30d                           AS projected_30d,
+         g.projected_followers_30d                 AS projected_followers_30d,
+         g.female_pct::float                       AS female_pct,
+         g.male_pct::float                         AS male_pct,
+         g.gender_known_pct::float                 AS gender_known_pct,
+         g.gender_reliability                      AS gender_reliability,
+         g.paid_ratio::float                       AS paid_ratio,
+         g.paid_signal_count                       AS paid_signal_count,
+         g.share_rate::float                       AS share_rate,
+         g.post_frequency_daily::float             AS post_frequency_daily,
+         g.post_frequency_monthly::float           AS post_frequency_monthly,
+         g.post_frequency_count                    AS post_frequency_count,
+         g.observation_days                        AS observation_days,
+         g.post_frequency_reliability              AS post_frequency_reliability,
+         g.monitoring_er_pct::float                AS monitoring_er_pct,
+         g.monitoring_priority                     AS monitoring_priority,
+         -- Discovery filters, migration 039.
+         g.save_rate::float                        AS save_rate,
+         g.viral_frequency::float                  AS viral_frequency,
+         g.viral_post_count                        AS viral_post_count,
+         g.content_topic                           AS content_topic,
+         g.content_topic_source                    AS content_topic_source,
+         g.format_dominant                         AS format_dominant,
+         g.audience_quality_score::float           AS audience_quality_score,
+         g.audience_quality_tier                   AS audience_quality_tier,
+         g.audience_interest_top                   AS audience_interest_top,
+         g.audience_interest_source                AS audience_interest_source,
+         g.er_stddev_pp::float                     AS er_stddev_pp,
+         g.er_periods                              AS er_periods,
+         g.performance_stability                   AS performance_stability,
+         g.rising_creator                          AS rising_creator,
          kd.last_refreshed_at,
          -- Not mapped onto the row; carried so the list can be ordered by when
          -- a creator was added, which is what the Discovery landing's "Recently
@@ -448,7 +642,23 @@ const BASE = `
              -- no second lateral, and no chance of two joins disagreeing about
              -- which of a creator's accounts answered.
              c.views_analyzed_count, c.avg_views, c.median_views,
-             c.view_to_follower_ratio, c.like_to_view_ratio
+             c.view_to_follower_ratio, c.like_to_view_ratio,
+             -- Calculated metrics ride the SAME lateral, so they always
+             -- describe the same account the avatar and growth already do.
+             c.growth_class, c.daily_growth, c.projected_30d,
+             c.projected_followers_30d,
+             c.female_pct, c.male_pct, c.gender_known_pct, c.gender_reliability,
+             c.paid_ratio, c.paid_signal_count, c.share_rate,
+             c.post_frequency_daily, c.post_frequency_monthly,
+             c.post_frequency_count, c.observation_days,
+             c.post_frequency_reliability,
+             c.monitoring_er_pct, c.monitoring_priority,
+             c.save_rate, c.viral_frequency, c.viral_post_count,
+             c.content_topic, c.content_topic_source, c.format_dominant,
+             c.audience_quality_score, c.audience_quality_tier,
+             c.audience_interest_top, c.audience_interest_source,
+             c.er_stddev_pp, c.er_periods, c.performance_stability,
+             c.rising_creator
         FROM public.kol_social_account ksa
         JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
        WHERE ksa.kol_id = kd.id
@@ -522,6 +732,24 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     tier: string | null; growth_pct: number | null; connected: boolean
     views_analyzed_count: number | null; avg_views: number | null
     median_views: number | null; v2f_pct: number | null; l2v_pct: number | null
+    growth_class: string | null; daily_growth: number | null
+    projected_30d: number | null; projected_followers_30d: number | null
+    female_pct: number | null; male_pct: number | null
+    gender_known_pct: number | null; gender_reliability: string | null
+    paid_ratio: number | null; paid_signal_count: number | null
+    share_rate: number | null
+    post_frequency_daily: number | null; post_frequency_monthly: number | null
+    post_frequency_count: number | null; observation_days: number | null
+    post_frequency_reliability: string | null
+    monitoring_er_pct: number | null; monitoring_priority: string | null
+    save_rate: number | null; viral_frequency: number | null
+    viral_post_count: number | null
+    content_topic: string | null; content_topic_source: string | null
+    format_dominant: string | null
+    audience_quality_score: number | null; audience_quality_tier: string | null
+    audience_interest_top: string | null; audience_interest_source: string | null
+    er_stddev_pp: number | null; er_periods: number | null
+    performance_stability: string | null; rising_creator: boolean | null
     verified: boolean; status: KolDataStatus
     last_refreshed_at: Date | string | null; total_count: number
   }>(
@@ -570,6 +798,44 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
                  JOIN l1_silver.unified_rate_card u
                    ON u.social_account_id = ksa.social_account_id
                 WHERE ksa.kol_id = b.id AND u.fee IS NOT NULL AND u.fee <= $11))
+         -- Calculated-metric filters (037/038). Each is inert while its
+         -- parameter is NULL, so a creator missing the metric only disappears
+         -- when someone actually asks a question that metric has to answer.
+         AND ($17::float8 IS NULL OR b.female_pct  >= $17)
+         AND ($18::float8 IS NULL OR b.male_pct    >= $18)
+         -- Paid ratio is a CEILING: "show me creators who are not mostly ads".
+         AND ($19::float8 IS NULL OR b.paid_ratio  <= $19)
+         AND ($20::float8 IS NULL OR b.post_frequency_monthly >= $20)
+         AND ($21::float8 IS NULL OR b.share_rate  >= $21)
+         -- Category filters. Empty array is normalised to NULL before binding,
+         -- so an untouched multi-select never filters anything out.
+         AND ($22::text[] IS NULL OR b.growth_class = ANY ($22))
+         AND ($23::text[] IS NULL OR b.post_frequency_reliability = ANY ($23))
+         AND ($24::text[] IS NULL OR b.monitoring_priority = ANY ($24))
+         -- Discovery filters, migration 039.
+         AND ($25::float8 IS NULL OR b.save_rate       >= $25)
+         AND ($26::float8 IS NULL OR b.viral_frequency >= $26)
+         -- Rising: TRUE only. A null growth is not a failed one, so it stays
+         -- out while the toggle is on and returns the moment it is cleared.
+         AND ($27::boolean IS NOT TRUE OR b.rising_creator IS TRUE)
+         AND ($28::text[] IS NULL OR b.content_topic         = ANY ($28))
+         AND ($29::text[] IS NULL OR b.format_dominant       = ANY ($29))
+         AND ($30::text[] IS NULL OR b.audience_quality_tier = ANY ($30))
+         AND ($31::text[] IS NULL OR b.performance_stability = ANY ($31))
+         AND ($32::text[] IS NULL OR b.audience_interest_top = ANY ($32))
+         -- Audience location. EXISTS against the daily table rather than a
+         -- card column: a creator has many locations, and flattening them to
+         -- one would answer a different question. The level is matched too,
+         -- so "Bali" as a province never collides with a city of the same
+         -- spelling -- the mix-up migration 039 set out to fix.
+         AND ($33::text IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.kol_social_account ksa
+                 JOIN l2_gold.audience_geo_daily gd
+                   ON gd.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id
+                  AND gd.geo_key = $33
+                  AND ($34::text IS NULL OR gd.geo_level = $34)))
     )
     SELECT *, COUNT(*) OVER()::int AS total_count
       FROM filtered
@@ -598,6 +864,28 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
         ? Math.trunc(query.updatedWithinDays)
         : null,
       query.agency || null,
+      // Numeric bounds are not truncated and 0 is meaningful throughout:
+      // 0% paid and 0% share are real answers, not "unset".
+      query.minFemalePct ?? null,
+      query.minMalePct ?? null,
+      query.maxPaidRatio ?? null,
+      query.minPostFrequencyMonthly ?? null,
+      query.minShareRate ?? null,
+      // `?.length ? ... : null` and not `?? null`: an empty array would
+      // otherwise match nothing at all and silently empty the directory.
+      query.growthClass?.length ? query.growthClass : null,
+      query.postFrequencyReliability?.length ? query.postFrequencyReliability : null,
+      query.monitoringPriority?.length ? query.monitoringPriority : null,
+      query.minSaveRate ?? null,
+      query.minViralFrequency ?? null,
+      query.risingOnly === true,
+      query.contentTopic?.length ? query.contentTopic : null,
+      query.formatDominant?.length ? query.formatDominant : null,
+      query.audienceQualityTier?.length ? query.audienceQualityTier : null,
+      query.performanceStability?.length ? query.performanceStability : null,
+      query.audienceInterest?.length ? query.audienceInterest : null,
+      query.audienceGeoKey || null,
+      query.audienceGeoLevel || null,
     ],
   )
 
@@ -622,6 +910,40 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       medianViews: r.median_views,
       v2fPct: r.v2f_pct,
       l2vPct: r.l2v_pct,
+      // Straight through, null included — the same rule the four view metrics
+      // above already follow. Nothing is recomputed on this side.
+      growthClass: r.growth_class,
+      dailyGrowth: r.daily_growth,
+      projected30d: r.projected_30d,
+      projectedFollowers30d: r.projected_followers_30d,
+      femalePct: r.female_pct,
+      malePct: r.male_pct,
+      genderKnownPct: r.gender_known_pct,
+      genderReliability: r.gender_reliability,
+      paidRatio: r.paid_ratio,
+      paidSignalCount: r.paid_signal_count,
+      shareRate: r.share_rate,
+      postFrequencyDaily: r.post_frequency_daily,
+      postFrequencyMonthly: r.post_frequency_monthly,
+      postFrequencyCount: r.post_frequency_count,
+      observationDays: r.observation_days,
+      postFrequencyReliability: r.post_frequency_reliability,
+      monitoringErPct: r.monitoring_er_pct,
+      monitoringPriority: r.monitoring_priority,
+      saveRate: r.save_rate,
+      viralFrequency: r.viral_frequency,
+      viralPostCount: r.viral_post_count,
+      contentTopic: r.content_topic,
+      contentTopicSource: r.content_topic_source,
+      formatDominant: r.format_dominant,
+      audienceQualityScore: r.audience_quality_score,
+      audienceQualityTier: r.audience_quality_tier,
+      audienceInterestTop: r.audience_interest_top,
+      audienceInterestSource: r.audience_interest_source,
+      erStddevPp: r.er_stddev_pp,
+      erPeriods: r.er_periods,
+      performanceStability: r.performance_stability,
+      risingCreator: r.rising_creator,
       connected: r.connected,
       verified: r.verified,
       status: r.status,
@@ -819,9 +1141,28 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
-    er_pct: number | null; tier: string | null; growth_pct: number | null; connected: boolean
+    er_pct: number | null; feature_er_pct: number | null
+    tier: string | null; growth_pct: number | null; connected: boolean
     views_analyzed_count: number | null; avg_views: number | null
     median_views: number | null; v2f_pct: number | null; l2v_pct: number | null
+    growth_class: string | null; daily_growth: number | null
+    projected_30d: number | null; projected_followers_30d: number | null
+    female_pct: number | null; male_pct: number | null
+    gender_known_pct: number | null; gender_reliability: string | null
+    paid_ratio: number | null; paid_signal_count: number | null
+    share_rate: number | null
+    post_frequency_daily: number | null; post_frequency_monthly: number | null
+    post_frequency_count: number | null; observation_days: number | null
+    post_frequency_reliability: string | null
+    monitoring_er_pct: number | null; monitoring_priority: string | null
+    save_rate: number | null; viral_frequency: number | null
+    viral_post_count: number | null
+    content_topic: string | null; content_topic_source: string | null
+    format_dominant: string | null
+    audience_quality_score: number | null; audience_quality_tier: string | null
+    audience_interest_top: string | null; audience_interest_source: string | null
+    er_stddev_pp: number | null; er_periods: number | null
+    performance_stability: string | null; rising_creator: boolean | null
     verified: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
     card_display_name: string | null
@@ -859,16 +1200,24 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       category_total: number; category_followers_rank: number | null
       category_er_rank: number | null; category_er_total: number
     }>(`
+      -- ER population: the SAME feature value the profile shows (FEATURE_ER_PCT,
+      -- picked per creator by ER_LATERAL), so a feature ER is never ranked
+      -- against roster ERs.
+      WITH fe AS (
+        SELECT kd.id, kd.category_ids, kd.category_id,
+               ${FEATURE_ER_PCT} AS er
+          FROM public.kol_directory kd${ER_LATERAL}
+         WHERE ${ACTIVE}
+           AND fer.engagement_rate IS NOT NULL
+      )
       SELECT
         (SELECT COUNT(*) FROM public.kol_directory kd WHERE ${ACTIVE})::int AS roster_total,
         (SELECT COUNT(*) + 1 FROM public.kol_directory kd
           WHERE ${ACTIVE} AND kd.followers_count > $1)::int AS followers_rank,
         CASE WHEN $2::float8 IS NULL THEN NULL ELSE
-          (SELECT COUNT(*) + 1 FROM public.kol_directory kd
-            WHERE ${ACTIVE} AND kd.engagement_rate > $2)::int
+          (SELECT COUNT(*) + 1 FROM fe WHERE fe.er > $2)::int
         END AS er_rank,
-        (SELECT COUNT(*) FROM public.kol_directory kd
-          WHERE ${ACTIVE} AND kd.engagement_rate IS NOT NULL)::int AS er_measured_total,
+        (SELECT COUNT(*) FROM fe)::int AS er_measured_total,
         -- Category standing only means something when the creator has one; the
         -- 46% of the roster with no category get nulls here, not a fake rank.
         (SELECT COUNT(*) FROM public.kol_directory kd
@@ -882,18 +1231,18 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
         -- "Top N% in category" is a claim about engagement inside the niche, so
         -- it is ranked against the category's measured rows, not the roster's.
         CASE WHEN $3::text IS NULL OR $2::float8 IS NULL THEN NULL ELSE
-          (SELECT COUNT(*) + 1 FROM public.kol_directory kd
+          (SELECT COUNT(*) + 1 FROM fe kd
             JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
-           WHERE ${ACTIVE} AND kc.name = $3 AND kd.engagement_rate > $2)::int
+           WHERE kc.name = $3 AND kd.er > $2)::int
         END AS category_er_rank,
-        (SELECT COUNT(*) FROM public.kol_directory kd
+        (SELECT COUNT(*) FROM fe kd
           JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
-         WHERE ${ACTIVE} AND kc.name = $3 AND kd.engagement_rate IS NOT NULL)::int
+         WHERE kc.name = $3)::int
           AS category_er_total`,
       // The creator's own id is deliberately absent: every count here is over
       // the roster, and an unused parameter leaves Postgres unable to infer a
       // type for it ("could not determine data type of parameter $1").
-      [r.followers ?? 0, r.er_pct, r.categories?.[0] ?? null],
+      [r.followers ?? 0, r.feature_er_pct, r.categories?.[0] ?? null],
     ),
     /**
      * The same person on another platform is a separate row keyed by the same
@@ -907,7 +1256,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       er_pct: number | null; connected: boolean; verified: boolean
     }>(`
       SELECT kd.id, pl.key AS platform, kd.username, kd.profile_url,
-             kd.followers_count AS followers, ${ER_PCT} AS er_pct,
+             kd.followers_count AS followers, ${FEATURE_ER_PCT} AS er_pct,
              EXISTS (
                SELECT 1
                  FROM public.kol_social_account ksa
@@ -936,7 +1285,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: number | null; er_pct: number | null; tier: string | null
     }>(`
       SELECT kd.id, kd.username, pl.key AS platform, kd.avatar_url,
-             kd.followers_count AS followers, ${ER_PCT} AS er_pct,
+             kd.followers_count AS followers, ${FEATURE_ER_PCT} AS er_pct,
              t.name AS tier
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
@@ -976,7 +1325,9 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       city: r.city,
       categories: r.categories ?? [],
       followers: r.followers,
-      erPct: r.er_pct,
+      // Profile ER is the feature value only (FEATURE_ER_PCT); the list keeps
+      // the roster fallback.
+      erPct: r.feature_er_pct,
       tier: r.tier,
       growthPct: r.growth_pct,
       // Straight through, null included. A creator the pipeline has no view
@@ -986,6 +1337,40 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       medianViews: r.median_views,
       v2fPct: r.v2f_pct,
       l2vPct: r.l2v_pct,
+      // Straight through, null included — the same rule the four view metrics
+      // above already follow. Nothing is recomputed on this side.
+      growthClass: r.growth_class,
+      dailyGrowth: r.daily_growth,
+      projected30d: r.projected_30d,
+      projectedFollowers30d: r.projected_followers_30d,
+      femalePct: r.female_pct,
+      malePct: r.male_pct,
+      genderKnownPct: r.gender_known_pct,
+      genderReliability: r.gender_reliability,
+      paidRatio: r.paid_ratio,
+      paidSignalCount: r.paid_signal_count,
+      shareRate: r.share_rate,
+      postFrequencyDaily: r.post_frequency_daily,
+      postFrequencyMonthly: r.post_frequency_monthly,
+      postFrequencyCount: r.post_frequency_count,
+      observationDays: r.observation_days,
+      postFrequencyReliability: r.post_frequency_reliability,
+      monitoringErPct: r.monitoring_er_pct,
+      monitoringPriority: r.monitoring_priority,
+      saveRate: r.save_rate,
+      viralFrequency: r.viral_frequency,
+      viralPostCount: r.viral_post_count,
+      contentTopic: r.content_topic,
+      contentTopicSource: r.content_topic_source,
+      formatDominant: r.format_dominant,
+      audienceQualityScore: r.audience_quality_score,
+      audienceQualityTier: r.audience_quality_tier,
+      audienceInterestTop: r.audience_interest_top,
+      audienceInterestSource: r.audience_interest_source,
+      erStddevPp: r.er_stddev_pp,
+      erPeriods: r.er_periods,
+      performanceStability: r.performance_stability,
+      risingCreator: r.rising_creator,
       connected: r.connected,
       verified: r.verified,
       status: r.status,

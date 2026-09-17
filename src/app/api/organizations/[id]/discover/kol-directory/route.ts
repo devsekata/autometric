@@ -31,6 +31,17 @@ export async function GET(req: NextRequest, { params }: Params) {
       return Number.isFinite(v) ? v : null
     }
 
+    /**
+     * Comma-separated category filter, the shape `tier` already uses.
+     * Returns null rather than [] for an absent or empty param: an empty
+     * array bound to `= ANY($n)` matches nothing and would empty the
+     * directory instead of leaving it unfiltered.
+     */
+    const list = (key: string) => {
+      const v = (sp.get(key) || '').split(',').map(x => x.trim()).filter(Boolean)
+      return v.length ? v : null
+    }
+
     // `?ids=` fetches an explicit set — what Compare asks for. Shape-checked
     // because the column is UUID and a malformed value would fail the statement
     // rather than return nothing, and capped so a hand-made query cannot ask for
@@ -53,6 +64,30 @@ export async function GET(req: NextRequest, { params }: Params) {
       // truthiness check.
       minGrowth: num('growthMin'),
       maxGrowth: num('growthMax'),
+      // Calculated metrics (037/038). Numeric bounds go through `num`, which
+      // keeps an absent param absent — 0 is a real bound for every one of
+      // them, so a truthiness check would silently drop it.
+      minFemalePct: num('femaleMin'),
+      minMalePct: num('maleMin'),
+      maxPaidRatio: num('paidMax'),
+      minPostFrequencyMonthly: num('postFreqMin'),
+      minShareRate: num('shareMin'),
+      // Category filters arrive comma-separated, the shape `tier` already
+      // uses. An empty string yields null, not [''], which would match nothing.
+      growthClass: list('growthClass'),
+      postFrequencyReliability: list('freqReliability'),
+      monitoringPriority: list('priority'),
+      // Discovery filters, migration 039.
+      minSaveRate: num('saveMin'),
+      minViralFrequency: num('viralMin'),
+      risingOnly: sp.get('rising') === '1',
+      contentTopic: list('topic'),
+      formatDominant: list('format'),
+      audienceQualityTier: list('audQuality'),
+      performanceStability: list('stability'),
+      audienceInterest: list('interest'),
+      audienceGeoKey: sp.get('geoKey'),
+      audienceGeoLevel: sp.get('geoLevel'),
       connectedOnly: sp.get('connected') === '1',
       // Separate axis from `connected`, deliberately: one is the platform's
       // badge, the other is whether the creator linked the account to us.
