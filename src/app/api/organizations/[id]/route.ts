@@ -5,8 +5,8 @@ import {
   updateOrg,
   softDeleteOrg,
   getMemberRole,
+  countActiveBrandsForOrg,
 } from '@/lib/organizations/queries'
-import { countBrandsForOrg } from '@/lib/brands/queries'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -70,7 +70,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     // An organization must be emptied first: deleting its brands is what releases
     // the connected accounts' OAuth tokens, and it keeps a single click from
     // wiping months of tracked data.
-    const brandCount = await countBrandsForOrg(id)
+    const brandCount = await countActiveBrandsForOrg(id)
     if (brandCount > 0) {
       return NextResponse.json(
         {

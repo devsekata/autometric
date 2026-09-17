@@ -244,6 +244,16 @@ export async function updateOrg(
   return getOrgForUser(orgId, userId)
 }
 
+// Same rule as `brand_count` in ORG_SELECT — KOL `public.brand`, not the
+// warehouse `brands` table, which has no rows keyed by an agency id.
+export async function countActiveBrandsForOrg(orgId: string): Promise<number> {
+  const { rows } = await kolDb().query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM public.brand WHERE agency_id = $1 AND is_active = true`,
+    [orgId]
+  )
+  return rows[0]?.count ?? 0
+}
+
 // Soft delete: the medallion layers hold ON DELETE RESTRICT foreign keys to
 // public.brands, so a real DELETE aborts for any org whose brands have gold
 // data. Marking `deleted_at` hides the org everywhere (every read path filters
