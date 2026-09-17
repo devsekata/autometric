@@ -11,24 +11,18 @@
  * username, platform, followers, engagement rate, category, tier and verified.
  * For the creators the warehouse has harvested, `l1_silver.unified_post` also
  * backs likes, comments, views, the format mix and the content grid, and
- * `l1_silver.unified_rate_card` backs the price. Everything else is sampled
- * (historically `@/lib/discover/kolSample`, deleted in Phase 4D) and stamped
- * with `<SampleTag />` at the
- * figure, not just in a footnote.
+ * `l1_silver.unified_rate_card` backs the price; `l2_gold` and `feature` back
+ * growth, audience, per-post ER and the format ER.
  *
- * Which of the two a given figure is depends on the creator, not on the tile, so
- * sections read the per-field flags in `intel.real` rather than hardcoding
- * `sample` — `@/lib/discover/kolIntel` is what sets them. Where a section can mix
- * the two — Platform Comparison, whose follower counts and rates are real for the
- * 277 creators holding accounts on both platforms — the real columns are left
- * unstamped so the difference is visible in the same table.
+ * Nothing is sampled. A figure with no source for this creator renders as
+ * "Belum terukur" or an `Unavailable` panel — never as a generated number.
  */
 
 import { useCallback, useMemo, useState } from 'react'
 import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, Btn } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import {
-  Bars, Donut, EmptyBlock, Meter, Overlay, Row, SampleTag, Split, TrendChart,
+  Bars, Donut, EmptyBlock, Meter, Overlay, Row, Split, TrendChart,
   VIZ, VizCard, StatTile,
 } from './kolViz'
 import type { ContentItem } from '@/lib/discover/kolIntel'
@@ -40,6 +34,7 @@ import type {
   KolCreatorIdentity, KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow, KolSimilarRow,
 } from '@/lib/discover/kolDirectory'
 import type { GoldFormatDay, GoldPost, KolGold } from '@/lib/discover/kolGold'
+import { formatErRows } from '@/lib/discover/kolFormatEr'
 
 export interface SectionProps {
   creator: KolDirectoryRow
@@ -56,12 +51,7 @@ export interface SectionProps {
   match: MatchExplanation | null
   matchScoreable: boolean | null
   orgSlug: string
-  /**
-   * Measured where the warehouse has a source, sampled elsewhere. Sections read
-   * `intel.real` to decide which figures carry the estimate marker rather than
-   * hardcoding `sample` — the same tile is real for a harvested creator and an
-   * estimate for the other 7,695.
-   */
+  /** Measured figures, each null where the warehouse has no source. */
   intel: CreatorIntel
   /**
    * The L2 Gold rollups, when the pipeline has any for this creator. A third
@@ -69,10 +59,9 @@ export interface SectionProps {
    * of time rather than ones this page derives.
    *
    * Null, and each field inside independently empty, so a section renders its
-   * real block only where L2 actually has rows and otherwise falls back to the
-   * sampled block it showed before. Never coalesce a null to zero — `null` here
-   * means "the pipeline could not measure it", which is what the missing
-   * Insights columns are.
+   * real block only where L2 actually has rows and otherwise an unavailable
+   * state. Never coalesce a null to zero — `null` here means "the pipeline could
+   * not measure it", which is what the missing Insights columns are.
    */
   gold: KolGold | null
 }
@@ -85,17 +74,6 @@ export const platformLabel = (k: string | null) => (k ? PLATFORM_LABEL[k] ?? k :
 const pctLabel = (n: number) => `${n.toFixed(2)}%`
 
 /* ── Performance ──────────────────────────────────────────────────────────── */
-
-type MetricKey = 'erPct' | 'reach' | 'views' | 'followers'
-
-const METRICS: { key: MetricKey; label: string; format: (n: number) => string }[] = [
-  { key: 'erPct', label: 'Engagement rate', format: n => `${n.toFixed(2)}%` },
-  { key: 'reach', label: 'Reach', format: fmtNum },
-  { key: 'views', label: 'Views', format: fmtNum },
-  { key: 'followers', label: 'Followers', format: fmtNum },
-]
-
-const PERIODS = ['30 hari terakhir', '90 hari terakhir', '6 bulan terakhir'] as const
 
 /** Metrics the L2 rollups actually carry. `reach` is absent on purpose: every
  *  `reach_sum` in `kol_metric_daily`/`_monthly` is NULL — it needs the Insights
@@ -118,10 +96,6 @@ type GoldMetricKey = (typeof GOLD_METRICS)[number]['key']
 type GoldGrain = 'daily' | 'monthly'
 
 export function PerformanceSection({ creator, platforms, intel, gold }: SectionProps) {
-  const [metric, setMetric] = useState<MetricKey>('erPct')
-  const [platform, setPlatform] = useState('all')
-  const [period, setPeriod] = useState<string>(PERIODS[2])
-  const m = METRICS.find(x => x.key === metric) ?? METRICS[0]
   const basis = measuredBasis(intel)
 
   const [goldGrain, setGoldGrain] = useState<GoldGrain>('daily')
@@ -198,39 +172,18 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
 
   const hasGold = goldPoints.length > 0 || (gold?.daily.length ?? 0) > 0
 
-  /**
-   * The period control trims the series rather than refetching: there is only
-   * one sampled series behind it, and a filter that visibly does nothing is
-   * worse than one that does the honest, small thing.
-   */
   /*
    * The generated six-month series is gone. The real trend is the L2 Gold card
-   * above, which reads `kol_metric_daily` / `kol_metric_monthly` - 55 creators
-   * have rows and 28 have the two-or-more periods a line needs.
+   * below, which reads `kol_metric_daily` / `kol_metric_monthly` and carries its
+   * own grain and metric controls.
    *
-   * `period` and `metric` still drive that card's own controls; there is no
-   * second series left for them to trim.
+   * The Platform / Period / Metric row that sat above it drove nothing once
+   * that series went — and its Metric list still offered Reach, which has no
+   * column. Removed rather than left as controls that change no number.
    */
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Sub-filters sit in one row above the cards, never inside them. */}
-      <div className="flex items-end gap-2.5 flex-wrap">
-        <Field label="Platform">
-          <Select value={platform} onChange={setPlatform}
-            options={([['all', 'Semua platform']] as [string, string][])
-              .concat(platforms.map(p => [p.platform ?? 'other', platformLabel(p.platform)] as [string, string]))} />
-        </Field>
-        <Field label="Period">
-          <Select value={period} onChange={setPeriod}
-            options={PERIODS.map(p => [p, p] as [string, string])} />
-        </Field>
-        <Field label="Metric">
-          <Select value={metric} onChange={v => setMetric(v as MetricKey)}
-            options={METRICS.map(x => [x.key, x.label] as [string, string])} />
-        </Field>
-      </div>
-
       {hasGold && (
         <VizCard
           title="Performance (terukur, L2 Gold)"
@@ -301,7 +254,7 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
 
       <Split
         main={
-          <VizCard title="Performance Trend" subtitle={m.label}>
+          <VizCard title="Performance Trend">
             {hasGold
               ? (
                 <p className="text-[11px] leading-relaxed" style={{ color: T.t3 }}>
@@ -453,11 +406,11 @@ function EngagementBreakdown({ intel }: { intel: CreatorIntel }) {
   )
 }
 
-function MetricRow({ label, cells, sample }: { label: string; cells: string[]; sample?: boolean }) {
+function MetricRow({ label, cells }: { label: string; cells: string[] }) {
   return (
     <tr style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
       <td className="py-2" style={{ color: T.t3 }}>
-        <span className="inline-flex items-center gap-1.5">{label}{sample && <SampleTag compact />}</span>
+        <span className="inline-flex items-center gap-1.5">{label}</span>
       </td>
       {cells.map((c, i) => (
         <td key={i} className="py-2 text-right tabular-nums" style={{ ...PJ, color: T.t1, fontWeight: 700 }}>{c}</td>
@@ -474,10 +427,9 @@ const CONTENT_SORTS = [
 ] as const
 
 /**
- * Sorts for the L2 post table. The same three ideas as the sampled grid above,
- * declared separately on purpose: `top` there means the sampled ER, here it
- * means the pipeline's `er_followers`. Sharing one constant would suggest the
- * two tables are ordered by the same number.
+ * Sorts for the L2 post table. Declared apart from `CONTENT_SORTS` because the
+ * two tables hold different post sets (L1 recent twelve vs. L2 up to 200), even
+ * though `top` means the pipeline's `er_followers` in both.
  */
 const GOLD_POST_SORTS = [
   ['top', 'ER tertinggi'], ['recent', 'Terbaru'], ['views', 'Views terbanyak'],
@@ -492,10 +444,8 @@ const POST_ICON: Record<string, string> = {
 const POSTED_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
 
 /**
- * A sampled item's `postedAt` is already a label ("Jan 2026"); a harvested one
- * carries the post's ISO timestamp, which was reaching the overlay raw. Only the
- * timestamp is reformatted — `new Date('Jan 2026')` parses, so handing the label
- * to the same path would silently rewrite it as "1 Jan 2026".
+ * A post's ISO timestamp (or `YYYY-MM-DD`) as a short Indonesian date. Anything
+ * that is not a date is returned untouched.
  */
 function postedLabel(v: string): string {
   if (!/^\d{4}-\d{2}-\d{2}/.test(v)) return v
@@ -561,10 +511,6 @@ function PostCover({
   )
 }
 
-/** Sums that keep null meaning "never measured" instead of collapsing it to 0. */
-const addNullable = (a: number | null, b: number | null): number | null =>
-  a === null && b === null ? null : (a ?? 0) + (b ?? 0)
-
 /** The pipeline stores ER as a fraction 0..1; every screen shows a percentage. */
 const erLabel = (v: number | null) => (v === null ? '\u2014' : `${(v * 100).toFixed(2)}%`)
 
@@ -572,10 +518,9 @@ const erLabel = (v: number | null) => (v === null ? '\u2014' : `${(v * 100).toFi
  * One row per published post, carrying the pipeline's own rank and ER rather
  * than figures this page derives.
  *
- * Sits ABOVE the sampled grid instead of replacing it. The grid holds covers and
- * captions, which `post_metric` does not store; this table holds numbers the
- * grid can only estimate. They are two different things about the same posts, so
- * dropping either would lose something real.
+ * Sits ABOVE the content grid instead of replacing it. The grid holds covers and
+ * captions, which `post_metric` does not store; this table holds the pipeline's
+ * rank and ER. Two different things about the same posts.
  *
  * A column is omitted entirely when no row carries it, rather than rendered as a
  * stack of dashes. `shares` and `saves` are the live case: TikTok reports them
@@ -762,42 +707,14 @@ function GoldPostsCard({ posts }: { posts: GoldPost[] }) {
 /**
  * The format mix and the ER behind it, from `l2_gold.content_format_daily`.
  *
- * Replaces the sampled "Content Format" card only for creators the pipeline
- * actually covers; everyone else keeps the estimated one, so no creator loses a
- * card and no card silently changes provenance.
+ * Replaces the L1 "Content Format" card for creators the pipeline covers;
+ * everyone else keeps the L1 mix, or an unavailable state.
  *
- * ER per format is `sum(engagement) / sum(followersDenom)`, never the mean of
- * the daily `erFollowers`. A ratio is not additive: averaging the daily column
- * weights a day carrying one post the same as a day carrying twenty. The
- * pipeline makes the same choice for its monthly ER, and keeping the denominator
- * on the row is the only reason this page can repeat it.
+ * ER per format comes from `formatErRows` — see `@/lib/discover/kolFormatEr`
+ * for why engagement and its denominator are summed over the same days only.
  */
 function GoldFormatsCard({ formats }: { formats: GoldFormatDay[] }) {
-  const rows = useMemo(() => {
-    const by = new Map<string, {
-      posts: number; inSample: number
-      engagement: number | null; denom: number | null; views: number | null
-    }>()
-    for (const f of formats) {
-      const cur = by.get(f.mediaType)
-        ?? { posts: 0, inSample: 0, engagement: null, denom: null, views: null }
-      cur.posts += f.postCount
-      cur.inSample += f.postsInSample
-      cur.engagement = addNullable(cur.engagement, f.engagement)
-      cur.denom = addNullable(cur.denom, f.followersDenom)
-      cur.views = addNullable(cur.views, f.views)
-      by.set(f.mediaType, cur)
-    }
-    return [...by.entries()]
-      .map(([mediaType, v]) => ({
-        mediaType,
-        ...v,
-        er: v.engagement !== null && v.denom !== null && v.denom > 0
-          ? v.engagement / v.denom
-          : null,
-      }))
-      .sort((a, b) => b.posts - a.posts)
-  }, [formats])
+  const rows = useMemo(() => formatErRows(formats), [formats])
 
   const totalPosts = rows.reduce((a, r) => a + r.posts, 0)
   const days = new Set(formats.map(f => f.date)).size
@@ -925,7 +842,7 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                       <div className="text-[10px]" style={{ color: T.t4 }}>
                         {[
                           c.views === null ? null : 'views',
-                          c.erPct === null ? null : `ER ${c.erPct}%`,
+                          c.erPct === null ? null : `ER ${c.erPct.toFixed(2)}%`,
                           c.likes === null ? null : `${fmtNum(c.likes)} likes`,
                         ].filter(Boolean).join(' · ') || 'belum ada metrik'}
                       </div>
@@ -1074,9 +991,9 @@ function ContentDetail({
             )}
 
             {/* Every row is this post's own figure or "Belum terukur".
-                engagement rate needs both likes and views and is null without
-                them. Sentiment is gone — the comments-analysis table holds
-                zero rows. */}
+                Engagement rate is the pipeline's `post_metric.er_followers`,
+                null where it left it null. Sentiment is gone — the
+                comments-analysis table holds zero rows. */}
             <Row label="Views" value={num(item.views)} />
             <Row label="Likes" value={num(item.likes)} />
             <Row label="Comments" value={num(item.comments)} />
@@ -1084,8 +1001,8 @@ function ContentDetail({
                 creators whose harvest carried them, unavailable otherwise. */}
             <Row label="Shares" value={num(item.shares)} />
             <Row label="Saves" value={num(item.saves)} />
-            <Row label="Engagement rate"
-              value={item.erPct === null ? NOT_MEASURED : `${item.erPct}%`} />
+            <Row label="Engagement rate (followers)"
+              value={item.erPct === null ? NOT_MEASURED : `${item.erPct.toFixed(2)}%`} />
             {item.permalink && (
               <Row label="Permalink" value={
                 <a href={item.permalink} target="_blank" rel="noreferrer"
@@ -1105,8 +1022,8 @@ function ContentDetail({
               </div>
             </div>
 
-            {/* A harvested post links to itself; a generated one can only offer
-                the creator's profile, which is the nearest real thing. */}
+            {/* A post without a permalink falls back to the creator's profile,
+                the nearest real thing. */}
             {item.permalink ? (
               <a href={item.permalink} target="_blank" rel="noopener noreferrer"
                 style={{ ...PJ, color: T.primary }}
@@ -1198,9 +1115,8 @@ export function AudienceSection({ gold }: SectionProps) {
   const q = gold?.audienceQuality ?? null
 
   // Each breakdown is independently present: a creator can have geo rows and no
-  // interest rows. The sampled card for a dimension is dropped only where L2
-  // actually has that dimension, so the page never shows both for the same idea
-  // with two different numbers.
+  // interest rows. The unavailable card for a dimension shows only where L2 has
+  // nothing for it.
   const hasGender = !!g?.gender.length
   const hasAge = !!g?.age.length
   const hasGeo = !!(g?.countries.length || g?.cities.length)
@@ -1302,11 +1218,8 @@ export function AudienceSection({ gold }: SectionProps) {
              it with two different numbers, and the reader has no way to tell
              which one to believe. The Top Locations and Audience Interests cards
              beside this one already drop out for exactly that reason; these
-             blocks follow the same rule so the whole tab is consistent.
-
-             Generation stays whatever happens: it has no L2 counterpart, so it
-             is the one estimate here that competes with nothing. */
-          <VizCard title="Audience Demographics" sample>
+             blocks follow the same rule so the whole tab is consistent. */
+          <VizCard title="Audience Demographics">
             {/* The generated gender donut is gone. When L2 has gender it is
                 drawn by the card above; when it does not, there is nothing to
                 draw and saying so is the whole point. */}

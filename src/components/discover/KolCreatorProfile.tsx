@@ -10,12 +10,12 @@
  *
  * Most of this section is real. About's Category, Niche and Agency come from the
  * roster and its agency tables; Connected Platforms is the creator's actual
- * follower split across the accounts they hold. Collab status and Match are the
- * only sampled fields, and they are marked.
+ * follower split across the accounts they hold; Match is the Brand Match
+ * Engine's status. Nothing here is sampled.
  */
 
 import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, RosterAvatar } from './ui'
-import { SampleTag, Split, VIZ, VizCard } from './kolViz'
+import { Split, VIZ, VizCard } from './kolViz'
 import { platformLabel, type SectionProps } from './KolCreatorSections'
 
 /* ── Profile ──────────────────────────────────────────────────────────────── */
@@ -132,8 +132,8 @@ export function ProfileSection({
       />
 
       {/* Full width, as the brief has it: the teaser that earns the click. */}
-      <VizCard title="✦ AI Snapshot" sample
-        subtitle={`Why ${identity.displayName ?? `@${creator.username}`} fits your brand`}
+      <VizCard title="✦ AI Snapshot"
+        subtitle="Posisi engagement di kategori — dari data roster"
         action={
           <button type="button" onClick={() => onGoTo('ai')} style={{ ...PJ, color: T.primary }}
             className="text-[10.5px] font-bold hover:underline whitespace-nowrap">
@@ -175,14 +175,13 @@ export function ProfileSection({
   )
 }
 
-function MiniField({ label, value, sample }: { label: string; value: string; sample?: boolean }) {
+function MiniField({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[12px] border px-3 py-2.5" style={{ borderColor: T.outline, background: T.surfaceLow }}>
       <div className="flex items-center gap-1">
         <span style={{ ...PJ, color: T.t4 }} className="text-[9px] font-extrabold uppercase tracking-widest">
           {label}
         </span>
-        {sample && <SampleTag compact />}
       </div>
       <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold mt-1 break-words">{value}</div>
     </div>
@@ -267,11 +266,11 @@ function SimilarRow({
  * "Insights" elsewhere in this product means a model's opinion. Here it means
  * what the roster can actually establish about this creator: where they sit,
  * where their audience is concentrated across platforms, whether their rate has
- * ever been measured, and how fresh the row is. Only the last item is sampled,
- * and it says so.
+ * ever been measured, and which format dominates the harvested posts. Every
+ * item is computed from data; an item without data is left out.
  */
 export function InsightsSection({ creator, rank, platforms, similar, intel }: SectionProps) {
-  const items: { icon: string; tone: string; title: string; body: React.ReactNode; sample?: boolean }[] = []
+  const items: { icon: string; tone: string; title: string; body: React.ReactNode }[] = []
 
   items.push({
     icon: 'leaderboard',
@@ -331,20 +330,22 @@ export function InsightsSection({ creator, rank, platforms, similar, intel }: Se
     })
   }
 
-  items.push({
-    icon: 'movie',
-    tone: VIZ.warning,
-    title: `Format ${intel.content.formats[0]?.label ?? 'video'} paling kuat`,
-    body: <>Menyumbang <b>{intel.content.formats[0]?.pct ?? 0}%</b> performa kontennya.</>,
-    // Real once the warehouse holds this creator's posts: the mix is counted
-    // from them rather than modelled.
-    sample: !intel.real.formats,
-  })
+  // Only with harvested posts. It used to fall back to "Format video, 0%" for
+  // everyone else, and it said "performa" of a figure that is a share of posts.
+  const topFormat = intel.real.formats ? intel.content.formats[0] : undefined
+  if (topFormat) {
+    items.push({
+      icon: 'movie',
+      tone: VIZ.warning,
+      title: `Format ${topFormat.label} paling sering dipakai`,
+      body: <><b>{topFormat.pct}%</b> dari {intel.measured?.postCount ?? topFormat.n} post yang terpanen.</>,
+    })
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <VizCard title="✦ Key Opportunities"
-        subtitle="Kecuali yang bertanda, seluruhnya dihitung dari roster">
+        subtitle="Dihitung dari roster dan post yang terpanen">
         <ol className="flex flex-col">
           {items.map((it, i) => (
             <li key={it.title} className="flex items-start gap-3 py-3"
@@ -357,7 +358,6 @@ export function InsightsSection({ creator, rank, platforms, similar, intel }: Se
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="material-symbols-outlined text-[15px]" style={{ color: it.tone }}>{it.icon}</span>
                   <span style={{ ...PJ, color: T.t1 }} className="text-[12px] font-extrabold">{it.title}</span>
-                  {it.sample && <SampleTag compact />}
                 </div>
                 <p className="text-[11.5px] leading-[1.55] mt-1" style={{ color: T.t3 }}>{it.body}</p>
               </div>

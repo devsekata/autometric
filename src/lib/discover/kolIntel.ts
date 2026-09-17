@@ -1,5 +1,6 @@
 import type { KolDirectoryRow } from './kolDirectory'
 import type { KolMeasured } from './kolMeasured'
+import type { GoldPost } from './kolGold'
 
 /**
  * One creator's intelligence — measured, or explicitly absent.
@@ -82,8 +83,13 @@ export interface ContentItem {
   shares: number | null
   saves: number | null
   /**
-   * Engagement over views for this post, in percent. Null unless BOTH are
-   * measured — a rate computed against an unmeasured denominator is not a rate.
+   * The pipeline's own ER for this post — `l2_gold.post_metric.er_followers`,
+   * (like + comment + share) over followers at post date — as a percentage.
+   *
+   * Null when the pipeline left it null (no follower snapshot before the post,
+   * likes hidden, or a collaboration) or has no row for the post. It used to be
+   * (likes + comments) / views computed here: a second ER definition, against a
+   * different denominator, printed under the same label as the roster ER.
    */
   erPct: number | null
   hashtags: string[]
@@ -166,7 +172,11 @@ const EMPTY_PERFORMANCE: CreatorIntel['performance'] = {
 }
 
 /** Turns one harvested post into the grid's shape. Nothing is filled in. */
-function toItem(post: KolMeasured['recent'][number], platform: string): ContentItem {
+function toItem(
+  post: KolMeasured['recent'][number],
+  platform: string,
+  erFollowers: number | null,
+): ContentItem {
   const caption = post.caption?.trim() ?? ''
   return {
     // A caption is the only title these posts have; its first line reads as a
@@ -183,9 +193,7 @@ function toItem(post: KolMeasured['recent'][number], platform: string): ContentI
     comments: post.comments,
     shares: post.shares,
     saves: post.saves,
-    erPct: post.views !== null && post.views > 0 && post.likes !== null
-      ? Math.round(((post.likes + (post.comments ?? 0)) / post.views) * 1000) / 10
-      : null,
+    erPct: erFollowers === null ? null : Math.round(erFollowers * 10_000) / 100,
     hashtags: post.hashtags.map(t => `#${t}`),
     sponsored: post.sponsored,
   }
@@ -205,9 +213,15 @@ function postsPer30d(m: KolMeasured): number | null {
   return Math.round((m.postCount / days) * 30 * 10) / 10
 }
 
+/**
+ * `creatorIntel` takes the L2 posts as an optional third argument, only to read
+ * each post's pipeline ER. Joined on the platform's `content_id`, the same key
+ * `gold_post.py` builds `post_metric` from.
+ */
 export function creatorIntel(
   creator: KolDirectoryRow,
   measured: KolMeasured | null,
+  goldPosts: GoldPost[] = [],
 ): CreatorIntel {
   if (!measured) {
     return {
@@ -234,7 +248,12 @@ export function creatorIntel(
   const hashtags = measured.hashtags ?? []
   const platform = creator.platform ?? 'instagram'
 
-  const items = recent.map(p => toItem(p, platform))
+  const erByContent = new Map(
+    goldPosts.map(g => [`${g.platform}:${g.contentId}`, g.erFollowers] as const))
+  const items = recent.map(p => toItem(
+    p, platform,
+    p.contentId ? erByContent.get(`${platform}:${p.contentId}`) ?? null : null,
+  ))
 
   return {
     measured,

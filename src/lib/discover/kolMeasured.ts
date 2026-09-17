@@ -44,6 +44,8 @@ import { toIso } from './util'
 
 export interface KolMeasuredPost {
   id: string
+  /** The platform's own post id — the key `l2_gold.post_metric` is joined on. */
+  contentId: string | null
   /** ISO timestamp of the post, or null when the harvest carried none. */
   date: string | null
   /** Raw warehouse value (`clips`, `feed`, `CAROUSEL`, …), kept for grouping. */
@@ -152,14 +154,19 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
 
   const [agg, recent, rates, tags, sponsored] = await Promise.all([
     db.query<{
-      media_type: string | null; n: number
+      media_type: string | null; n: number; n_likes: number
       likes: string | null; comments: string | null; views: string | null
       shares: string | null; reach: string | null; saved: string | null
       first_at: Date | string | null; last_at: Date | string | null
     }>(
+      // `likes = -1` is Instagram's "likes hidden" sentinel, which the pipeline
+      // leaves as-is in every layer (migration 013). Summed raw it drags the
+      // total down by one per hidden post, so it is filtered out here and the
+      // average divides by the posts that actually carry a count.
       `SELECT p.media_type,
               COUNT(*)::int   AS n,
-              SUM(p.likes)    AS likes,
+              SUM(p.likes)   FILTER (WHERE p.likes >= 0)      AS likes,
+              COUNT(p.likes) FILTER (WHERE p.likes >= 0)::int AS n_likes,
               SUM(p.comments) AS comments,
               SUM(p.views)    AS views,
               SUM(p.shares)   AS shares,
@@ -175,17 +182,18 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
     ),
 
     db.query<{
-      id: string; at: Date | string | null; media_type: string | null
+      id: string; content_id: string | null; at: Date | string | null; media_type: string | null
       caption: string | null; title: string | null
       permalink: string | null; cover_image: string | null
       likes: string | null; comments: string | null; views: string | null
       shares: string | null; saved: string | null
       hashtags: string[] | null; is_sponsored: boolean | null
     }>(
-      `SELECT p.id,
+      `SELECT p.id, p.content_id,
               COALESCE(p.posted_at, p.date::timestamptz) AS at,
               p.media_type, p.caption, p.title, p.permalink, p.cover_image,
-              p.likes, p.comments, p.views, p.shares, p.saved,
+              CASE WHEN p.likes < 0 THEN NULL ELSE p.likes END AS likes,
+              p.comments, p.views, p.shares, p.saved,
               p.hashtags, p.is_sponsored
          FROM public.kol_social_account ksa
          JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
@@ -250,6 +258,7 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
   const likes = total('likes')
   const comments = total('comments')
   const views = total('views')
+  const likesCounted = agg.rows.reduce((a, r) => a + r.n_likes, 0)
 
   return {
     postCount,
@@ -261,7 +270,11 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
       reach: total('reach'),
       saved: total('saved'),
     },
-    averages: { likes: avg(likes), comments: avg(comments), views: avg(views) },
+    averages: {
+      likes: likes === null || likesCounted === 0 ? null : Math.round(likes / likesCounted),
+      comments: avg(comments),
+      views: avg(views),
+    },
     formats: [...agg.rows]
       .sort((a, b) => b.n - a.n)
       .map(r => ({
@@ -271,6 +284,7 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
       })),
     recent: recent.rows.map(r => ({
       id: r.id,
+      contentId: r.content_id,
       date: toIso(r.at),
       mediaType: r.media_type,
       format: postFormatLabel(r.media_type),

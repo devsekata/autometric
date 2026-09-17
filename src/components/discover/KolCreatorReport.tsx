@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react'
 import { PJ, TOKENS as T, Btn } from './ui'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
-import { Overlay, Row, SampleTag } from './kolViz'
+import { Overlay, Row } from './kolViz'
 import { platformLabel } from './KolCreatorSections'
 import type { CreatorIntel } from '@/lib/discover/kolIntel'
 import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
@@ -59,10 +59,9 @@ export default function KolCreatorReport({
   const [note, setNote] = useState<string | null>(null)
 
   /**
-   * The export carries the roster fields plus the standings — the parts that
-   * survive leaving the screen. Sampled figures are deliberately left out: a
-   * spreadsheet strips the markers that qualify them here, and a number in a
-   * downloaded file outlives every caveat around it.
+   * The export carries the roster fields plus the standings, and the measured
+   * content and prices where this creator has them. Sections with no data for
+   * this creator are left out rather than exported blank.
    */
   const m = intel.measured
 
@@ -71,7 +70,7 @@ export default function KolCreatorReport({
     platform: platformLabel(creator.platform),
     tier: creator.tier ?? '—',
     categories: creator.categories.join(' · ') || '—',
-    followers: creator.followers ?? 0,
+    followers: creator.followers ?? '',
     erPct: creator.erPct === null ? '' : creator.erPct.toFixed(2),
     connected: creator.connected ? 'Ya' : 'Tidak',
     status: creator.status,
@@ -163,9 +162,8 @@ export default function KolCreatorReport({
 
   /**
    * Which of the chosen sections the file can actually carry. A section only
-   * counts as real when the figures behind it were measured for *this* creator:
-   * Content and Performance are real for the harvested ones and modelled for
-   * everyone else, so the note below has to be computed, not written once.
+   * counts when the figures behind it were measured for *this* creator, so the
+   * note below has to be computed, not written once.
    */
   const realSections = [
     PROFILE_SECTION,
@@ -189,7 +187,7 @@ export default function KolCreatorReport({
     if (format === 'CSV') exportCsv(rows, cols, file)
     else exportExcel(rows, cols, file)
     setNote(sampled.length
-      ? `File berisi ${includedLabel} (data asli). ${sampled.length} section lain tidak ikut karena isinya angka estimasi.`
+      ? `File berisi ${includedLabel} (data asli). ${sampled.length} section lain tidak ikut karena belum ada datanya.`
       : `File berisi ${includedLabel} (data asli).`)
   }
 
@@ -215,7 +213,9 @@ export default function KolCreatorReport({
               {picked.has(s) ? 'check_box' : 'check_box_outline_blank'}
             </span>
             <span style={{ color: picked.has(s) ? T.t1 : T.t3 }}>{s}</span>
-            {!realSections.includes(s) && <SampleTag compact />}
+            {!realSections.includes(s) && (
+              <span className="ml-auto text-[10px] font-semibold" style={{ color: T.t4 }}>belum ada data</span>
+            )}
           </button>
         ))}
       </div>
@@ -248,8 +248,8 @@ export default function KolCreatorReport({
             dan comments-nya.</>
           )}
           {sampled.length > 0 && (
-            <> {sampled.length} section lain tidak diekspor: isinya angka estimasi, dan file
-            spreadsheet melepas penanda yang ada di layar.</>
+            <> {sampled.length} section lain tidak diekspor karena belum ada data terukur
+            untuk creator ini.</>
           )}
         </p>
       </div>

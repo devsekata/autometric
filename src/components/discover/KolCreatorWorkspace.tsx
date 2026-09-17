@@ -23,19 +23,18 @@
  *
  * Part of the rest is measured too, for the creators the warehouse has actually
  * harvested: likes, comments, views, the format mix and the content grid come
- * from `l1_silver.unified_post`, and prices from `l1_silver.unified_rate_card`.
- * `@/lib/discover/kolIntel` overlays those onto the sampled shape and reports,
- * per field, which is which.
+ * from `l1_silver.unified_post`, prices from `l1_silver.unified_rate_card`, and
+ * growth, audience and per-post ER from `l2_gold` / `feature` via `kolGold`.
  *
- * What still has no source anywhere — reach, EMV, CPE, growth, audience
- * demographics, campaigns, brand fit and AI prose — stays sampled and is marked
- * as an estimate at every figure.
+ * Nothing on this page is generated. What has no source — reach, EMV, CPE,
+ * age, campaign history, AI prose — renders as "Belum terukur" or an empty
+ * state, never as a placeholder number.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PJ, TOKENS as T, PLATFORM_ICON, Btn, fmtNum, RosterAvatar } from './ui'
-import { ErrorBlock, Overlay, Row, SampleTag, Skeleton, StatTile, VIZ } from './kolViz'
+import { ErrorBlock, Overlay, Row, Skeleton, StatTile, VIZ } from './kolViz'
 import { ProfileSection, InsightsSection } from './KolCreatorProfile'
 import KolCreatorReport from './KolCreatorReport'
 import {
@@ -66,8 +65,6 @@ const NAV = [
 ] as const
 
 type NavId = (typeof NAV)[number]['id']
-
-const CAMPAIGN_OPTIONS = ['Summer Beauty Campaign', 'Ramadan 2026', 'Product Launch Q3']
 
 export default function KolCreatorWorkspace({
   orgId, orgSlug, kolId,
@@ -120,7 +117,6 @@ export default function KolCreatorWorkspace({
   const [compareTray, setCompareTray] = useState(false)
   const [campaignOpen, setCampaignOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
-  const [addedTo, setAddedTo] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -147,14 +143,9 @@ export default function KolCreatorWorkspace({
     return () => window.clearTimeout(t)
   }, [toast])
 
-  /**
-   * Measured figures where the warehouse has them, sampled everywhere else. The
-   * sampled half is seeded from the creator id, so it is identical on every
-   * render and every reload — placeholder numbers that reshuffle themselves make
-   * the screen obviously fake and screenshots irreproducible.
-   */
+  /** Measured figures only; every field is null where the warehouse has none. */
   const intel = useMemo(
-    () => (data ? creatorIntel(data.creator, data.measured) : null),
+    () => (data ? creatorIntel(data.creator, data.measured, data.gold?.posts ?? []) : null),
     [data],
   )
 
@@ -239,8 +230,6 @@ export default function KolCreatorWorkspace({
           onCompare={() => { setCompareTray(true); setToast('Ditambahkan ke compare') }}
           onAddCampaign={() => setCampaignOpen(true)}
           onReport={() => setReportOpen(true)}
-          addedTo={addedTo}
-          setToast={setToast}
         />
       )}
 
@@ -251,12 +240,7 @@ export default function KolCreatorWorkspace({
             name={data.identity.displayName ?? `@${data.creator.username}`}
             username={data.creator.username}
             tier={data.creator.tier}
-            rates={data.measured?.rates ?? []}
-            onAdd={campaign => {
-              setAddedTo(campaign)
-              setCampaignOpen(false)
-              setToast(`@${data.creator.username} ditambahkan ke ${campaign}`)
-            }} />
+            rates={data.measured?.rates ?? []} />
 
           <KolCreatorReport
             open={reportOpen} onClose={() => setReportOpen(false)}
@@ -296,7 +280,7 @@ export default function KolCreatorWorkspace({
 
 function Loaded({
   data, intel, view, goTo, fav, onFav, inRoster, onRoster, tracking, onTracking, linkBusy, link,
-  onCompare, onAddCampaign, onReport, addedTo, setToast, match, matchScoreable, orgSlug,
+  onCompare, onAddCampaign, onReport, match, matchScoreable, orgSlug,
 }: {
   data: KolCreatorPayload
   intel: CreatorIntel
@@ -321,8 +305,6 @@ function Loaded({
   onCompare: () => void
   onAddCampaign: () => void
   onReport: () => void
-  addedTo: string | null
-  setToast: (s: string) => void
 }) {
   const { creator, identity, rank, platforms, similar } = data
 
@@ -359,10 +341,6 @@ function Loaded({
     match, matchScoreable, orgSlug,
   }
   const name = identity.displayName ?? `@${creator.username}`
-
-  const estReach = creator.followers !== null && creator.erPct !== null
-    ? Math.round((creator.followers * creator.erPct) / 100)
-    : null
 
   /** "Top N% in category" — the real standing, not a slogan. */
   const categoryTop = rank.categoryErPercentile === null
@@ -415,11 +393,8 @@ function Loaded({
                     {creator.tier}
                   </span>
                 )}
-                <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: T.t4 }}>
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#3d8a5f' }} />
-                  Available
-                  <SampleTag compact />
-                </span>
+                {/* "Available" stood here for every creator: the roster has no
+                    availability column, so the status is left out. */}
               </div>
 
               {identity.displayName && (
@@ -451,10 +426,6 @@ function Loaded({
             </div>
 
             <div className="flex items-center gap-1.5 flex-wrap pb-0.5">
-              <span style={{ ...PJ, background: '#fdf3e7', color: '#b5761f' }}
-                className="text-[9px] font-extrabold px-2 py-1 rounded-md mr-1">
-                Demo profile · Sample data
-              </span>
               <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite" on={fav}
                 onClick={onFav} />
               {/* The organization's two decisions, beside the personal one.
@@ -522,12 +493,6 @@ function Loaded({
             )}
           </div>
 
-          {addedTo && (
-            <div className="mt-3 inline-flex items-center gap-1.5 text-[11px]" style={{ color: '#3d8a5f' }}>
-              <span className="material-symbols-outlined text-[15px]">check_circle</span>
-              Sudah ada di <b>{addedTo}</b>
-            </div>
-          )}
         </div>
       </div>
 
@@ -569,8 +534,9 @@ function Loaded({
 
       {/* ── six secondary KPIs ── */}
       <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
-        <StatTile label="Reach" value={estReach === null ? '—' : fmtNum(estReach)}
-          hint="followers × ER" />
+        {/* Was followers × ER, labelled Reach: that product is engagements per
+            post, not reach. No reach column is populated on the KOL server. */}
+        <StatTile label="Reach" value="Belum terukur" hint="belum ada data reach" />
         <StatTile label="Avg. Views"
           value={intel.kpi.avgViews === null ? 'Belum terukur' : fmtNum(intel.kpi.avgViews)}
           hint={intel.kpi.avgViews === null ? undefined : viewsBasis} />
@@ -654,10 +620,9 @@ function Loaded({
  * that makes the qualifier checkable.
  */
 function BigKpi({
-  label, value, note, sub, sample, noteSample,
+  label, value, note, sub,
 }: {
   label: string; value: string; note: string; sub?: string
-  sample?: boolean; noteSample?: boolean
 }) {
   return (
     <div className="rounded-[16px] border px-4 py-3.5" style={{ borderColor: T.outline, background: VIZ.surface }}>
@@ -665,14 +630,12 @@ function BigKpi({
         <span style={{ ...PJ, color: T.t4 }} className="text-[10px] font-extrabold uppercase tracking-widest">
           {label}
         </span>
-        {sample && <SampleTag compact />}
       </div>
       <div style={{ ...PJ, color: T.t1 }} className="text-[27px] font-extrabold mt-1.5 tracking-[-0.03em] leading-none">
         {value}
       </div>
       <div className="flex items-center gap-1 mt-1.5">
         <span style={{ ...PJ, color: T.primaryDeep }} className="text-[11px] font-bold">{note}</span>
-        {noteSample && <SampleTag compact />}
       </div>
       {sub && <div className="text-[9.5px] mt-1" style={{ color: T.t4 }}>{sub}</div>}
     </div>
@@ -681,8 +644,16 @@ function BigKpi({
 
 /* ── add to campaign ──────────────────────────────────────────────────────── */
 
+/**
+ * The creator's real cost, ahead of adding them to a campaign.
+ *
+ * The campaign picker is gone: it offered three written-in names ("Summer
+ * Beauty Campaign", ...) and "added" the creator to one of them without writing
+ * anything. Campaigns live in the order tables on the warehouse, which this KOL
+ * screen does not read, so there is no real list to offer here yet.
+ */
 function AddToCampaign({
-  open, onClose, name, username, tier, rates, onAdd,
+  open, onClose, name, username, tier, rates,
 }: {
   open: boolean
   onClose: () => void
@@ -691,10 +662,7 @@ function AddToCampaign({
   tier: string | null
   /** The creator's real prices, empty for the ~6% of the roster without any. */
   rates: KolMeasuredRate[]
-  onAdd: (campaign: string) => void
 }) {
-  const [campaign, setCampaign] = useState(CAMPAIGN_OPTIONS[0])
-
   /**
    * The cost line used to be a hardcoded "$4,500 – $6,000" under a note saying
    * the KOL database had no rate card. It does: `l1_silver.unified_rate_card`
@@ -712,21 +680,9 @@ function AddToCampaign({
 
   return (
     <Overlay open={open} title="Add Creator to Campaign" side="right" onClose={onClose}
-      footer={
-        <>
-          <Btn onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" onClick={() => onAdd(campaign)}>Add Creator</Btn>
-        </>
-      }>
+      footer={<Btn onClick={onClose}>Tutup</Btn>}>
       <div style={{ ...PJ, color: T.t1 }} className="text-[13px] font-extrabold">{name}</div>
       <div className="text-[11px] mb-4" style={{ color: T.t4 }}>@{username} · {tier ?? 'Creator'}</div>
-
-      <div className="text-[10.5px] mb-1" style={{ color: T.t3 }}>Select campaign</div>
-      <select value={campaign} onChange={e => setCampaign(e.target.value)}
-        className="w-full h-9 rounded-lg border px-2 text-[11.5px] mb-4"
-        style={{ borderColor: T.outline, color: T.t1, background: T.surface }}>
-        {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-      </select>
 
       <div className="rounded-xl border px-3 py-2.5 mb-3" style={{ borderColor: T.outline }}>
         <div className="text-[10.5px] mb-1.5" style={{ color: T.t3 }}>Selected creator</div>
@@ -736,7 +692,7 @@ function AddToCampaign({
         </div>
       </div>
 
-      <Row label="Estimated cost" value={cost ?? 'belum ada rate card'} sample={cost === null} />
+      <Row label="Estimated cost" value={cost ?? '—'} />
 
       {cost !== null && rates.length > 1 && (
         <div className="mt-2 flex flex-col gap-1">
@@ -756,7 +712,7 @@ function AddToCampaign({
         {cost === null
           ? 'Creator ini belum punya rate card di database KOL, jadi biayanya belum bisa dihitung.'
           : 'Harga di atas berasal dari rate card creator di database KOL.'}
-        {' '}Daftar campaign masih estimasi — tabel campaign platform KOL masih kosong.
+        {' '}Daftar campaign belum bisa dipilih dari halaman ini — tabel campaign di database KOL masih kosong.
       </p>
     </Overlay>
   )

@@ -19,6 +19,7 @@
     "verify:filters": "dotenv -e .env.local -- npx tsx scripts/verify-discovery-filters.ts",
     "verify:kol-filters": "dotenv -e .env.local -- npx tsx scripts/verify-kol-filters.ts",
     "verify:rate-card": "dotenv -e .env.local -- npx tsx scripts/verify-rate-card.ts",
+    "verify:profile-real": "dotenv -e .env.local -- npx tsx scripts/verify-creator-profile-real.ts",
     "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
     "verify:nav-roles": "npx tsx scripts/verify-nav-roles.ts",
     "verify:persistence": "dotenv -e .env.local -- npx tsx scripts/verify-discover-persistence.ts",
