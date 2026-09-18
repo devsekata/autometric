@@ -187,6 +187,27 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
     }
   }
 
+  // A handle already in the directory is not inserted again; it is linked to
+  // this workspace through My Creators' own add, which is idempotent.
+  async function addExistingToMyCreators(kolId: string) {
+    setSubmitting(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/organizations/${encodeURIComponent(orgId)}/discover/my-creators`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kolId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'The KOL could not be added to My Creators.')
+      setSubmitting(false)
+      onKolAdded(kolId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+      setSubmitting(false)
+    }
+  }
+
   // Poll the per-step status endpoint while the scrape runs in the
   // background. Stops itself once the whole pipeline succeeds (and hands
   // off to the parent) or fails (the failure is shown, never auto-retried).
@@ -278,6 +299,7 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
               error={error}
               onEdit={backToInput}
               onAdd={addKol}
+              onAddExisting={addExistingToMyCreators}
               onCancel={onClose}
             />
           )}
@@ -492,13 +514,14 @@ function CheckingPhase() {
 /* ── 3. result ────────────────────────────────────────────────────────────── */
 
 function ResultPhase({
-  result, submitting, error, onEdit, onAdd, onCancel,
+  result, submitting, error, onEdit, onAdd, onAddExisting, onCancel,
 }: {
   result: CheckResult
   submitting: boolean
   error: string
   onEdit: () => void
   onAdd: (a: AccountPreview) => void
+  onAddExisting: (kolId: string) => void
   onCancel: () => void
 }) {
   return (
@@ -530,7 +553,7 @@ function ResultPhase({
       {result.state === 'already_in_directory' && (
         <Outcome
           tone="info" icon="how_to_reg" title="KOL sudah ada di directory"
-          body={`@${result.kol.username} is already listed in the KOL directory. Nothing new will be created.`}
+          body={`@${result.kol.username} is already listed in the KOL directory. Nothing new will be created — adding links the existing creator to this workspace's My Creators.`}
           notes={[
             result.kol.followersCount !== null ? `Followers: ${fmtNum(result.kol.followersCount)}` : null,
             result.kol.scrapeStatus ? `Scrape status: ${result.kol.scrapeStatus}` : 'Scrape status: unknown',
@@ -538,7 +561,14 @@ function ResultPhase({
               ? `Last updated ${new Date(result.kol.lastRefreshedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`
               : 'Never refreshed',
           ].filter((n): n is string => !!n)}
-          actions={<Action onClick={onCancel} variant="primary">Close</Action>}
+          actions={
+            <>
+              <Action onClick={onCancel} variant="secondary">Close</Action>
+              <Action onClick={() => onAddExisting(result.kol.id)} variant="primary" busy={submitting}>
+                Add to My Creators
+              </Action>
+            </>
+          }
         />
       )}
 

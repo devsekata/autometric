@@ -7,9 +7,8 @@ type Params = { params: Promise<{ id: string }> }
 /**
  * POST /api/organizations/[id]/reports/templates
  *
- * Switched off: this endpoint reads or writes the analytics warehouse, and the
- * KOL product uses the KOL database only. It answers "unavailable" until its
- * data has a source of truth on the KOL server.
+ * Switched off: this endpoint reads brand analytics and report exports/templates from the analytics warehouse; the KOL database has no source for them. The KOL product reads the KOL database
+ * only, so it answers "unavailable" instead of serving warehouse data.
  */
 async function unavailable(params: Params['params']) {
   const { id: orgId } = await params

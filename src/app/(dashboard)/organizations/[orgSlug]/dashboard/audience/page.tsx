@@ -6,10 +6,9 @@ import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 type Props = { params: Promise<{ orgSlug: string }> }
 
 /**
- * Switched off: the Audience dashboard reads the analytics warehouse, and the KOL product uses
- * the KOL database only.
+ * Switched off: brand analytics are read from the analytics warehouse (l2_gold/l1_silver) and the KOL database has no brand-level source for them.
  */
-export default async function Page({ params }: Props) {
+export default async function DashboardAudiencePage({ params }: Props) {
   const { orgSlug } = await params
   const session = await auth()
   const userId = session?.user?.id
@@ -19,8 +18,7 @@ export default async function Page({ params }: Props) {
 
   return (
     <div className="p-5">
-      <FeatureUnavailable title="Dashboard"
-        body="Modul ini masih membaca data analitik brand di luar database KOL, jadi dinonaktifkan dulu sampai datanya tersedia di KOL." />
+      <FeatureUnavailable title="Dashboard Audience" />
     </div>
   )
 }

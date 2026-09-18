@@ -23,6 +23,7 @@
     "verify:no-tsdb": "npx tsx scripts/verify-no-tsdb.ts",
     "verify:kol-identity": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-identity.ts",
     "verify:kol-persistence": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-persistence.ts",
+    "verify:brand-profile-kol": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-brand-profile-kol.ts",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],

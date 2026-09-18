@@ -628,11 +628,13 @@ export function KolFilterPanel({
           </p>
           <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
             Engagement rate hanya terukur pada sebagian roster — memasang minimum
-            akan menyembunyikan creator yang belum pernah diukur. Rate card ada
-            untuk 7.230 dari 7.718 creator; memasang plafon harga menyembunyikan
-            sisanya. Growth dihitung dari perubahan followers sejak snapshot
-            sebelumnya (bukan 30 hari) dan baru terukur untuk 25 creator yang
-            sudah punya dua snapshot — memasang filter menyembunyikan sisanya.
+            akan menyembunyikan creator yang belum pernah diukur.
+            {facets && <> Rate card ada untuk {facets.pricedTotal.toLocaleString('id-ID')} dari{' '}
+              {facets.rosterTotal.toLocaleString('id-ID')} creator;</>} memasang plafon harga
+            menyembunyikan creator tanpa rate card. Growth dihitung dari perubahan
+            followers sejak snapshot sebelumnya (bukan 30 hari)
+            {facets && <> dan baru terukur untuk {facets.growthMeasuredTotal.toLocaleString('id-ID')} creator
+              yang sudah punya dua snapshot</>} — memasang filter menyembunyikan sisanya.
           </p>
         </Section>
 
@@ -729,16 +731,15 @@ export function KolFilterPanel({
 
         {/* Verified and Connected are two switches on purpose. Verified is the
             platform's own badge; Connected is whether the creator linked the
-            account to us through OAuth. Measured 8 Sep: 572 creators carry a
-            badge and 0 are Connected, so one has never been a usable stand-in
-            for the other. */}
+            account to us through OAuth, so one has never been a usable stand-in
+            for the other. The badge count comes from the facets. */}
         <div className="pt-2.5 px-0.5 pb-0.5">
           <div className="flex items-center gap-3">
             <div className="flex-1">
               <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold">Verified creators only</div>
               <div className="text-[9.5px] mt-0.5" style={{ color: T.t4 }}>
                 Verified = centang biru dari platform. Bukan Connected.
-                572 creator punya badge ini.
+                {facets && <> {facets.verifiedTotal.toLocaleString('id-ID')} creator punya badge ini.</>}
               </div>
             </div>
             <button type="button" role="switch" aria-checked={filters.verifiedOnly}

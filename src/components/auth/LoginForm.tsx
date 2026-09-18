@@ -34,9 +34,7 @@ export default function LoginForm({ onSwitch, onForgotPassword }: Props) {
         return
       }
 
-      const { getSession } = await import('next-auth/react')
-      const session = await getSession()
-      router.replace(session?.user?.role === 'ADMIN' ? '/admin' : '/')
+      router.replace('/')
     } catch {
       setError('Something went wrong. Please try again.')
       setHasError(true)

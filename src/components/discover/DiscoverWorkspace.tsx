@@ -70,6 +70,7 @@ import CampaignsWorkspace from './CampaignsWorkspace'
 import DiscoverAssistant from './DiscoverAssistant'
 import { DiscoverAudience, DiscoverReports } from './DiscoverAnalytics'
 import DiscoverSettings from './DiscoverSettings'
+import BrandProfileForm from './BrandProfileForm'
 import WorkspaceReports from './WorkspaceReports'
 import WorkspaceSettings, { type WorkspaceSettingsData } from './WorkspaceSettings'
 import NegotiationWorkspace from './NegotiationWorkspace'
@@ -609,6 +610,15 @@ export default function DiscoverWorkspace({
             // The payload comes with the page, so this only shows if the server
             // resolved a different tab than the one being rendered.
             : <Spinner />
+        )}
+        {tab === 'settings' && view === 'brand' && (
+          <>
+            <DiscoverHeader
+              title="Brand Profile"
+              subtitle="What this agency wants from a creator. Saved to the KOL database for Brand Match and Brand Fit."
+            />
+            <BrandProfileForm orgId={orgId} />
+          </>
         )}
       </div>
 

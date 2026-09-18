@@ -52,36 +52,23 @@ const DISCOVER_CHILDREN: OrgNavItem[] = DISCOVER_TABS.map((t, i, all) => ({
   groupLabel: all[i - 1]?.group === t.group ? undefined : GROUP_LABEL[t.group],
 }))
 
+// Dashboard, Brands, Reports and Monitoring are not listed: their data lives on
+// the analytics warehouse and the KOL database has no source for it, so those
+// routes answer "temporarily unavailable" and the sidebar does not offer them.
 export const ORG_NAV_ITEMS: OrgNavItem[] = [
-  {
-    label: 'Dashboard', path: 'dashboard', icon: 'dashboard',
-    children: [
-      { label: 'Overview',           path: 'dashboard/overview',  icon: 'grid_view' },
-      { label: 'Content Overview',   path: 'dashboard/content',   icon: 'stacked_bar_chart' },
-      { label: 'Audience Deep Dive', path: 'dashboard/audience',  icon: 'groups' },
-      { label: 'Stories',            path: 'dashboard/stories',   icon: 'amp_stories' },
-      { label: 'TikTok Deep',        path: 'dashboard/tiktok',    icon: 'music_note' },
-      { label: 'Community',          path: 'dashboard/community', icon: 'diversity_3' },
-      { label: 'Campaign Analysis',  path: 'dashboard/campaign',  icon: 'campaign' },
-      { label: 'Content Pillars',    path: 'dashboard/pillars',   icon: 'dashboard_customize' },
-    ],
-  },
-  // Discover — one branch of ten, the same shape as Dashboard above it.
+  // Discover — one branch of ten.
   //
   // It is still one route (`discover`, with `?tab=`); only the navigation moved.
   // An in-page strip of eleven pills competed with the sidebar for the same job
   // and scrolled sideways on a laptop, so the sidebar does the navigating and the
   // page keeps only its heading and whatever sub-strip that tab needs.
-  // No `tab` on the branch itself: like Dashboard, it prefix-matches the route so
+  // No `tab` on the branch itself: it prefix-matches the route so
   // it reads as on-path for every tab and for the detail pages underneath, and
   // yields the highlight to whichever child is actually active.
   {
     label: 'Discover', path: 'discover', icon: 'travel_explore',
     children: DISCOVER_CHILDREN,
   },
-  { label: 'Brands',     path: 'brands',     icon: 'store' },
-  { label: 'Reports',    path: 'reports',    icon: 'bar_chart' },
   { label: 'Members',    path: 'members',    icon: 'group' },
   { label: 'Settings',   path: 'settings',   icon: 'settings' },
-  { label: 'Monitoring', path: 'monitoring', icon: 'monitor_heart', adminOnly: true },
 ]

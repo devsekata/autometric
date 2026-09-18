@@ -1,21 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { featureUnavailable } from '@/lib/discover/featureUnavailable'
-
-type Params = { params: Promise<{ brandId: string }> }
 
 /**
  * GET /api/brands/[brandId]/instagram/comments/raw
  *
- * Switched off: this endpoint reads or writes the analytics warehouse, and the
- * KOL product uses the KOL database only. It answers "unavailable" until its
- * data has a source of truth on the KOL server.
+ * Switched off: this endpoint fetches and stores brand-owned account data on the analytics warehouse. The KOL product reads the KOL database
+ * only, so it answers "unavailable" instead of serving warehouse data.
  */
-async function unavailable(params: Params['params']) {
-  void params
+async function unavailable() {
   const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return featureUnavailable('Brands')
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return featureUnavailable('Brand sync')
 }
 
-export async function GET(_req: NextRequest, { params }: Params) { return unavailable(params) }
+export async function GET() { return unavailable() }

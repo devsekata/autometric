@@ -1,15 +1,9 @@
 import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 
 /**
- * Switched off: the competitor sync scheduler reads and writes the analytics warehouse, and the KOL
- * product uses the KOL database only. The admin layout still requires an
- * application admin.
+ * Switched off: competitor accounts and their snapshots live on the analytics warehouse; the KOL database has none.
+ * Access is still limited to admins by app/admin/layout.tsx.
  */
-export default function Page() {
-  return (
-    <div className="p-5">
-      <FeatureUnavailable title="Competitor scheduler"
-        body="Monitoring dan scheduler sinkronisasi brand membaca data di luar database KOL, jadi dinonaktifkan dulu." />
-    </div>
-  )
+export default function CompetitorSchedulerPage() {
+  return <FeatureUnavailable title="Competitor Scheduler" />
 }

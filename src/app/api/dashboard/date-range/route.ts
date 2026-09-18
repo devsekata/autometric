@@ -1,18 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
 /**
  * GET /api/dashboard/date-range
  *
- * Switched off: this endpoint reads or writes the analytics warehouse, and the
- * KOL product uses the KOL database only. It answers "unavailable" until its
- * data has a source of truth on the KOL server.
+ * Switched off: this endpoint reads brand analytics (l2_gold/l1_silver) from the analytics warehouse; the KOL database has no brand-level source for it. The KOL product reads the KOL database
+ * only, so it answers "unavailable" instead of serving warehouse data.
  */
 async function unavailable() {
   const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return featureUnavailable('Dashboard')
 }
 
-export async function GET(_req: NextRequest) { return unavailable() }
+export async function GET() { return unavailable() }

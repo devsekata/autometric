@@ -1,20 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
 /**
  * GET, PUT /api/admin/competitor-scheduler/config
  *
- * Switched off: this endpoint reads or writes the analytics warehouse, and the
- * KOL product uses the KOL database only. It answers "unavailable" until its
- * data has a source of truth on the KOL server.
+ * Switched off: this endpoint reads and writes scheduler config, sync logs and raw snapshots on the analytics warehouse. The KOL product reads the KOL database
+ * only, so it answers "unavailable" instead of serving warehouse data.
  */
 async function unavailable() {
   const session = await auth()
-  // Admin-only, as before it was switched off.
   if (session?.user?.role !== 'ADMIN') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return featureUnavailable('Scheduler')
 }
 
-export async function GET(_req: NextRequest) { return unavailable() }
-export async function PUT(_req: NextRequest) { return unavailable() }
+export async function GET() { return unavailable() }
+export async function PUT() { return unavailable() }

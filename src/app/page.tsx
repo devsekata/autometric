@@ -8,7 +8,8 @@ import WelcomePage from '@/components/organizations/WelcomePage'
 export default async function HomePage() {
   const session = await auth()
   if (!session)                       redirect('/login')
-  if (session.user?.role === 'ADMIN') redirect('/admin')
+  // Admins used to land on /admin, whose monitoring reads the analytics
+  // warehouse and is switched off — they start from their organizations too.
 
   const userId      = session.user?.id ?? ''
   const cookieStore = await cookies()

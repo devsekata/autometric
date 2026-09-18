@@ -1,21 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { featureUnavailable } from '@/lib/discover/featureUnavailable'
-
-type Params = { params: Promise<{ brandId: string; socialAccountId: string }> }
 
 /**
  * DELETE /api/brands/[brandId]/competitors/[socialAccountId]
  *
- * Switched off: this endpoint reads or writes the analytics warehouse, and the
- * KOL product uses the KOL database only. It answers "unavailable" until its
- * data has a source of truth on the KOL server.
+ * Switched off: this endpoint reads and writes brand_competitors and competitor snapshots on the analytics warehouse. The KOL product reads the KOL database
+ * only, so it answers "unavailable" instead of serving warehouse data.
  */
-async function unavailable(params: Params['params']) {
-  void params
+async function unavailable() {
   const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return featureUnavailable('Brands')
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return featureUnavailable('Competitors')
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) { return unavailable(params) }
+export async function DELETE() { return unavailable() }

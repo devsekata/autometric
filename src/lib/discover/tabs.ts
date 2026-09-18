@@ -250,6 +250,7 @@ export const DISCOVER_TABS: DiscoverTab[] = [
     views: [
       { id: 'discover', label: 'Discover', icon: 'travel_explore' },
       { id: 'workspace', label: 'Workspace', icon: 'workspaces' },
+      { id: 'brand', label: 'Brand Profile', icon: 'auto_awesome' },
     ],
   },
 

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/auth": ["./stubs/auth.ts"],
+      "@/lib/kolDb": ["./stubs/kolDb.ts"],
+      "@/*": ["../../src/*"]
+    }
+  }
+}

@@ -27,9 +27,12 @@ export function ProfileSection({
 
   /**
    * `l2_gold.kol_profile_card` — the pipeline's own snapshot of each account
-   * the creator owns. Shown alongside the roster row rather than replacing it:
-   * the roster is what the agency sold, the card is what the platform actually
-   * showed when it was last harvested, and the two disagreeing is information.
+   * the creator owns, for the fields only it carries (following, posts,
+   * verified, private, website).
+   *
+   * Followers and tier are NOT read from the card: Discovery shows one value for
+   * each, `kol_directory.followers_count` and the `kol_tiers` band over it, the
+   * same pair the header, list, filters, ranks and Compare use.
    *
    * The card's `rate_card*` columns are NULL for every row, so prices stay with
    * `l1_silver.unified_rate_card` and are not read here — one source per figure.
@@ -68,10 +71,8 @@ export function ProfileSection({
                   )}
                 </div>
                 <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
-                  {c.followers !== null && <MiniField label="Followers" value={fmtNum(c.followers)} />}
                   {c.following !== null && <MiniField label="Following" value={fmtNum(c.following)} />}
                   {c.mediaCount !== null && <MiniField label="Post" value={fmtNum(c.mediaCount)} />}
-                  {c.tier && <MiniField label="Tier" value={c.tier} />}
                 </div>
                 {c.website && (
                   <a href={c.website} target="_blank" rel="noreferrer"
@@ -118,7 +119,7 @@ export function ProfileSection({
         }
         aside={
           <VizCard title="Connected Platforms" subtitle="Followers by channel">
-            <ConnectedPlatforms platforms={platforms} />
+            <ConnectedPlatforms platforms={platforms} multiPlatformTotal={rank.multiPlatformTotal} />
           </VizCard>
         }
       />
@@ -184,7 +185,10 @@ function MiniField({ label, value }: { label: string; value: string }) {
  * Followers by channel — a real split, so the bars are proportional to the
  * creator's own largest account rather than to a fixed scale.
  */
-function ConnectedPlatforms({ platforms }: { platforms: SectionProps['platforms'] }) {
+function ConnectedPlatforms({ platforms, multiPlatformTotal }: {
+  platforms: SectionProps['platforms']
+  multiPlatformTotal: number
+}) {
   const max = Math.max(...platforms.map(p => p.followers ?? 0), 1)
   return (
     <div className="flex flex-col gap-3">
@@ -207,7 +211,8 @@ function ConnectedPlatforms({ platforms }: { platforms: SectionProps['platforms'
       ))}
       {platforms.length === 1 && (
         <p className="text-[9.5px] leading-[1.45]" style={{ color: T.t4 }}>
-          Roster hanya punya satu akun untuk username ini. 277 creator di roster
+          Roster hanya punya satu akun untuk username ini.{' '}
+          {multiPlatformTotal.toLocaleString('id-ID')} creator di roster
           terhubung di dua platform.
         </p>
       )}

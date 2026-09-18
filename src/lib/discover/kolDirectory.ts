@@ -40,6 +40,11 @@ export interface KolDirectoryRow {
   followers: number | null
   /** Percentage points, e.g. 0.98 means 0.98%. Null when never measured. */
   erPct: number | null
+  /**
+   * Which of `ER_PCT`'s two inputs supplied `erPct`: the feature layer's
+   * engagement analysis, or the roster column it falls back to. Null with it.
+   */
+  erSource: 'feature' | 'roster' | null
   tier: string | null
   /**
    * Percentage change in followers since this account's PREVIOUS snapshot,
@@ -208,7 +213,8 @@ export interface KolDirectoryRow {
    * to leave out. They were left out because the roster row has no column for
    * them — which was true of EMV, authenticity, growth and brand fit, and is
    * still true. It was never true of these two: the agency tables name 7,684 of
-   * the 7,718 creators, and `l1_silver.unified_rate_card` prices 7,230 of them.
+   * the 7,718 creators, and `l1_silver.unified_rate_card` is where prices live
+   * (how many it covers is counted live: `KolDirectoryFacets.pricedTotal`).
    *
    * Both are attached after paging rather than joined in (`attachRosterExtras`),
    * because a LATERAL join for either runs before `LIMIT` and costs seconds.
@@ -231,6 +237,12 @@ export interface KolDirectoryFacets {
   rosterTotal: number
   /** Agencies that actually list at least one active creator. */
   agencies: { name: string; count: number }[]
+  /** Active creators the Verified filter keeps (same `verified` column it reads). */
+  verifiedTotal: number
+  /** Active creators the Growth filter can see (a measured `growth_pct`). */
+  growthMeasuredTotal: number
+  /** Active creators with at least one priced deliverable (same source as `rateFrom`). */
+  pricedTotal: number
 }
 
 export interface KolDirectoryPayload {
@@ -476,21 +488,19 @@ const ER_LATERAL = `
        LIMIT 1
     ) fer ON TRUE`
 
-/** Measured metric first, roster column as fallback. See ER_LATERAL. */
+/**
+ * Measured metric first, roster column as fallback. See ER_LATERAL.
+ *
+ * The one engagement rate Discovery shows: the directory list, its filter and
+ * sort, export and Compare (all fed by the list), and the creator profile, its
+ * ranks, sibling platforms and similar creators. Every one of them selects this
+ * expression, so a creator reads the same number wherever it appears.
+ */
 const ER_PCT = 'COALESCE(fer.engagement_rate::float, kd.engagement_rate::float)'
 
-/**
- * Engagement rate from the feature layer ONLY: the source of truth for the
- * creator profile and its ER ranking (audit 17 Sep 2026).
- *
- * The directory list keeps `ER_PCT` so its filter and sort do not lose the
- * ~1,700 creators that only have a roster value. The profile does not:
- * `kol_directory.engagement_rate` is a different definition (average of
- * per-post ratios over the current follower count, no shares), so showing it
- * there, or ranking a feature value against it, mixes two metrics. A creator
- * without a feature value reads "belum diukur" on the profile instead.
- */
-const FEATURE_ER_PCT = 'fer.engagement_rate::float'
+/** Which input `ER_PCT` took its value from, so the UI can say so. */
+const ER_SOURCE = `CASE WHEN fer.engagement_rate IS NOT NULL THEN 'feature'
+                        WHEN kd.engagement_rate IS NOT NULL THEN 'roster' END`
 
 const BASE = `
   SELECT kd.id,
@@ -523,7 +533,7 @@ const BASE = `
          cats.keys                                 AS category_keys,
          kd.followers_count                        AS followers,
          ${ER_PCT}                                 AS er_pct,
-         ${FEATURE_ER_PCT}                         AS feature_er_pct,
+         ${ER_SOURCE}                              AS er_source,
          t.name                                    AS tier,
          -- Connected -- the business definition, not the platform's blue tick.
          -- A creator is Connected when they have actually linked the account
@@ -737,6 +747,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     profile_url: string | null; avatar_url: string | null; bio: string | null; city: string | null
     card_display_name: string | null
     categories: string[] | null; followers: number | null; er_pct: number | null
+    er_source: 'feature' | 'roster' | null
     tier: string | null; growth_pct: number | null; connected: boolean
     views_analyzed_count: number | null; avg_views: number | null
     median_views: number | null; v2f_pct: number | null; l2v_pct: number | null
@@ -918,6 +929,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       categories: r.categories ?? [],
       followers: r.followers,
       erPct: r.er_pct,
+      erSource: r.er_source,
       tier: r.tier,
       growthPct: r.growth_pct,
       // Straight through, null included. A creator the pipeline has no view
@@ -991,7 +1003,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
  * make the option list jump around while someone types.
  */
 export async function listKolFacets(): Promise<KolDirectoryFacets> {
-  const [categories, platforms, tiers, roster, agencies] = await Promise.all([
+  const [categories, platforms, tiers, roster, agencies, coverage] = await Promise.all([
     kolDb().query<{ name: string; count: number }>(`
       -- The chip value must be the value the filter matches, or the count on
       -- the chip and the length of the result stop agreeing. Same expression
@@ -1035,6 +1047,19 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
        WHERE ${ACTIVE} AND ag.name IS NOT NULL
        GROUP BY ag.name
        ORDER BY count DESC, ag.name`),
+    // The counts the filter panel quotes. Verified and growth are counted over
+    // BASE, the rows and columns the filters themselves test; the priced count
+    // reads the rate card the list's `rateFrom` reads.
+    kolDb().query<{ verified: number; growth: number; priced: number }>(`
+      WITH base AS (${BASE})
+      SELECT COUNT(*) FILTER (WHERE b.verified)::int                 AS verified,
+             COUNT(*) FILTER (WHERE b.growth_pct IS NOT NULL)::int   AS growth,
+             (SELECT COUNT(DISTINCT kd.id)
+                FROM public.kol_directory kd
+                JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+                JOIN l1_silver.unified_rate_card u ON u.social_account_id = ksa.social_account_id
+               WHERE ${ACTIVE} AND u.fee IS NOT NULL)::int           AS priced
+        FROM base b`),
   ])
 
   return {
@@ -1043,6 +1068,9 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
     platforms: platforms.rows,
     tiers: tiers.rows,
     rosterTotal: roster.rows[0]?.count ?? 0,
+    verifiedTotal: coverage.rows[0]?.verified ?? 0,
+    growthMeasuredTotal: coverage.rows[0]?.growth ?? 0,
+    pricedTotal: coverage.rows[0]?.priced ?? 0,
   }
 }
 
@@ -1096,6 +1124,10 @@ export interface KolCreatorRank {
   categoryErRank: number | null
   categoryErTotal: number
   categoryErPercentile: number | null
+  /** Creators (normalised usernames) with an active account on two or more platforms. */
+  multiPlatformTotal: number
+  /** Active creators with at least one harvested post that carries a hashtag. */
+  hashtagCreatorTotal: number
 }
 
 /** A sibling account of the same creator on another platform, when one exists. */
@@ -1130,8 +1162,8 @@ export interface KolCreatorPayload {
   /**
    * What the warehouse has actually measured for this creator (see
    * `@/lib/discover/kolMeasured`). Null when it has measured nothing, which is
-   * the common case — 23 of 7,718 roster rows have posts, though 7,230 have a
-   * price. The workspace samples whatever this leaves unfilled.
+   * the common case — most roster rows have no harvested posts. The workspace
+   * samples whatever this leaves unfilled.
    */
   measured: KolMeasured | null
   /**
@@ -1158,7 +1190,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null
     city: string | null; categories: string[] | null; followers: number | null
-    er_pct: number | null; feature_er_pct: number | null
+    er_pct: number | null; er_source: 'feature' | 'roster' | null
     tier: string | null; growth_pct: number | null; connected: boolean
     views_analyzed_count: number | null; avg_views: number | null
     median_views: number | null; v2f_pct: number | null; l2v_pct: number | null
@@ -1216,16 +1248,16 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       er_rank: number | null; er_measured_total: number
       category_total: number; category_followers_rank: number | null
       category_er_rank: number | null; category_er_total: number
+      multi_platform_total: number; hashtag_creator_total: number
     }>(`
-      -- ER population: the SAME feature value the profile shows (FEATURE_ER_PCT,
-      -- picked per creator by ER_LATERAL), so a feature ER is never ranked
-      -- against roster ERs.
+      -- ER population: the SAME value the profile and the list show (ER_PCT),
+      -- so the rank is taken over the numbers a user can actually see.
       WITH fe AS (
         SELECT kd.id, kd.category_ids, kd.category_id,
-               ${FEATURE_ER_PCT} AS er
+               ${ER_PCT} AS er
           FROM public.kol_directory kd${ER_LATERAL}
          WHERE ${ACTIVE}
-           AND fer.engagement_rate IS NOT NULL
+           AND ${ER_PCT} IS NOT NULL
       )
       SELECT
         (SELECT COUNT(*) FROM public.kol_directory kd WHERE ${ACTIVE})::int AS roster_total,
@@ -1255,15 +1287,27 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
         (SELECT COUNT(*) FROM fe kd
           JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
          WHERE kc.name = $3)::int
-          AS category_er_total`,
+          AS category_er_total,
+        -- Roster-wide counts the profile quotes, the same pairing the sibling
+        -- query below uses (username_normalized across platforms).
+        (SELECT COUNT(*) FROM (
+           SELECT kd.username_normalized FROM public.kol_directory kd
+            WHERE ${ACTIVE} AND kd.username_normalized IS NOT NULL
+            GROUP BY kd.username_normalized
+           HAVING COUNT(DISTINCT kd.platform_id) >= 2) mp)::int AS multi_platform_total,
+        -- Same source as the creator's own Top Hashtags (kolMeasured).
+        (SELECT COUNT(DISTINCT kd.id) FROM public.kol_directory kd
+           JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+           JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+          WHERE ${ACTIVE} AND cardinality(p.hashtags) > 0)::int AS hashtag_creator_total`,
       // The creator's own id is deliberately absent: every count here is over
       // the roster, and an unused parameter leaves Postgres unable to infer a
       // type for it ("could not determine data type of parameter $1").
-      [r.followers ?? 0, r.feature_er_pct, r.categories?.[0] ?? null],
+      [r.followers ?? 0, r.er_pct, r.categories?.[0] ?? null],
     ),
     /**
      * The same person on another platform is a separate row keyed by the same
-     * normalised username — 277 creators in the roster have both. Matched on
+     * normalised username (counted live: `KolCreatorRank.multiPlatformTotal`). Matched on
      * that column rather than on `username` so a case or dot difference between
      * the Instagram and TikTok handle still pairs up.
      */
@@ -1273,7 +1317,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       er_pct: number | null; connected: boolean; verified: boolean
     }>(`
       SELECT kd.id, pl.key AS platform, kd.username, kd.profile_url,
-             kd.followers_count AS followers, ${FEATURE_ER_PCT} AS er_pct,
+             kd.followers_count AS followers, ${ER_PCT} AS er_pct,
              EXISTS (
                SELECT 1
                  FROM public.kol_social_account ksa
@@ -1302,7 +1346,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       followers: number | null; er_pct: number | null; tier: string | null
     }>(`
       SELECT kd.id, kd.username, pl.key AS platform, kd.avatar_url,
-             kd.followers_count AS followers, ${FEATURE_ER_PCT} AS er_pct,
+             kd.followers_count AS followers, ${ER_PCT} AS er_pct,
              t.name AS tier
         FROM public.kol_directory kd
         LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
@@ -1342,9 +1386,9 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       city: r.city,
       categories: r.categories ?? [],
       followers: r.followers,
-      // Profile ER is the feature value only (FEATURE_ER_PCT); the list keeps
-      // the roster fallback.
-      erPct: r.feature_er_pct,
+      // ER_PCT, the same value and source the list shows.
+      erPct: r.er_pct,
+      erSource: r.er_source,
       tier: r.tier,
       growthPct: r.growth_pct,
       // Straight through, null included. A creator the pipeline has no view
@@ -1422,6 +1466,8 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       categoryErTotal: k.category_er_total,
       categoryErPercentile: k.category_er_rank === null
         ? null : pct(k.category_er_rank, k.category_er_total),
+      multiPlatformTotal: k.multi_platform_total,
+      hashtagCreatorTotal: k.hashtag_creator_total,
     },
     platforms: platforms.rows.map(p => ({
       id: p.id,

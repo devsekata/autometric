@@ -404,7 +404,7 @@ function Loaded({
             ? `dibanding ${rank.categoryErTotal.toLocaleString('id-ID')} creator kategori ini yang terukur`
             : undefined} />
         {/* A real price beats a modelled one. Where the KOL platform prices this
-            creator — 7,230 of the roster's 7,718 do — the third KPI is that
+            creator (`l1_silver.unified_rate_card`) the third KPI is that
             price and carries no marker; Est. Media Value is what stands in when
             they have none. */}
         {cheapestRate ? (
@@ -544,8 +544,8 @@ function AddToCampaign({
 }) {
   /**
    * The cost line used to be a hardcoded "$4,500 – $6,000" under a note saying
-   * the KOL database had no rate card. It does: `l1_silver.unified_rate_card`
-   * prices 7,230 of the 7,718 roster creators, in rupiah. So the range is the
+   * the KOL database had no rate card. Prices come from
+   * `l1_silver.unified_rate_card`, in rupiah. So the range is the
    * creator's own cheapest and dearest deliverable, and only falls back to a
    * disclosure when they genuinely have no price.
    */

@@ -669,6 +669,28 @@ async function linkSocialAccount(
 }
 
 /**
+ * Step 1, handle whose identity rows already all exist (`kol_directory` and
+ * its `kol_social_account` link). Nothing about the creator is inserted or
+ * changed; the only write is the agency link, which the other two step-1 paths
+ * also make — without it the creator never reaches this agency's My Creators.
+ */
+async function linkExistingIdentity(
+  pfId: string, kolDirectoryId: string, input: ScrapeNewKolInput,
+): Promise<void> {
+  const client = await kolDbWrite().connect()
+  try {
+    await client.query('BEGIN')
+    await ensureAgencyLink(client, kolDirectoryId, pfId, input)
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * Steps 2–5, run after the identity rows already exist. Never rejects to its
  * caller — every failure is caught and marks the roster row failed.
  *
@@ -779,11 +801,16 @@ export async function scrapeNewKol(input: ScrapeNewKolInput): Promise<{ kolDirec
   // was never scraped through to follower data. Reuse them instead of
   // inserting fresh identity rows — inserting again here would fork a
   // duplicate roster entry for the same KOL.
-  const { kolDirectoryId, socialAccountId } = input.existingKolDirectoryId
-    ? input.existingSocialAccountId
-      ? { kolDirectoryId: input.existingKolDirectoryId, socialAccountId: input.existingSocialAccountId }
-      : await linkSocialAccount(pfId, input.existingKolDirectoryId, input)
-    : await insertIdentity(pfId, input)
+  let ids: { kolDirectoryId: string; socialAccountId: string }
+  if (!input.existingKolDirectoryId) {
+    ids = await insertIdentity(pfId, input)
+  } else if (!input.existingSocialAccountId) {
+    ids = await linkSocialAccount(pfId, input.existingKolDirectoryId, input)
+  } else {
+    ids = { kolDirectoryId: input.existingKolDirectoryId, socialAccountId: input.existingSocialAccountId }
+    await linkExistingIdentity(pfId, ids.kolDirectoryId, input)
+  }
+  const { kolDirectoryId, socialAccountId } = ids
 
   runRestOfPipeline(kolDirectoryId, socialAccountId, input).catch(err => {
     console.error('[addKolScrape] unhandled failure in background pipeline:', err)

@@ -123,7 +123,6 @@ export default function WorkspaceSettings({
                   <Row key={p.platform} label={<span className="capitalize">{p.platform}</span>}
                     value={`${p.accounts} akun`} />
                 ))}
-                <LinkOut href={`${base}/brands`} label="Kelola akun & kompetitor di Brands" />
               </div>
             </Card>
             <Card>
@@ -148,7 +147,6 @@ export default function WorkspaceSettings({
               <div className="px-4 pb-4 flex flex-col gap-2">
                 <Row label="Brand" value={String(data.brandCount)} />
                 <Row label="Anggota" value={String(data.memberCount)} />
-                <LinkOut href={`${base}/brands`} label="Buka Brands" />
               </div>
             </Card>
             <Card>

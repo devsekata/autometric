@@ -6,8 +6,7 @@ import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 type Props = { params: Promise<{ orgSlug: string }> }
 
 /**
- * Switched off: Monitoring reads the analytics warehouse, and the KOL product uses
- * the KOL database only.
+ * Switched off: brand account sync status comes from the analytics warehouse; the KOL database has no brand-owned accounts.
  */
 export default async function Page({ params }: Props) {
   const { orgSlug } = await params
@@ -21,8 +20,7 @@ export default async function Page({ params }: Props) {
 
   return (
     <div className="p-5">
-      <FeatureUnavailable title="Monitoring"
-        body="Modul ini masih membaca data analitik brand di luar database KOL, jadi dinonaktifkan dulu sampai datanya tersedia di KOL." />
+      <FeatureUnavailable title="Monitoring" />
     </div>
   )
 }

@@ -83,7 +83,7 @@ const GOLD_METRICS: {
 type GoldMetricKey = (typeof GOLD_METRICS)[number]['key']
 type GoldGrain = 'daily' | 'monthly'
 
-export function PerformanceSection({ creator, platforms, intel, gold }: SectionProps) {
+export function PerformanceSection({ creator, rank, platforms, intel, gold }: SectionProps) {
   const basis = measuredBasis(intel)
 
   const [goldGrain, setGoldGrain] = useState<GoldGrain>('daily')
@@ -219,7 +219,8 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
               unavailable rather than derived from views. Views are not reach. */}
           <StatTile label="Engagement Rate"
             value={creator.erPct === null ? NOT_MEASURED : pctLabel(creator.erPct)}
-            hint={creator.erPct === null ? undefined : 'dari engagement analysis'} />
+            hint={creator.erSource === 'feature' ? 'dari engagement analysis'
+              : creator.erSource === 'roster' ? 'dari data roster' : undefined} />
           <StatTile label="Reach" value={NOT_MEASURED} hint="tidak ada kolom reach" />
           <StatTile label="Impressions" value={NOT_MEASURED} hint="tidak ada kolom impressions" />
           <StatTile label="Views (rata-rata)"
@@ -303,7 +304,8 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
         ) : (
           <p className="text-[11.5px]" style={{ color: T.t3 }}>
             Hanya ada satu akun ({platformLabel(creator.platform)}) untuk username ini di
-            roster, jadi tidak ada yang bisa dibandingkan. 277 creator di roster punya
+            roster, jadi tidak ada yang bisa dibandingkan.{' '}
+            {rank.multiPlatformTotal.toLocaleString('id-ID')} creator di roster punya
             akun di dua platform sekaligus.
           </p>
         )}
@@ -829,7 +831,7 @@ function GoldFormatsCard({ formats, dominant }: {
  * yang berhasil" is the question a brief is written from, and it is asked on
  * its own, not as a footnote to the rate.
  */
-export function ContentSection({ creator, intel, gold }: SectionProps) {
+export function ContentSection({ creator, rank, intel, gold }: SectionProps) {
   const [format, setFormat] = useState('all')
   const [sort, setSort] = useState<string>('top')
   const [openItem, setOpenItem] = useState<ContentItem | null>(null)
@@ -960,7 +962,7 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                 only appears for a creator whose posts carry tags. */}
             {!intel.real.hashtags && (
               <VizCard title="Top Hashtags">
-                <Unavailable text="Post creator ini belum memuat hashtag yang terpanen — 30 dari 7.432 creator punya data hashtag." />
+                <Unavailable text={`Post creator ini belum memuat hashtag yang terpanen — ${rank.hashtagCreatorTotal.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')} creator punya data hashtag.`} />
               </VizCard>
             )}
             {intel.real.hashtags && intel.measured && (
