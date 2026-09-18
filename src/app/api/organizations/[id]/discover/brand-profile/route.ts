@@ -5,6 +5,7 @@ import {
   BrandProfileError, GENDER_MAJORITIES,
   getBrandProfile, isScoreable, saveBrandProfile, type BrandProfileInput,
 } from '@/lib/discover/brandMatch/profile'
+import { WHAT_MATTERS_OPTIONS } from '@/lib/discover/whatMatters/brandMatch'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -33,6 +34,7 @@ const VOCABULARY = {
   categories: CANONICAL_CATEGORIES,
   interests: INTEREST_KEYS,
   genderMajorities: GENDER_MAJORITIES,
+  whatMatters: WHAT_MATTERS_OPTIONS,
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {

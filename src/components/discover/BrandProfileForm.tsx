@@ -49,6 +49,7 @@ interface Payload {
     categories: readonly string[]
     interests: readonly string[]
     genderMajorities: readonly string[]
+    whatMatters: readonly { key: string; label: string }[]
   }
 }
 
@@ -243,11 +244,12 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
   }
 
   const toggle = (key: 'brandPersonality' | 'audienceInterests' | 'preferredCategories'
-    | 'preferredPlatforms' | 'preferredTiers' | 'contentStyles', v: string) => {
+    | 'preferredPlatforms' | 'preferredTiers' | 'contentStyles' | 'whatMatters', v: string) => {
     setDraft(d => {
       if (!d) return d
       const list = d[key]
-      return { ...d, [key]: list.includes(v) ? list.filter(x => x !== v) : [...list, v] }
+      return { ...d, [key]: (list as string[]).includes(v)
+        ? (list as string[]).filter(x => x !== v) : [...list, v] }
     })
     setSaved(null)
   }
@@ -605,6 +607,27 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
             — about 8% of the roster is
           </span>
         </label>
+      </Section>
+
+      {/* ── What Matters Most ── the criteria Brand Match averages ── */}
+      <Section
+        icon="tune"
+        title="What Matters Most"
+        subtitle="What matters most when evaluating creators. Brand Match is the average of a creator's scores on the ones you pick — every pick counts equally, and a score that could not be measured is left out rather than counted as zero."
+      >
+        <div className="flex flex-wrap gap-1.5">
+          {data.vocabulary.whatMatters.map(o => (
+            <Chip
+              key={o.key} label={o.label} on={draft.whatMatters.includes(o.key as never)}
+              onClick={() => { if (!ro) toggle('whatMatters', o.key) }}
+            />
+          ))}
+        </div>
+        {!draft.whatMatters.length && (
+          <p className="text-[10.5px] mt-2" style={{ color: T.t4 }}>
+            Nothing picked yet — creators show no Brand Match until you choose at least one.
+          </p>
+        )}
       </Section>
 
       {/* ── Performance targets ── Brand Fit, Past Performance (Option B) ── */}

@@ -1,5 +1,6 @@
 import kolDb, { kolDbWrite } from '@/lib/kolDb'
 import { CANONICAL_CATEGORIES, INTEREST_KEYS } from './model'
+import { cleanWhatMatters, type WhatMattersKey } from '@/lib/discover/whatMatters/brandMatch'
 
 /**
  * The Brand Profile: read, validated, written, and turned into the shape the
@@ -81,6 +82,9 @@ export interface BrandProfile {
   preferredPlatforms: string[]
   preferredTiers: string[]
   contentStyles: string[]
+
+  /* What Matters — the criteria Brand Match averages (migrations/kol/007) */
+  whatMatters: WhatMattersKey[]
   minFollowers: number | null
   minErPct: number | null
   requireCategory: boolean
@@ -123,6 +127,7 @@ export function emptyProfile(organizationId: string): BrandProfile {
     preferredPlatforms: [],
     preferredTiers: [],
     contentStyles: [],
+    whatMatters: [],
     minFollowers: null,
     minErPct: null,
     requireCategory: false,
@@ -170,6 +175,7 @@ interface Row {
   preferred_platforms: string[]
   preferred_tiers: string[]
   content_styles: string[]
+  what_matters: string[] | null
   min_followers: string | null
   min_er_pct: string | null
   require_category: boolean
@@ -183,7 +189,7 @@ const COLUMNS = `
   gender_majority, target_country, target_city, audience_interests,
   brand_tone, target_age_min, target_age_max, performance_targets,
   preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-  min_followers, min_er_pct, require_category, verified_only, updated_at`
+  what_matters, min_followers, min_er_pct, require_category, verified_only, updated_at`
 
 function fromRow(r: Row): BrandProfile {
   return {
@@ -209,6 +215,7 @@ function fromRow(r: Row): BrandProfile {
     preferredPlatforms: r.preferred_platforms ?? [],
     preferredTiers: r.preferred_tiers ?? [],
     contentStyles: r.content_styles ?? [],
+    whatMatters: cleanWhatMatters(r.what_matters ?? []),
     // NUMERIC and BIGINT arrive as strings from `pg`. Null stays null: "no
     // bound" and "a bound of zero" are different instructions.
     minFollowers: r.min_followers === null ? null : Number(r.min_followers),
@@ -390,6 +397,9 @@ export async function saveBrandProfile(
       ? cleanList(input.preferredPlatforms, 8).map(p => p.toLowerCase()) : current.preferredPlatforms,
     preferredTiers: has('preferredTiers') ? cleanList(input.preferredTiers, 8) : current.preferredTiers,
     contentStyles: has('contentStyles') ? cleanList(input.contentStyles, 12) : current.contentStyles,
+    // Closed vocabulary of six; anything else (brand_safety included) is dropped,
+    // the same way audienceInterests treats an unknown key.
+    whatMatters: has('whatMatters') ? cleanWhatMatters(input.whatMatters) : current.whatMatters,
     minFollowers: has('minFollowers') ? bound(input.minFollowers) : current.minFollowers,
     minErPct: has('minErPct') ? bound(input.minErPct) : current.minErPct,
     requireCategory: has('requireCategory') ? !!input.requireCategory : current.requireCategory,
@@ -406,9 +416,9 @@ export async function saveBrandProfile(
       gender_majority, target_country, target_city, audience_interests,
       brand_tone, target_age_min, target_age_max, performance_targets,
       preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-      min_followers, min_er_pct, require_category, verified_only, updated_by, updated_at)
+      what_matters, min_followers, min_er_pct, require_category, verified_only, updated_by, updated_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-            $21,$22,$23,$24,$25,NOW())
+            $21,$22,$23,$24,$25,$26,NOW())
     ON CONFLICT (organization_id) DO UPDATE SET
       -- brand_id is deliberately absent: NULL on create, unchanged on update.
       brand_name = EXCLUDED.brand_name,
@@ -430,6 +440,7 @@ export async function saveBrandProfile(
       preferred_platforms = EXCLUDED.preferred_platforms,
       preferred_tiers = EXCLUDED.preferred_tiers,
       content_styles = EXCLUDED.content_styles,
+      what_matters = EXCLUDED.what_matters,
       min_followers = EXCLUDED.min_followers,
       min_er_pct = EXCLUDED.min_er_pct,
       require_category = EXCLUDED.require_category,
@@ -444,6 +455,7 @@ export async function saveBrandProfile(
     next.brandTone, next.targetAgeMin, next.targetAgeMax,
     JSON.stringify(next.performanceTargets),
     next.preferredCategories, next.preferredPlatforms, next.preferredTiers, next.contentStyles,
+    next.whatMatters,
     next.minFollowers, next.minErPct, next.requireCategory, next.verifiedOnly, updatedBy,
   ])
 

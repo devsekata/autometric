@@ -24,6 +24,9 @@
     "verify:kol-identity": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-identity.ts",
     "verify:kol-persistence": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-persistence.ts",
     "verify:brand-profile-kol": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-brand-profile-kol.ts",
+    "verify:what-matters": "dotenv -e .env.local -- npx tsx scripts/verify-what-matters.ts",
+    "whatmatters:port:verify": "npx tsx scripts/verify-what-matters-port.ts",
+    "verify:brand-match-wm": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-what-matters.ts",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],

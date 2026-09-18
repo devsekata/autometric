@@ -75,6 +75,11 @@ console.log('\nstatic')
   ok('the upsert neither inserts nor updates brand_id', upsert.length > 0 && !/\bbrand_id\b/.test(upsert.replace(/--.*$/gm, '')))
   ok('the upsert is keyed on UNIQUE (organization_id) and sets updated_at = NOW()',
     upsert.includes('ON CONFLICT (organization_id) DO UPDATE') && /updated_at = NOW\(\)/.test(upsert))
+  ok('what_matters is inserted and updated by the upsert',
+    /what_matters,/.test(upsert) && /what_matters = EXCLUDED\.what_matters/.test(upsert))
+  ok('what_matters is cleaned to the six-key vocabulary on read and on save',
+    profile.includes("cleanWhatMatters(r.what_matters ?? [])")
+    && profile.includes("cleanWhatMatters(input.whatMatters)"))
   ok('brandId in the input is rejected', /NOT_SETTABLE = \['brandId'\]/.test(profile) && profile.includes('throw new BrandProfileError('))
 
   // Placeholder count matches the parameter list: VALUES $1..$N + NOW().
@@ -104,8 +109,13 @@ console.log('\nstatic')
     ['brandTone', 'targetAgeMin', 'targetAgeMax', 'performanceTargets'].every(k => form.includes(`'${k}'`) || form.includes(`.${k}`)))
 
   // Exactly one Brand Profile API and one Brand Profile UI.
-  const apiFiles = listFiles('src/app/api').filter(f => /brandMatch\/profile|brand_profile/.test(read(f)))
-  ok('exactly one API route reads or writes the Brand Profile', apiFiles.length === 1 && apiFiles[0] === ROUTE, apiFiles.join(', '))
+  // One API owns the Brand Profile (writes it); other routes may READ it, and
+  // only through getBrandProfile — never their own SQL on brand_profile.
+  const apiFiles = listFiles('src/app/api')
+  const writers = apiFiles.filter(f => /saveBrandProfile\(/.test(read(f)))
+  ok('exactly one API route writes the Brand Profile', writers.length === 1 && writers[0] === ROUTE, writers.join(', '))
+  const rawSql = apiFiles.filter(f => /\bbrand_profile\b/.test(read(f).replace(/^\s*(\*|\/\/).*$/gm, '')))
+  ok('no API route queries brand_profile directly', rawSql.length === 0, rawSql.join(', '))
   const formUsers = listFiles('src').filter(f => /from '\.\/BrandProfileForm'|BrandProfileForm'/.test(read(f)) && !f.endsWith('BrandProfileForm.tsx'))
   ok('exactly one place mounts the Brand Profile form', formUsers.length === 1 && formUsers[0].endsWith('DiscoverWorkspace.tsx'), formUsers.join(', '))
   ok('the Step 1 duplicates are gone',
@@ -154,6 +164,14 @@ async function live() {
   try {
     const { rows: [who] } = await pool.query(`SELECT current_database() AS db`)
     ok('connected to the KOL database', who.db === process.env.PG_DB_KOL, who.db)
+    const { rows: [col] } = await pool.query(
+      `SELECT count(*)::int AS n FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'brand_profile' AND column_name = 'what_matters'`)
+    if (col.n !== 1) {
+      ok('migration 007 applied (brand_profile.what_matters exists)', false,
+        'run `npm run migrate:kol` first; live checks need the column')
+      return
+    }
     const before = await counts(pool)
 
     // Two agencies, each with its own admin; A's admin is not a member of B.
@@ -200,6 +218,9 @@ async function live() {
       ok('4. admin GET → 200 with a profile for the agency',
         g.status === 200 && g.body.profile?.organizationId === A.agency_id && g.body.canEdit === true
         && Array.isArray(g.body.vocabulary?.categories) && g.body.vocabulary.categories.length === 9)
+      ok('   GET serves the six What Matters options and an empty choice',
+        g.body.vocabulary?.whatMatters?.length === 6
+        && JSON.stringify(g.body.profile?.whatMatters) === '[]')
 
       const full = {
         brandName: 'verify-brand-profile-kol (rolled back)',
@@ -214,6 +235,7 @@ async function live() {
         targetAgeMin: 18, targetAgeMax: 34,
         performanceTargets: { engagement_rate: 3, median_views: 50000 },
         preferredCategories: ['Beauty', 'Nope'],
+        whatMatters: ['high_reach', 'strong_engagement', 'brand_safety', 'nope', 'high_reach'],
         // Server-owned keys a client must not be able to set:
         organizationId: B.agency_id,
         updatedBy: randomUUID(),
@@ -224,7 +246,7 @@ async function live() {
       const row = async (orgId: string) => (await client.query(
         `SELECT id::text, organization_id::text, brand_id, brand_name, brand_category, brand_personality,
                 brand_tone, brand_keywords, brand_hashtags, gender_majority, target_city, audience_interests,
-                target_age_min, target_age_max, performance_targets, preferred_categories,
+                target_age_min, target_age_max, performance_targets, preferred_categories, what_matters,
                 updated_by::text, created_at, updated_at, (updated_at = now()) AS at_now
            FROM public.brand_profile WHERE organization_id = $1`, [orgId])).rows
 
@@ -240,6 +262,8 @@ async function live() {
         JSON.stringify(x.brand_hashtags) === '["glowup"]'
         && JSON.stringify(x.audience_interests) === '["beauty"]'
         && JSON.stringify(x.preferred_categories) === '["Beauty"]')
+      ok('   what_matters stored cleaned: known keys only, canonical order, no brand_safety',
+        JSON.stringify(x.what_matters) === '["strong_engagement","high_reach"]', JSON.stringify(x.what_matters))
       ok('   updated_at = now()', x.at_now === true)
       ok('7. organization_id comes from the authorised route, not the body',
         x.organization_id === A.agency_id && (await row(B.agency_id)).length === 0)
@@ -260,6 +284,7 @@ async function live() {
         y.brand_category === 'Beauty' && JSON.stringify(y.brand_tone) === '["straightforward"]'
         && y.target_age_min === 18 && y.target_age_max === 34 && y.performance_targets?.engagement_rate === 3
         && JSON.stringify(y.brand_personality) === '["Warm"]' && JSON.stringify(y.audience_interests) === '["beauty"]'
+        && JSON.stringify(y.what_matters) === '["strong_engagement","high_reach"]'
         && y.gender_majority === 'Female')
       ok('   same row (same id, same created_at), updated_at moved to now()',
         y.id === x.id && y.created_at.getTime() === aged.created_at.getTime()

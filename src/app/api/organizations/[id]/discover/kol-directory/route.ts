@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import { listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
 import { myCreatorIdsAmong } from '@/lib/discover/myCreators'
+import { getBrandProfile } from '@/lib/discover/brandMatch/profile'
+import { brandMatchForDirectory, type DirectoryBrandMatch } from '@/lib/discover/whatMatters/brandMatch'
 
 type Params = { params: Promise<{ id: string }> }
 
 /**
  * GET /api/organizations/[id]/discover/kol-directory
- *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&growthMin=&growthMax=&connected=1&verified=1&updatedWithin=&agency=&sort=&page=&pageSize=&facets=1
+ *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&growthMin=&growthMax=&connected=1&verified=1&updatedWithin=&agency=&sort=&page=&pageSize=&facets=1&match=1
  *
  * The roster itself is global — it is the commercial KOL platform's directory,
  * not org-scoped data — but the endpoint still requires org membership so the
@@ -112,7 +114,24 @@ export async function GET(req: NextRequest, { params }: Params) {
     const mine = await myCreatorIdsAmong(access.orgId, data.rows.map(r => r.id))
     for (const r of data.rows) r.inMyCreators = mine.has(r.id)
 
-    return NextResponse.json(data)
+    /**
+     * Brand Match, for the creators on this page — `?match=1`.
+     *
+     * The criteria are the ones this agency saved on its Brand Profile
+     * (`brand_profile.what_matters`), read here, so no caller passes them.
+     * Match % is the plain mean of each KOL's What Matters scores on those
+     * criteria (`whatMatters/brandMatch.ts`); each row carries its breakdown.
+     * With nothing saved, `brandMatch.unavailable` is 'no_selection' and no KOL
+     * is scored. Typed here rather than on `KolDirectoryPayload`, which is not
+     * this change's to widen.
+     */
+    let brandMatch: DirectoryBrandMatch | undefined
+    if (sp.get('match') === '1') {
+      const profile = await getBrandProfile(access.orgId)
+      brandMatch = await brandMatchForDirectory(data.rows.map(r => r.id), profile.whatMatters)
+    }
+
+    return NextResponse.json(brandMatch ? { ...data, brandMatch } : data)
   } catch (err) {
     console.error('[GET /api/organizations/[id]/discover/kol-directory]', err)
     return NextResponse.json({

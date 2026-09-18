@@ -38,6 +38,7 @@ import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryPayload, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
+import type { BrandMatchResult, DirectoryBrandMatch } from '@/lib/discover/whatMatters/brandMatch'
 import type { Deliverable, RosterRateCard } from '@/lib/discover/vocab'
 
 /* ── tokens & vocabulary ──────────────────────────────────────────────────── */
@@ -411,6 +412,8 @@ export default function KolDirectoryPage({
   const [filters, setFilters] = useState<KolFilters>(KOL_FILTERS_DEFAULT)
   const [sort, setSort] = useState<SortState>({ key: 'followers', dir: 'desc' })
   const [view, setView] = useState<'card' | 'table'>('card')
+  /** Brand Match for the rows on screen, exactly as the API computed it. */
+  const [brandMatch, setBrandMatch] = useState<DirectoryBrandMatch | null>(null)
   const [page, setPage] = useState(1)
 
   const [filtPanel, setFiltPanel] = useState(false)
@@ -565,6 +568,34 @@ export default function KolDirectoryPage({
     return () => { cancelled = true }
   }, [orgId, search, filterKey, sort, page, reload, scope])
 
+  /**
+   * Brand Match for the creators on this page — a SECOND request, on purpose.
+   *
+   * `?match=1` makes the route read this agency's Brand Profile (its saved
+   * What Matters) and score the page. Asking for it separately, by the ids
+   * already on screen, keeps the Directory itself independent of it: if Brand
+   * Match cannot be answered (no Brand Profile column yet, a KOL server hiccup),
+   * the list still loads and the badges simply do not appear. Nothing here
+   * computes a score — every number shown is the API's `matchPct`.
+   */
+  const pageIds = rows.map(r => r.id).join(',')
+  useEffect(() => {
+    if (!pageIds) { setBrandMatch(null); return }
+    let cancelled = false
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${pageIds}&match=1`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { brandMatch?: DirectoryBrandMatch } | null) => {
+        if (!cancelled) setBrandMatch(d?.brandMatch ?? null)
+      })
+      .catch(() => { if (!cancelled) setBrandMatch(null) })
+    return () => { cancelled = true }
+  }, [orgId, pageIds, reload])
+
+  /** Shown only once the brand has chosen What Matters; `no_selection` shows nothing. */
+  const matchOn = !!brandMatch && !brandMatch.unavailable
+  const matchOf = (id: string): BrandMatchResult | null =>
+    (matchOn ? brandMatch?.rows[id] ?? null : null)
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const fCount = activeFilterCount(filters)
   const dirty = Boolean(query || filters.category || fCount)
@@ -713,6 +744,7 @@ export default function KolDirectoryPage({
     onCart: () => (inCart(r.id) ? removeFromCart(r) : addToCart(r)),
     onSimilar: onFindSimilar ? () => onFindSimilar(r.id) : null,
     onQuick: () => setQuick(r),
+    match: matchOf(r.id),
   })
 
   const topCategories = (facets?.categories ?? []).slice(0, 6)
@@ -954,6 +986,7 @@ export default function KolDirectoryPage({
                     onQuick={setQuick}
                     onOpen={openProfile}
                     onSimilar={onFindSimilar ? r => onFindSimilar(r.id) : null}
+                    matchOn={matchOn} matchOf={matchOf}
                   />
                 )}
 
@@ -1066,9 +1099,11 @@ export default function KolDirectoryPage({
 /* ── card ─────────────────────────────────────────────────────────────────── */
 
 function CreatorCard({
-  creator: c, fav, inCompare, inCart, inMine, onOpen, onFav, onCompare, onCart, onMine, onSimilar, onQuick,
+  creator: c, fav, inCompare, inCart, inMine, onOpen, onFav, onCompare, onCart, onMine, onSimilar, onQuick, match,
 }: {
   creator: KolDirectoryRow
+  /** The API's Brand Match for this creator; null when the brand chose no What Matters. */
+  match: BrandMatchResult | null
   fav: boolean; inCompare: boolean; inCart: boolean; inMine: boolean
   onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void; onMine: () => void
   onQuick: () => void
@@ -1166,18 +1201,21 @@ function CreatorCard({
             {c.status} · {sinceLabel(c.lastRefreshedAt)}
           </span>
 
-          {/* The source puts its brand-fit "% match" here. That score has no
-              source in this roster, but the creator's own price does, and it is
-              the number a buyer scanning the grid actually acts on. */}
-          {c.rateFrom !== null && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold whitespace-nowrap"
-              style={{ ...PJ, color: T.primaryDeep }}
-              title={`Rate card creator: mulai Rp${c.rateFrom.toLocaleString('id-ID')}`
-                + (c.rateCount > 1 ? ` · ${c.rateCount} deliverable` : '')}>
-              <span className="material-symbols-outlined text-[12px]">sell</span>
-              {idrShort(c.rateFrom)}
-            </span>
-          )}
+          {/* The source puts its "% match" here. It is now the Brand Match the
+              API computed from the brand's chosen What Matters, beside the
+              creator's own price — the number a buyer scanning the grid acts on. */}
+          <span className="inline-flex items-center gap-2">
+            {match && <MatchBadge m={match} />}
+            {c.rateFrom !== null && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold whitespace-nowrap"
+                style={{ ...PJ, color: T.primaryDeep }}
+                title={`Rate card creator: mulai Rp${c.rateFrom.toLocaleString('id-ID')}`
+                  + (c.rateCount > 1 ? ` · ${c.rateCount} deliverable` : '')}>
+                <span className="material-symbols-outlined text-[12px]">sell</span>
+                {idrShort(c.rateFrom)}
+              </span>
+            )}
+          </span>
         </div>
 
         <div className="flex items-center justify-between mt-[13px]">
@@ -1339,6 +1377,7 @@ function QuickInsight({
 
 function DirectoryTable({
   rows, cols, sort, onSort, selected, onToggleRow, allOnPage, onToggleAll, inCart, onCart, isMine, onMine, onQuick, onOpen, onSimilar,
+  matchOn, matchOf,
 }: {
   rows: KolDirectoryRow[]
   cols: Record<ColKey, boolean>
@@ -1356,6 +1395,9 @@ function DirectoryTable({
   onOpen: (r: KolDirectoryRow) => void
   /** Null when the page was mounted without a Smart Discovery destination. */
   onSimilar: ((r: KolDirectoryRow) => void) | null
+  /** True once the brand has chosen What Matters: the Match column shows. */
+  matchOn: boolean
+  matchOf: (id: string) => BrandMatchResult | null
 }) {
   const active = (Object.keys(COLDEFS) as ColKey[]).filter(c => cols[c])
   const arrow = (key: SortKey) => sort.key === key
@@ -1389,6 +1431,7 @@ function DirectoryTable({
             <Th label="Creator" sortKey="name" />
             <Th label="Followers" sortKey="followers" right />
             <Th label="Engagement" sortKey="engagement" right />
+            {matchOn && <Th label="Match" right />}
             {active.map(c => <Th key={c} label={COLDEFS[c].label} sortKey={COLDEFS[c].sort} right />)}
             <Th label="Data" />
             <Th label="" />
@@ -1428,6 +1471,10 @@ function DirectoryTable({
                 </Td>
                 <Td last={i === rows.length - 1} num>{followersLabel(r.followers)}</Td>
                 <Td last={i === rows.length - 1} num>{erLabel(r.erPct)}</Td>
+                {matchOn && (() => {
+                  const m = matchOf(r.id)
+                  return <Td last={i === rows.length - 1} right>{m ? <MatchBadge m={m} /> : '—'}</Td>
+                })()}
                 {active.map(c => <Td key={c} last={i === rows.length - 1} num>{COLDEFS[c].get(r)}</Td>)}
                 <Td last={i === rows.length - 1}>
                   <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"
@@ -1504,6 +1551,36 @@ function Check({ on, onClick, title }: { on: boolean; onClick: () => void; title
         color: '#fff',
       }}>
       <span className="material-symbols-outlined text-[12px]" style={{ opacity: on ? 1 : 0 }}>check</span>
+    </span>
+  )
+}
+
+/**
+ * Brand Match, as the API returned it. Renders `matchPct` — never a number of
+ * its own. Display is trimmed to one decimal; the tooltip carries the exact
+ * value and the breakdown it was averaged from. A null `matchPct` (every chosen
+ * What Matters unmeasured) shows a dash, not a zero.
+ */
+function MatchBadge({ m }: { m: BrandMatchResult }) {
+  const shown = m.matchPct === null
+    ? null
+    : m.matchPct.toLocaleString('id-ID', { maximumFractionDigits: 1 })
+  const lines = m.breakdown.map(b =>
+    `• ${b.label}: ${b.score === null ? 'belum terukur (tidak dihitung)' : b.score.toLocaleString('id-ID', { maximumFractionDigits: 2 })}`)
+  const head = m.matchPct === null
+    ? 'Brand Match belum bisa dihitung: What Matters yang dipilih belum terukur untuk creator ini.'
+    : `Brand Match ${m.matchPct}% = rata-rata ${m.contributing} dari ${m.selected} What Matters yang dipilih.`
+  return (
+    <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold whitespace-nowrap"
+      style={{
+        ...PJ,
+        background: shown === null ? T.surfaceVariant : '#e8f3f6',
+        color: shown === null ? T.t4 : T.primaryDeep,
+      }}
+      title={[head, ...lines].join('\n')}
+      aria-label={shown === null ? 'Brand Match belum terukur' : `Brand Match ${shown} persen`}>
+      <span className="material-symbols-outlined text-[12px]">auto_awesome</span>
+      {shown === null ? 'Match —' : `${shown}% match`}
     </span>
   )
 }
