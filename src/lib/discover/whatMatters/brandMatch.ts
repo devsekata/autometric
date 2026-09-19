@@ -1,6 +1,8 @@
+import kolDb from '@/lib/kolDb'
 import { CRITERIA_LABELS, type CriterionKey } from './model'
 import { contributingCount, whatMattersScore, type CriterionScores } from './score'
 import { matchWhatMatters } from './index'
+import { resetPopulationCache } from './records'
 
 /**
  * Brand Match — the What Matters a workspace chose on its Brand Profile,
@@ -123,11 +125,54 @@ export interface DirectoryBrandMatch {
 }
 
 /**
+ * Which state of the population tables the last Brand Match was ranked against.
+ *
+ * `count(*)` and `max(updated_at)` per table — the fingerprint the Dagster
+ * `l0_raw_new_data_sensor` uses on `l0_raw`. Every writer of these tables stamps
+ * `updated_at = now()` on a real change: the transform chain's `kol_profile_card`
+ * and `post_metric` upserts, and the roster ingest and Add KOL on
+ * `kol_directory`. A write moves the max and a delete moves the count.
+ */
+const POPULATION_VERSION_SQL = `
+  SELECT concat_ws('|',
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM public.kol_directory),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.kol_profile_card),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.post_metric)
+  ) AS v`
+
+let seenVersion: string | null = null
+
+/**
+ * Drops What Matters' cached population when the KOL data under it changed.
+ *
+ * That cache is time-based (`./records`), so without this a Brand Match asked
+ * right after a pipeline run could rank against the population from before it
+ * for up to the cache's TTL. Done here rather than in `./records`, which stays
+ * the What Matters port it is checked to be. One round trip per request.
+ *
+ * The version is read BEFORE the population: a write landing in between leaves
+ * `seenVersion` behind the data, so the next request resets again — it can
+ * rebuild once too often, never serve a population older than its version.
+ */
+async function dropPopulationIfDataChanged(): Promise<void> {
+  const { rows: [{ v }] } = await kolDb().query<{ v: string }>(POPULATION_VERSION_SQL)
+  if (v !== seenVersion) {
+    resetPopulationCache()
+    seenVersion = v
+  }
+}
+
+/**
  * Brand Match for a page of KOLs, from a Brand Profile's saved choice.
  *
  * Scores come from `matchWhatMatters` — the same records, population and
  * formulas What Matters uses — read from the KOL database only. With nothing
  * chosen it returns without querying anything.
+ *
+ * Nothing is stored and nothing about the profile is cached: the caller reads
+ * `whatMatters` from `brand_profile` on the same request, and the population is
+ * dropped whenever the KOL data changed. So a saved Brand Profile and a finished
+ * pipeline run both reach the very next Brand Match.
  */
 export async function brandMatchForDirectory(
   creatorIds: string[],
@@ -138,6 +183,7 @@ export async function brandMatchForDirectory(
   if (!chosen.length) return { ...base, unavailable: 'no_selection', rows: {} }
   if (!creatorIds.length) return { ...base, rows: {} }
 
+  await dropPopulationIfDataChanged()
   const scored = await matchWhatMatters(creatorIds, chosen.map(k => WHAT_MATTERS_CRITERION[k]))
   const rows: Record<string, BrandMatchResult> = {}
   for (const [id, r] of scored) rows[id] = brandMatchFromScores(r.scores, chosen)
