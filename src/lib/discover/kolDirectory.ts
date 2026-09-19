@@ -291,6 +291,16 @@ export interface KolDirectoryQuery {
    */
   minFemalePct?: number | null
   minMalePct?: number | null
+  /**
+   * Creator gender — the gender of the KOL themself, NOT their audience
+   * (that is `minFemalePct`/`minMalePct` above). Read from
+   * `l2_gold.kol_profile_card.creator_gender` (migration 051 in
+   * scrapper-project), filled from the roster or from the conservative
+   * username/display-name rules. The Directory route sets it from the Brand
+   * Profile's `gender_majority`. While it is set, a creator whose gender is
+   * unknown (NULL) is left out, the same rule the audience filters follow.
+   */
+  creatorGender?: 'female' | 'male' | null
   maxPaidRatio?: number | null
   minPostFrequencyMonthly?: number | null
   minShareRate?: number | null
@@ -585,6 +595,9 @@ const BASE = `
          g.male_pct::float                         AS male_pct,
          g.gender_known_pct::float                 AS gender_known_pct,
          g.gender_reliability                      AS gender_reliability,
+         -- Creator gender (the KOL themself, not the audience). Filter only;
+         -- not mapped onto the row.
+         g.creator_gender                          AS creator_gender,
          g.paid_ratio::float                       AS paid_ratio,
          g.paid_signal_count                       AS paid_signal_count,
          g.share_rate::float                       AS share_rate,
@@ -666,6 +679,7 @@ const BASE = `
              c.growth_class, c.daily_growth, c.projected_30d,
              c.projected_followers_30d,
              c.female_pct, c.male_pct, c.gender_known_pct, c.gender_reliability,
+             c.creator_gender,
              c.paid_ratio, c.paid_signal_count, c.share_rate,
              c.post_frequency_daily, c.post_frequency_monthly,
              c.post_frequency_count, c.observation_days,
@@ -830,6 +844,11 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          -- when someone actually asks a question that metric has to answer.
          AND ($17::float8 IS NULL OR b.female_pct  >= $17)
          AND ($18::float8 IS NULL OR b.male_pct    >= $18)
+         -- Creator gender from the Brand Profile. Same card the lateral above
+         -- already picked (LIMIT 1), so no join and no duplicate creators.
+         -- NULL (unknown) never equals 'female'/'male', so unknown creators
+         -- drop out while the filter is on.
+         AND ($36::text IS NULL OR b.creator_gender = $36)
          -- Paid ratio is a CEILING: "show me creators who are not mostly ads".
          AND ($19::float8 IS NULL OR b.paid_ratio  <= $19)
          AND ($20::float8 IS NULL OR b.post_frequency_monthly >= $20)
@@ -914,6 +933,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.audienceGeoKey || null,
       query.audienceGeoLevel || null,
       query.agencyId || null,
+      query.creatorGender ?? null,
     ],
   )
 

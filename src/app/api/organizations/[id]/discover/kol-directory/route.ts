@@ -9,7 +9,7 @@ type Params = { params: Promise<{ id: string }> }
 
 /**
  * GET /api/organizations/[id]/discover/kol-directory
- *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&growthMin=&growthMax=&connected=1&verified=1&updatedWithin=&agency=&sort=&page=&pageSize=&facets=1&match=1
+ *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&growthMin=&growthMax=&connected=1&verified=1&updatedWithin=&agency=&sort=&page=&pageSize=&facets=1&match=1&brandProfile=1
  *
  * The roster itself is global — it is the commercial KOL platform's directory,
  * not org-scoped data — but the endpoint still requires org membership so the
@@ -53,8 +53,26 @@ export async function GET(req: NextRequest, { params }: Params) {
     const ids = (sp.get('ids') || '')
       .split(',').map(v => v.trim()).filter(v => UUID.test(v)).slice(0, 50)
 
+    /**
+     * Brand Profile gender — `?brandProfile=1`, sent by the main Directory
+     * list only.
+     *
+     * Female/Male on the agency's Brand Profile (`gender_majority`) keeps only
+     * creators whose CREATOR gender (kol_profile_card.creator_gender) is that
+     * gender; Any and Balanced filter nothing. Never applied to `?ids=`:
+     * Compare, Cart, SmartDiscovery and the Brand Match request fetch creators
+     * the user already picked, and must get exactly those back. Gender is
+     * eligibility only — it is not part of Match %.
+     */
+    let creatorGender: 'female' | 'male' | null = null
+    if (sp.get('brandProfile') === '1' && !ids.length) {
+      const { genderMajority } = await getBrandProfile(access.orgId)
+      creatorGender = genderMajority === 'Female' ? 'female' : genderMajority === 'Male' ? 'male' : null
+    }
+
     const data = await listKolDirectory({
       ids,
+      creatorGender,
       q: sp.get('q'),
       platform: sp.get('platform'),
       category: sp.get('category'),
