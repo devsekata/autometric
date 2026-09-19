@@ -2,7 +2,7 @@ import {
   CRITERIA_ORDER, CRITERIA_LABELS, type CriterionKey,
 } from './model'
 import {
-  audienceQualityScore, brandSafetyScore, communityStrengthScore,
+  audienceQualityScore, communityStrengthScore,
   consistencyScore, contentQualityScore, contributingCount, engagementScore,
   reachProxyScore, whatMattersScore, type CriterionScores,
 } from './score'
@@ -66,8 +66,6 @@ export function scoreRecord(
     reach: reachProxyScore(k.medianViews, pop.medianViews),
     content_quality: contentQualityScore(
       k.cqErPct, pop.cqEr, k.cqMedianViews, pop.cqMedianViews, k.cqErSdPp, k.cqErPosts),
-    brand_safety: brandSafetyScore(
-      k.authenticity, k.followerQuality, k.isVerified, k.paidRatio),
   }
 }
 

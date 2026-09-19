@@ -21,8 +21,6 @@ import kolDb from '@/lib/kolDb'
  *                       followers_at_post_date, er_followers, views,
  *                       likes_hidden, is_collaboration — aggregated per
  *                       account by `POST_QUALITY_SQL`
- *   brand safety      .authenticity_score + .follower_quality_score
- *                       + .is_verified + .paid_ratio
  *
  * Coverage is thin and the UI must say so rather than fill it: of 1.978 profile
  * cards, median_views 30, performance_stability 11, post_frequency_reliability
@@ -55,7 +53,6 @@ export interface WhatMattersRecord {
   engagementRate: number | null
   audienceQuality: number | null
   authenticity: number | null
-  followerQuality: number | null
   performanceStability: string | null
   postFrequencyReliability: string | null
   medianViews: number | null
@@ -63,8 +60,6 @@ export interface WhatMattersRecord {
   cqMedianViews: number | null
   cqErSdPp: number | null
   cqErPosts: number | null
-  isVerified: boolean | null
-  paidRatio: number | null
 }
 
 /**
@@ -141,30 +136,23 @@ export async function whatMattersRecordsFor(
   const db = kolDb()
   const { rows } = await db.query<{
     id: string; er: string | null
-    aq: string | null; auth: string | null; fq: string | null
+    aq: string | null; auth: string | null
     stability: string | null; reliability: string | null
     median_views: string | null
     cq_er_pct: string | null; cq_median_views: string | null
     cq_er_sd_pp: string | null; cq_er_posts: string | null
-    is_verified: boolean | null; paid_ratio: string | null
   }>(`
     SELECT kd.id,
            kd.engagement_rate AS er,
            pc.audience_quality_score  AS aq,
            pc.authenticity_score      AS auth,
-           -- Follower quality lives ONLY in feature.*_audience_analysis; it is
-           -- not a column on the profile card, which is why it is joined
-           -- separately rather than read from pc like the others.
-           aa.follower_quality_score  AS fq,
            pc.performance_stability   AS stability,
            pc.post_frequency_reliability AS reliability,
            pc.median_views,
            cq.er_pct       AS cq_er_pct,
            cq.median_views AS cq_median_views,
            cq.er_sd_pp     AS cq_er_sd_pp,
-           cq.er_posts     AS cq_er_posts,
-           pc.is_verified,
-           pc.paid_ratio
+           cq.er_posts     AS cq_er_posts
       FROM public.kol_directory kd
       LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
       -- One card per creator: the freshest snapshot of whichever linked account
@@ -176,20 +164,6 @@ export async function whatMattersRecordsFor(
          ORDER BY c.profile_snapshot_date DESC NULLS LAST
          LIMIT 1
       ) pc ON TRUE
-      -- Both platforms carry the same four columns under different table
-      -- names, and a creator is on one or the other. UNION ALL rather than a
-      -- join per platform keeps this one row regardless.
-      LEFT JOIN LATERAL (
-        SELECT follower_quality_score FROM (
-          SELECT social_account_id, follower_quality_score
-            FROM feature.ig_audience_analysis
-           UNION ALL
-          SELECT social_account_id, follower_quality_score
-            FROM feature.tt_audience_analysis
-        ) u
-         WHERE u.social_account_id = ksa.social_account_id
-         LIMIT 1
-      ) aa ON TRUE
       -- Content Quality, from this account's own posts. An aggregate always
       -- returns one row, so an account with no posts gets nulls, not zeros.
       LEFT JOIN LATERAL (
@@ -209,7 +183,6 @@ export async function whatMattersRecordsFor(
       engagementRate: num(r.er),
       audienceQuality: num(r.aq),
       authenticity: num(r.auth),
-      followerQuality: num(r.fq),
       performanceStability: r.stability,
       postFrequencyReliability: r.reliability,
       medianViews: num(r.median_views),
@@ -217,8 +190,6 @@ export async function whatMattersRecordsFor(
       cqMedianViews: num(r.cq_median_views),
       cqErSdPp: num(r.cq_er_sd_pp),
       cqErPosts: num(r.cq_er_posts),
-      isVerified: r.is_verified,
-      paidRatio: num(r.paid_ratio),
     })
   }
 

@@ -1,9 +1,8 @@
-# VENDORED from the scrapper repo @0d6e571, PLUS the Content Quality change of
-# 5cf0578 ("feat: implement content quality for what matters"), ported hunk by
-# hunk. The Brand Safety removal of 50b6a16 is deliberately NOT applied: the
-# TypeScript port still ships brand_safety. Needs metrics_thresholds.py beside
-# it (vendored verbatim from 5cf0578).
-"""What Matters Most — 7 kriteria ranking, SATU definisi, dua bentuk.
+# VENDORED verbatim from the scrapper repo @5cf0578 ("feat: implement content
+# quality for what matters"), which includes the Brand Safety removal of 50b6a16:
+# six criteria, no brand_safety. Needs metrics_thresholds.py beside it (vendored
+# verbatim from 5cf0578).
+"""What Matters Most — 6 kriteria ranking, SATU definisi, dua bentuk.
 
 ============================================================================
 APA INI
@@ -74,27 +73,10 @@ ia sengaja beririsan dengan Strong Engagement dan High Reach (sumbernya
 berbeda: post_metric vs kol_directory / kol_profile_card). Memilih ketiganya
 sekaligus memberi sinyal engagement dan views bobot lebih di rata-rata.
 
-============================================================================
-SATU KRITERIA SENGAJA MENGEMBALIKAN NULL
-============================================================================
-
-`brand_safety` TIDAK dihitung. Bukan karena lupa.
-
-BRAND SAFETY. Bobot yang diusulkan: authenticity 50%, topic safety 30%, data
-quality 20%. Audit:
-
-    authenticity     ADA -- feature.*_audience_analysis.authenticity_score
-    topic safety     TIDAK ADA -- tidak ada taksonomi aman/tidak aman untuk
-                     ke-11 topik; `*_comments_analysis` (toxicity, sentiment)
-                     0 baris
-    data quality     TIDAK ADA definisinya sebagai komponen brand safety
-
-Setengah bobotnya tanpa sumber. Kalau sisanya dinormalisasi, hasilnya persis
-sama dengan `authenticity_score` -- satu angka, dua nama, dan yang kedua
-menjanjikan jaminan keamanan merek yang tidak diberikannya.
-
-Ia tetap terdaftar di `KRITERIA` supaya UI bisa menampilkannya NONAKTIF
-beserta alasannya, bukan menyembunyikannya.
+BRAND SAFETY DIHAPUS DARI SCOPE. Keputusan terbaru: Brand Safety tidak lagi
+menjadi bagian Brand Match maupun What Matters. Kriterianya tidak terdaftar
+di `KRITERIA`, jadi `?matters=brand_safety` diabaikan `parse_matters` seperti
+kunci tak dikenal lainnya -- tidak ada skor, proxy, atau default pengganti.
 
 ============================================================================
 KENAPA TIDAK ADA KOLOM, TABEL, ATAU VIEW BARU
@@ -129,7 +111,7 @@ SKALA_MAX = 100.0
 # 1. KRITERIA  --  kunci API, nama, sumber, sifat
 # ===========================================================================
 #
-# `kunci` adalah yang dikirim UI:  ?matters=engagement,consistency,brand_safety
+# `kunci` adalah yang dikirim UI:  ?matters=engagement,consistency,reach
 
 KRITERIA: dict[str, dict] = {
     "engagement": {
@@ -185,20 +167,11 @@ KRITERIA: dict[str, dict] = {
                    "Consistency 20%, dari post_metric. Views bukan reach. "
                    "Format dan topik TIDAK dipakai.",
     },
-    "brand_safety": {
-        "nama": "Brand Safety",
-        "skor": "brand_safety_score",
-        "sifat": TIDAK_TERSEDIA,
-        "sumber": (),
-        "catatan": "Selalu NULL. Topic safety dan data quality tidak punya "
-                   "sumber; authenticity sendirian hanya menduplikasi "
-                   "kriteria audience_quality dengan nama yang menyesatkan.",
-    },
 }
 
 #: Urutan tampil di UI.
 URUTAN_KRITERIA = ("engagement", "audience_quality", "consistency",
-                   "community", "reach", "content_quality", "brand_safety")
+                   "community", "reach", "content_quality")
 
 #: Kriteria yang benar-benar mengembalikan angka hari ini.
 KRITERIA_AKTIF = tuple(k for k in URUTAN_KRITERIA
@@ -464,11 +437,6 @@ def content_quality_score(er_pct: float | None,
     )
 
 
-def brand_safety_score(*_args, **_kwargs) -> None:
-    """Kriteria 7 -- TIDAK TERSEDIA. Selalu None. Lihat docstring modul."""
-    return None
-
-
 # ===========================================================================
 # 5. WHAT MATTERS SCORE
 # ===========================================================================
@@ -494,7 +462,7 @@ def what_matters_score(skor: dict[str, float | None],
 
 
 def parse_matters(param: str | None) -> list[str]:
-    """`"engagement,consistency,brand_safety"` -> daftar kunci yang sah.
+    """`"engagement,consistency,reach"` -> daftar kunci yang sah.
 
     Kunci tak dikenal diabaikan, bukan membuat request gagal: UI yang lebih
     baru boleh mengirim kriteria yang backend ini belum kenal.
@@ -624,8 +592,7 @@ def sql_ekspresi_skor(kolom: dict[str, str] | None = None) -> dict[str, str]:
     artinya berubah-ubah tiap kali orang menggeser halaman.
 
     `content_quality` membaca alias `cq` dari `SQL_CONTENT_QUALITY_CTE`, jadi
-    query pemakainya wajib menyertakan CTE dan JOIN itu. `brand_safety` sengaja
-    `NULL::numeric`: ia belum punya sumber.
+    query pemakainya wajib menyertakan CTE dan JOIN itu.
     """
     import metrics_thresholds as mt
 
@@ -657,7 +624,6 @@ def sql_ekspresi_skor(kolom: dict[str, str] | None = None) -> dict[str, str]:
                                                 c["cq_er_posts"]) + ")",
                          TINGKAT_STABILITAS), BOBOT_CQ_KONSISTENSI),
         ),
-        "brand_safety": "NULL::numeric",
     }
 
 

@@ -1,10 +1,9 @@
 /**
- * What Matters Most — the seven criterion scores, and the average over the ones
+ * What Matters Most — the six criterion scores, and the average over the ones
  * a user selected.
  *
- * A PORT of `scripts/what-matters/what_matters_scoring.py` for six of the
- * seven — Brand Safety is the exception; see `./model` for why it is ported
- * rather than called.
+ * A PORT of `scripts/what-matters/what_matters_scoring.py`; see `./model` for
+ * why it is ported rather than called.
  *
  * ── NULL is not zero, and that is the whole point ──────────────────────────
  * Every function here returns `null` for "not measured" and never substitutes a
@@ -100,7 +99,7 @@ function weighted(parts: [number | null, number][]): number | null {
   return den === 0 ? null : num / den
 }
 
-/* ── the seven criteria ───────────────────────────────────────────────────── */
+/* ── the six criteria ─────────────────────────────────────────────────────── */
 
 /** 1. Strong Engagement — REAL. Percentile rank of engagement rate. */
 export const engagementScore = (
@@ -303,46 +302,6 @@ export function contentQualityScore(
     [percentileScore(erPct, populationEr), W_CQ_ENGAGEMENT],
     [percentileScore(medianViews, populationViews), W_CQ_VIEWS],
     [ordinalScore(stabilityLabel(erSdPp, erPosts), TINGKAT_STABILITAS), W_CQ_CONSISTENCY],
-  ])
-}
-
-export const W_BS_AUTHENTICITY = 40
-export const W_BS_FOLLOWER_QUALITY = 30
-export const W_BS_VERIFIED = 15
-export const W_BS_PAID = 15
-
-/**
- * 7. Brand Safety — Authenticity 40% + Follower Quality 30% + Verified 15% +
- * Paid 15%. The Brand Match formula, reused unchanged.
- *
- * ── What this actually measures ────────────────────────────────────────────
- * Creator and ACCOUNT INTEGRITY. It does not measure content risk. There is no
- * toxicity reading, no sentiment, no topic-safety taxonomy and no comment
- * analysis anywhere in this database — `*_comments_analysis` holds zero rows —
- * so nothing here may be described as content safety, risky content, toxicity
- * or sentiment. The name is kept because the Brand Match model is locked.
- *
- * `verified` is a boolean, not a measurement: true scores 100, false scores 50
- * rather than 0, because unverified is an unanswered question and not evidence
- * of harm. Null stays null and renormalises away.
- */
-export function brandSafetyScore(
-  authenticity: number | null,
-  followerQuality: number | null,
-  verified: boolean | null,
-  paidRatio: number | null,
-  paidCeiling = 40,
-): number | null {
-  const verifiedScore = verified === null || verified === undefined
-    ? null : (verified ? 100 : 50)
-  const paid = isNum(paidRatio)
-    ? Math.max(0, 100 - (paidRatio / paidCeiling) * 100)
-    : null
-  return weighted([
-    [clamp(authenticity), W_BS_AUTHENTICITY],
-    [clamp(followerQuality), W_BS_FOLLOWER_QUALITY],
-    [verifiedScore, W_BS_VERIFIED],
-    [paid, W_BS_PAID],
   ])
 }
 

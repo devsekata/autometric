@@ -16,7 +16,7 @@ import {
   WHAT_MATTERS_CRITERION, WHAT_MATTERS_KEYS, WHAT_MATTERS_OPTIONS,
   brandMatchForDirectory, brandMatchFromScores, cleanWhatMatters,
 } from '@/lib/discover/whatMatters/brandMatch'
-import { CRITERIA_LABELS, matchWhatMatters, whatMattersScore } from '@/lib/discover/whatMatters'
+import { CRITERIA_LABELS, CRITERIA_ORDER, matchWhatMatters, whatMattersScore } from '@/lib/discover/whatMatters'
 import type { CriterionScores } from '@/lib/discover/whatMatters/score'
 
 let failures = 0
@@ -28,10 +28,10 @@ const near = (a: number | null, b: number | null) =>
   a === null || b === null ? a === b : Math.abs(a - b) < 1e-9
 const offline = process.argv.includes('--offline')
 
-/** Scores keyed by What Matters criterion, including one Brand Match never reads. */
+/** Scores keyed by What Matters criterion — all six. */
 const FULL: CriterionScores = {
   engagement: 82, audience_quality: 90, consistency: 50,
-  community: 71, reach: 40, content_quality: 63, brand_safety: 5,
+  community: 71, reach: 40, content_quality: 63,
 }
 
 function inMemory() {
@@ -42,6 +42,9 @@ function inMemory() {
     Object.entries(WHAT_MATTERS_CRITERION).map(([k, c]) => `${k}>${c}`).join(',')
       === 'strong_engagement>engagement,high_audience_quality>audience_quality,consistent_performance>consistency,strong_community>community,high_reach>reach,content_quality>content_quality')
   check('brand_safety is not choosable', !(WHAT_MATTERS_KEYS as readonly string[]).includes('brand_safety'))
+  check('What Matters itself has exactly the six criteria Brand Match maps to (no brand_safety)',
+    CRITERIA_ORDER.join(',') === Object.values(WHAT_MATTERS_CRITERION).join(',')
+    && !(CRITERIA_ORDER as readonly string[]).includes('brand_safety'), CRITERIA_ORDER.join(','))
   check('cleaning keeps known keys, canonical order, no duplicates, drops the rest',
     cleanWhatMatters(['high_reach', 'brand_safety', 'x', 'strong_engagement', 'high_reach', 7]).join(',')
       === 'strong_engagement,high_reach')
@@ -56,7 +59,7 @@ function inMemory() {
   check('3 chosen → (82 + 90 + 40) / 3',
     near(brandMatchFromScores(FULL, ['strong_engagement', 'high_audience_quality', 'high_reach']).matchPct,
       (82 + 90 + 40) / 3))
-  check('all 6 chosen → mean of the six, brand_safety never read',
+  check('all 6 chosen → mean of the six',
     near(brandMatchFromScores(FULL, [...WHAT_MATTERS_KEYS]).matchPct, (82 + 90 + 50 + 71 + 40 + 63) / 6))
 
   console.log('\nNULL handling')
@@ -77,7 +80,7 @@ function inMemory() {
   const chosen = ['strong_engagement', 'high_audience_quality']
   check('changing every unchosen score leaves Match % unchanged',
     near(brandMatchFromScores(FULL, chosen).matchPct, brandMatchFromScores({
-      ...FULL, consistency: 0, community: 100, reach: null, content_quality: 1, brand_safety: 100,
+      ...FULL, consistency: 0, community: 100, reach: null, content_quality: 1,
     }, chosen).matchPct))
 
   console.log('\nReuse, not a second formula')
@@ -114,16 +117,69 @@ function staticChecks() {
   check('the UI imports Brand Match types only (no server code in the client bundle)',
     page.includes("import type { BrandMatchResult, DirectoryBrandMatch } from '@/lib/discover/whatMatters/brandMatch'"))
 
-  // What Matters itself is the engkol_v2 port, unchanged — formula and Content Quality included.
+  // What Matters itself is the engkol_v2 port with ONLY Brand Safety taken out.
+  // Compared declaration by declaration (comments ignored): every declaration
+  // v2 has is still here and unchanged — the six formulas and Content Quality
+  // included — except the Brand Safety ones, which must be gone, and the few
+  // that listed Brand Safety, which must equal v2 with exactly that removed.
+  const BS_REMOVED = ['W_BS_AUTHENTICITY', 'W_BS_FOLLOWER_QUALITY', 'W_BS_VERIFIED', 'W_BS_PAID', 'brandSafetyScore']
+  const BS_EDITED: Record<string, (v2: string) => string> = {
+    CRITERIA_ORDER: t => t.replace(" 'brand_safety',", ''),
+    CRITERIA_LABELS: t => dropLines(t, /^\s*brand_safety:/),
+    scoreRecord: t => dropLines(t, /brand_safety:|k\.followerQuality/),
+    WhatMattersRecord: t => dropLines(t, /^\s*(followerQuality|isVerified|paidRatio):/),
+    whatMattersRecordsFor: t => dropLines(t
+      .replace('; fq: string | null', '')
+      .replace(/\n\s*-- Follower quality lives ONLY[\s\S]*?AS fq,/, '')
+      .replace(/AS cq_er_posts,\n\s*pc\.is_verified,\n\s*pc\.paid_ratio/, 'AS cq_er_posts')
+      .replace(/\n\s*-- Both platforms carry the same four columns[\s\S]*?\) aa ON TRUE/, ''),
+      /is_verified: boolean \| null; paid_ratio|followerQuality: num|isVerified: r\.is_verified|paidRatio: num/),
+  }
   for (const f of ['model', 'score', 'records', 'index']) {
     const path = `src/lib/discover/whatMatters/${f}.ts`
     let ref: string | null = null
     try { ref = execSync(`git show 365829c:${path}`, { encoding: 'utf8' }) } catch { /* ref unavailable */ }
-    if (ref !== null) {
-      check(`${path} identical to engkol_v2@365829c`,
-        ref.replace(/\r\n/g, '\n') === readFileSync(path, 'utf8').replace(/\r\n/g, '\n'))
+    if (ref === null) continue
+    const v2 = declarations(ref)
+    const now = declarations(readFileSync(path, 'utf8'))
+    const differs: string[] = []
+    for (const [name, text] of v2) {
+      if (BS_REMOVED.includes(name)) {
+        if (now.has(name)) differs.push(`${name} still present`)
+        continue
+      }
+      const expected = BS_EDITED[name] ? BS_EDITED[name](text) : text
+      if (now.get(name) !== expected) differs.push(name)
     }
+    for (const name of now.keys()) if (!v2.has(name)) differs.push(`${name} is new`)
+    check(`${path} = engkol_v2@365829c minus Brand Safety (${now.size} declarations)`,
+      differs.length === 0, differs.join(', '))
   }
+}
+
+/** Removes every line matching `re`. */
+function dropLines(text: string, re: RegExp): string {
+  return text.split('\n').filter(l => !re.test(l)).join('\n')
+}
+
+/**
+ * Top-level declarations of a TypeScript source, keyed by name, comments and
+ * imports dropped. A declaration runs from its first line to the next top-level
+ * declaration, comment or import; trailing blank lines are trimmed.
+ */
+function declarations(src: string): Map<string, string> {
+  const out = new Map<string, string>()
+  let name: string | null = null
+  let buf: string[] = []
+  const flush = () => { if (name) out.set(name, buf.join('\n').trimEnd()); name = null; buf = [] }
+  for (const line of src.replace(/\r\n/g, '\n').split('\n')) {
+    const m = /^(?:export\s+)?(?:async\s+)?(?:function|const|let|interface|type)\s+([A-Za-z_$][\w$]*)/.exec(line)
+    if (m) { flush(); name = m[1]; buf = [line]; continue }
+    if (/^(\/\*|\/\/|import\b|export\s*[{*])/.test(line)) { flush(); continue }
+    if (name) buf.push(line)
+  }
+  flush()
+  return out
 }
 
 async function live() {

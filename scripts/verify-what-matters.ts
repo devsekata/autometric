@@ -23,7 +23,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  brandSafetyScore, communityStrengthScore, contentQualityScore,
+  communityStrengthScore, contentQualityScore,
   percentileScore, stabilityLabel, summarisePostQuality, whatMattersScore,
   type PostQualityInput,
 } from '@/lib/discover/whatMatters/score'
@@ -129,27 +129,6 @@ function main() {
       post(null, null, null, 999_999, true), post(null, null, null, 999_999, false, true),
       post(null, null, null, 0)]).medianViews === 5000)
 
-  /* ── Brand Safety ─────────────────────────────────────────────────────── */
-
-  console.log('\nBrand Safety — Auth 40 + FQ 30 + Verified 15 + Paid 15\n')
-
-  // auth 80, fq 60, verified true (100), paid 20 -> 50
-  // (80x40 + 60x30 + 100x15 + 50x15) / 100 = 72,5
-  check('semua komponen tersedia → 72,5',
-    near(brandSafetyScore(80, 60, true, 20), 72.5),
-    String(brandSafetyScore(80, 60, true, 20)))
-  check('unverified = 50, bukan 0 (pertanyaan belum terjawab, bukan bukti bahaya)',
-    near(brandSafetyScore(null, null, false, null), 50))
-  check('verified null → dilepas dari bobot, bukan jadi 0',
-    near(brandSafetyScore(80, null, null, null), 80))
-  check('sebagian NULL → hanya yang ada yang dihitung',
-    near(brandSafetyScore(80, 60, null, null), (80 * 40 + 60 * 30) / 70),
-    String(brandSafetyScore(80, 60, null, null)))
-  check('semua NULL → null, bukan 0',
-    brandSafetyScore(null, null, null, null) === null)
-  check('paid ratio tinggi menurunkan skor, tidak pernah negatif',
-    near(brandSafetyScore(null, null, null, 80), 0))
-
   /* ── Community ────────────────────────────────────────────────────────── */
 
   console.log('\nAudiens Aktif & Asli — AQ 70% + ER percentile 30%\n')
@@ -175,7 +154,7 @@ function main() {
 
   const s = {
     engagement: 80, audience_quality: null, consistency: 40,
-    community: null, reach: 10, content_quality: null, brand_safety: null,
+    community: null, reach: 10, content_quality: null,
   }
   check('kriteria terpilih yang NULL keluar dari PENYEBUT, bukan dihitung nol',
     near(whatMattersScore(s, ['engagement', 'audience_quality'] as CriterionKey[]), 80),
@@ -187,7 +166,12 @@ function main() {
     whatMattersScore(s, ['audience_quality', 'community'] as CriterionKey[]) === null)
   check('tidak ada yang dipilih → null', whatMattersScore(s, []) === null)
 
-  check('7 kriteria terdaftar', CRITERIA_ORDER.length === 7, CRITERIA_ORDER.join(','))
+  check('6 kriteria terdaftar, tanpa brand_safety',
+    CRITERIA_ORDER.join(',') === 'engagement,audience_quality,consistency,community,reach,content_quality',
+    CRITERIA_ORDER.join(','))
+  check('brand_safety tidak punya label', !('brand_safety' in CRITERIA_LABELS))
+  check('parseMatters membuang brand_safety seperti kunci tak dikenal',
+    parseMatters('engagement,brand_safety,BRAND_SAFETY,reach').join(',') === 'engagement,reach')
   check('parseMatters membuang kunci tak dikenal tanpa menggagalkan request',
     parseMatters('engagement,tidak_ada,reach').join(',') === 'engagement,reach')
   check('parseMatters membuang duplikat',

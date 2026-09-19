@@ -10,8 +10,8 @@
  * sama dan membandingkan hasilnya.
  *
  * Referensinya di-vendor di `scripts/what-matters/what_matters_scoring.py`:
- * salinan repo scrapper pada commit 0d6e571, ditambah perubahan Content
- * Quality dari commit 5cf0578 (beserta `metrics_thresholds.py` yang ia pakai).
+ * salinan persis repo scrapper pada commit 5cf0578 (beserta
+ * `metrics_thresholds.py` yang ia pakai).
  *
  * ── Content Quality kini DIBANDINGKAN ──────────────────────────────────────
  * Dulu Python selalu None di sini dan skrip ini menegaskan divergensinya.
@@ -20,10 +20,11 @@
  * diganti paritas: ringkasan post, label stability, dan skor akhirnya
  * dibandingkan nilai per nilai.
  *
- * ── Satu kriteria masih SENGAJA berbeda ────────────────────────────────────
- * `brand_safety` masih None di Python dan memakai formula Brand Match yang
- * sudah locked, jadi tidak dibandingkan — skrip ini menegaskan Python memang
- * masih None di sana.
+ * ── Enam kriteria, di kedua sisi ───────────────────────────────────────────
+ * Brand Safety dihapus dari scope (scrapper 50b6a16), di Python maupun di port.
+ * Tidak ada lagi divergensi yang disengaja: skrip ini menegaskan urutan
+ * kriteria kedua sisi identik dan `brand_safety` dibuang oleh keduanya seperti
+ * kunci tak dikenal lainnya.
  *
  * Butuh `python` di PATH. Read-only: tidak menyentuh database sama sekali.
  */
@@ -38,8 +39,9 @@ import {
   whatMattersScore, type PostQualityInput,
 } from '@/lib/discover/whatMatters/score'
 import {
-  TINGKAT_RELIABILITAS, TINGKAT_STABILITAS, type CriterionKey,
+  CRITERIA_ORDER, TINGKAT_RELIABILITAS, TINGKAT_STABILITAS, type CriterionKey,
 } from '@/lib/discover/whatMatters/model'
+import { parseMatters } from '@/lib/discover/whatMatters'
 
 let failures = 0
 let compared = 0
@@ -145,13 +147,13 @@ out["cq_from_posts"] = [wm.content_quality_score(r["er_pct"], POP_ER, r["median_
                                                  POP_VIEWS, r["er_sd_pp"], r["er_posts"])
                         for r in ringkas]
 
-# Kriteria yang sengaja belum dihitung di Python.
-out["brand_safety_is_none"] = [wm.brand_safety_score()]
+# Daftar kriteria, dan brand_safety sebagai kunci tak dikenal.
+out["urutan_kriteria"] = list(wm.URUTAN_KRITERIA)
+out["parse_brand_safety"] = wm.parse_matters("engagement,brand_safety,reach")
 
 # Agregat: subset kriteria terpilih, sebagian NULL.
 skor = {"engagement": 80.0, "audience_quality": None, "consistency": 40.0,
-        "community": None, "reach": 10.0, "content_quality": None,
-        "brand_safety": None}
+        "community": None, "reach": 10.0, "content_quality": None}
 out["aggregate"] = [
     wm.what_matters_score(skor, ["engagement"]),
     wm.what_matters_score(skor, ["engagement", "audience_quality"]),
@@ -206,7 +208,7 @@ function main() {
     aggregate: (() => {
       const s = {
         engagement: 80, audience_quality: null, consistency: 40,
-        community: null, reach: 10, content_quality: null, brand_safety: null,
+        community: null, reach: 10, content_quality: null,
       }
       const sel = (...k: string[]) => whatMattersScore(s, k as CriterionKey[])
       return [
@@ -240,9 +242,20 @@ function main() {
     }
   }
 
-  // Divergensi yang disengaja, ditegaskan bukan ditebak.
-  check('brand_safety masih None di Python (divergensi disengaja)',
-    py.brand_safety_is_none?.[0] === null)
+  // Daftar kriteria: enam, sama persis dan sama urutannya di kedua sisi.
+  const pyOrder = (py.urutan_kriteria ?? []) as unknown as string[]
+  const sameOrder = pyOrder.join(',') === CRITERIA_ORDER.join(',') && CRITERIA_ORDER.length === 6
+  check('urutan kriteria Python = TypeScript (enam)', sameOrder,
+    `python ${pyOrder.join(',')} vs ts ${CRITERIA_ORDER.join(',')}`)
+  if (sameOrder) console.log(`  ok    ${'urutan_kriteria'.padEnd(22)} ${CRITERIA_ORDER.join(',')}`)
+
+  // brand_safety adalah kunci tak dikenal di kedua sisi.
+  const pyParsed = ((py.parse_brand_safety ?? []) as unknown as string[]).join(',')
+  const tsParsed = parseMatters('engagement,brand_safety,reach').join(',')
+  const dropped = pyParsed === 'engagement,reach' && tsParsed === 'engagement,reach'
+  check('brand_safety dibuang parse_matters Python dan parseMatters TS', dropped,
+    `python ${pyParsed} vs ts ${tsParsed}`)
+  if (dropped) console.log(`  ok    ${'brand_safety_dibuang'.padEnd(22)} python dan ts`)
 
   console.log(
     failures === 0

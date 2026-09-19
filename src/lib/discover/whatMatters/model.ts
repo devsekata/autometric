@@ -3,10 +3,8 @@
  * weights and stability cut-offs.
  *
  * ── This is a PORT, and the port is checked ────────────────────────────────
- * Six of the seven criteria — everything except Brand Safety — are copied from
- * `scripts/what-matters/what_matters_scoring.py`, vendored from the scrapper
- * repo at `0d6e571` plus that repo's Content Quality change of `5cf0578`. That
- * file stays the reference implementation for as long as both exist, and
+ * All six criteria are copied from `scripts/what-matters/what_matters_scoring.py`,
+ * vendored verbatim from the scrapper repo at `5cf0578`. That file stays the reference implementation for as long as both exist, and
  * `scripts/verify-what-matters-port.ts` drives the Python and asserts this
  * TypeScript reproduces it value for value.
  *
@@ -25,15 +23,20 @@
  * Views 30% + Consistency 20% over `l2_gold.post_metric` — and this port
  * follows it. The format and topic rubrics are gone with that change, not kept
  * alongside: two definitions of one criterion is how they drift.
+ *
+ * ── Brand Safety is not a criterion ────────────────────────────────────────
+ * Out of scope for What Matters and Brand Match since scrapper `50b6a16`. It is
+ * not a key here, so `parseMatters` and Brand Match's `cleanWhatMatters` drop
+ * `brand_safety` like any unknown key — no score, no proxy, no default.
  */
 
 export const SKALA_MIN = 0
 export const SKALA_MAX = 100
 
-/** The seven criteria, in UI order. Keys match the Python's exactly. */
+/** The six criteria, in UI order. Keys match the Python's exactly. */
 export const CRITERIA_ORDER = [
   'engagement', 'audience_quality', 'consistency',
-  'community', 'reach', 'content_quality', 'brand_safety',
+  'community', 'reach', 'content_quality',
 ] as const
 export type CriterionKey = (typeof CRITERIA_ORDER)[number]
 
@@ -52,7 +55,6 @@ export const CRITERIA_LABELS: Record<CriterionKey, string> = {
   community: 'Audiens Aktif & Asli',
   reach: 'High Reach',
   content_quality: 'Content Quality',
-  brand_safety: 'Brand Safety',
 }
 
 /* ── ordinal ladders ──────────────────────────────────────────────────────── */
