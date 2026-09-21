@@ -193,9 +193,10 @@ async function main() {
         `SELECT column_name FROM information_schema.columns
           WHERE table_schema='public' AND table_name='brand_profile'`)
       const have = new Set(cols.map(c => c.column_name))
+      // brand_keywords / brand_hashtags / caption_terms left this list with
+      // migrations/kol/009, which dropped them; the engine no longer reads them.
       const need = [
-        'organization_id', 'brand_category', 'brand_keywords', 'brand_hashtags',
-        'caption_terms', 'gender_majority', 'target_country', 'target_city',
+        'organization_id', 'brand_category', 'gender_majority', 'target_country', 'target_city',
         'audience_interests', 'brand_personality',
       ]
       check('kolom yang dibaca engine semuanya ada',

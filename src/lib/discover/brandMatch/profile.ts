@@ -34,6 +34,13 @@ import type { ScoringBrand } from './score'
 
 /* ── the profile ──────────────────────────────────────────────────────────── */
 
+/*
+ * `brandKeywords`, `brandHashtags`, `captionTerms`, `brandTone`,
+ * `performanceTargets`, `minFollowers`, `minErPct`, `requireCategory` and
+ * `verifiedOnly` have had no column since `migrations/kol/009` dropped them.
+ * They stay on the type so the form and the adapters still compile, always
+ * read as their `emptyProfile()` value, and are never written.
+ */
 export interface BrandProfile {
   organizationId: string
   brandId: string | null
@@ -145,37 +152,29 @@ interface Row {
   brand_description: string | null
   brand_category: string | null
   brand_personality: string[]
-  brand_keywords: string[]
-  brand_hashtags: string[]
-  caption_terms: string[]
   gender_majority: string
   target_country: string | null
   target_city: string | null
   audience_interests: string[]
-  brand_tone: string[] | null
   target_age_min: number | null
   target_age_max: number | null
-  performance_targets: Record<string, unknown> | null
   preferred_categories: string[]
   preferred_platforms: string[]
   preferred_tiers: string[]
   content_styles: string[]
-  min_followers: string | null
-  min_er_pct: string | null
-  require_category: boolean
-  verified_only: boolean
   updated_at: Date | null
 }
 
 const COLUMNS = `
   organization_id, brand_id, brand_name, brand_description, brand_category,
-  brand_personality, brand_keywords, brand_hashtags, caption_terms,
-  gender_majority, target_country, target_city, audience_interests,
-  brand_tone, target_age_min, target_age_max, performance_targets,
-  preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-  min_followers, min_er_pct, require_category, verified_only, updated_at`
+  brand_personality, gender_majority, target_country, target_city, audience_interests,
+  target_age_min, target_age_max,
+  preferred_categories, preferred_platforms, preferred_tiers, content_styles, updated_at`
 
 function fromRow(r: Row): BrandProfile {
+  // Nine fields have no column since `migrations/kol/009`; they read as the same
+  // empty values a workspace with no profile gets, so every consumer still types.
+  const gone = emptyProfile(r.organization_id)
   return {
     organizationId: r.organization_id,
     brandId: r.brand_id,
@@ -183,28 +182,26 @@ function fromRow(r: Row): BrandProfile {
     brandDescription: r.brand_description,
     brandCategory: r.brand_category,
     brandPersonality: r.brand_personality ?? [],
-    brandKeywords: r.brand_keywords ?? [],
-    brandHashtags: r.brand_hashtags ?? [],
-    captionTerms: r.caption_terms ?? [],
+    brandKeywords: gone.brandKeywords,
+    brandHashtags: gone.brandHashtags,
+    captionTerms: gone.captionTerms,
     genderMajority: (GENDER_MAJORITIES as readonly string[]).includes(r.gender_majority)
       ? r.gender_majority as GenderMajority : 'Any',
     targetCountry: r.target_country,
     targetCity: r.target_city,
     audienceInterests: r.audience_interests ?? [],
-    brandTone: r.brand_tone ?? [],
+    brandTone: gone.brandTone,
     targetAgeMin: r.target_age_min === null ? null : Number(r.target_age_min),
     targetAgeMax: r.target_age_max === null ? null : Number(r.target_age_max),
-    performanceTargets: cleanTargets(r.performance_targets),
+    performanceTargets: gone.performanceTargets,
     preferredCategories: r.preferred_categories ?? [],
     preferredPlatforms: r.preferred_platforms ?? [],
     preferredTiers: r.preferred_tiers ?? [],
     contentStyles: r.content_styles ?? [],
-    // NUMERIC and BIGINT arrive as strings from `pg`. Null stays null: "no
-    // bound" and "a bound of zero" are different instructions.
-    minFollowers: r.min_followers === null ? null : Number(r.min_followers),
-    minErPct: r.min_er_pct === null ? null : Number(r.min_er_pct),
-    requireCategory: r.require_category,
-    verifiedOnly: r.verified_only,
+    minFollowers: gone.minFollowers,
+    minErPct: gone.minErPct,
+    requireCategory: gone.requireCategory,
+    verifiedOnly: gone.verifiedOnly,
     updatedAt: r.updated_at ? r.updated_at.toISOString() : null,
   }
 }
@@ -259,31 +256,6 @@ function cleanEnum(v: unknown, allowed: readonly string[]): string[] {
   if (!Array.isArray(v)) return []
   const set = new Set(allowed)
   return [...new Set(v.filter((x): x is string => typeof x === 'string' && set.has(x)))]
-}
-
-/** A non-negative bound, or null. `0` survives; it is a real lower bound. */
-function bound(v: unknown): number | null {
-  if (v === null || v === undefined || v === '') return null
-  const n = Number(v)
-  return Number.isFinite(n) && n >= 0 ? n : null
-}
-
-/**
- * Keeps only positive, finite numeric targets.
- *
- * Which METRIC NAMES count is Brand Fit's decision, not this file's —
- * `brandFit/records.ts` filters to the five it recognises when it reads. This
- * only guarantees the column holds numbers, so an unrecognised key is stored
- * and ignored rather than rejected here and duplicated as a second vocabulary.
- */
-function cleanTargets(raw: unknown): Record<string, number> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const out: Record<string, number> = {}
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>).slice(0, 20)) {
-    const n = Number(value)
-    if (Number.isFinite(n) && n > 0) out[key.trim()] = n
-  }
-  return out
 }
 
 /** An age bound, or null. Rejects nonsense rather than storing it. */
@@ -398,35 +370,19 @@ export async function saveBrandProfile(
     brandDescription: has('brandDescription') ? str(input.brandDescription) : current.brandDescription,
     brandCategory: category,
     brandPersonality: has('brandPersonality') ? cleanList(input.brandPersonality) : current.brandPersonality,
-    brandKeywords: has('brandKeywords') ? cleanList(input.brandKeywords) : current.brandKeywords,
-    brandHashtags: has('brandHashtags')
-      // Stored without the leading '#': the creator-side haystack is built as
-      // `#tag` tokens and `overlap()` is containment, so a stored '#running'
-      // and a stored 'running' would both hit — but only one of them matches
-      // what the UI shows back. Normalising on write keeps the two equal.
-      ? cleanList(input.brandHashtags).map(h => h.replace(/^#+/, '')).filter(Boolean)
-      : current.brandHashtags,
-    captionTerms: has('captionTerms') ? cleanList(input.captionTerms) : current.captionTerms,
     genderMajority: gender,
     targetCountry: has('targetCountry') ? str(input.targetCountry) : current.targetCountry,
     targetCity: has('targetCity') ? str(input.targetCity) : current.targetCity,
     audienceInterests: has('audienceInterests')
       ? cleanEnum(input.audienceInterests, INTEREST_KEYS) : current.audienceInterests,
-    brandTone: has('brandTone') ? cleanList(input.brandTone) : current.brandTone,
     targetAgeMin: ageMin,
     targetAgeMax: ageMax,
-    performanceTargets: has('performanceTargets')
-      ? cleanTargets(input.performanceTargets) : current.performanceTargets,
     preferredCategories: has('preferredCategories')
       ? cleanEnum(input.preferredCategories, CANONICAL_CATEGORIES) : current.preferredCategories,
     preferredPlatforms: has('preferredPlatforms')
       ? cleanList(input.preferredPlatforms, 8).map(p => p.toLowerCase()) : current.preferredPlatforms,
     preferredTiers: has('preferredTiers') ? cleanList(input.preferredTiers, 8) : current.preferredTiers,
     contentStyles: has('contentStyles') ? cleanList(input.contentStyles, 12) : current.contentStyles,
-    minFollowers: has('minFollowers') ? bound(input.minFollowers) : current.minFollowers,
-    minErPct: has('minErPct') ? bound(input.minErPct) : current.minErPct,
-    requireCategory: has('requireCategory') ? !!input.requireCategory : current.requireCategory,
-    verifiedOnly: has('verifiedOnly') ? !!input.verifiedOnly : current.verifiedOnly,
   }
 
   // `kolDbWrite()`, not `kolDb()`: this is the one place Brand Match writes to
@@ -435,49 +391,36 @@ export async function saveBrandProfile(
   const { rows } = await kolDbWrite().query<Row>(`
     INSERT INTO public.brand_profile (
       organization_id, brand_id, brand_name, brand_description, brand_category,
-      brand_personality, brand_keywords, brand_hashtags, caption_terms,
-      gender_majority, target_country, target_city, audience_interests,
-      brand_tone, target_age_min, target_age_max, performance_targets,
+      brand_personality, gender_majority, target_country, target_city, audience_interests,
+      target_age_min, target_age_max,
       preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-      min_followers, min_er_pct, require_category, verified_only, updated_by, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-            $21,$22,$23,$24,$25,$26,NOW())
+      updated_by, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
     ON CONFLICT (organization_id) DO UPDATE SET
       brand_id = EXCLUDED.brand_id,
       brand_name = EXCLUDED.brand_name,
       brand_description = EXCLUDED.brand_description,
       brand_category = EXCLUDED.brand_category,
       brand_personality = EXCLUDED.brand_personality,
-      brand_keywords = EXCLUDED.brand_keywords,
-      brand_hashtags = EXCLUDED.brand_hashtags,
-      caption_terms = EXCLUDED.caption_terms,
       gender_majority = EXCLUDED.gender_majority,
       target_country = EXCLUDED.target_country,
       target_city = EXCLUDED.target_city,
       audience_interests = EXCLUDED.audience_interests,
-      brand_tone = EXCLUDED.brand_tone,
       target_age_min = EXCLUDED.target_age_min,
       target_age_max = EXCLUDED.target_age_max,
-      performance_targets = EXCLUDED.performance_targets,
       preferred_categories = EXCLUDED.preferred_categories,
       preferred_platforms = EXCLUDED.preferred_platforms,
       preferred_tiers = EXCLUDED.preferred_tiers,
       content_styles = EXCLUDED.content_styles,
-      min_followers = EXCLUDED.min_followers,
-      min_er_pct = EXCLUDED.min_er_pct,
-      require_category = EXCLUDED.require_category,
-      verified_only = EXCLUDED.verified_only,
       updated_by = EXCLUDED.updated_by,
       updated_at = NOW()
     RETURNING ${COLUMNS}`,
   [
     organizationId, next.brandId, next.brandName, next.brandDescription, next.brandCategory,
-    next.brandPersonality, next.brandKeywords, next.brandHashtags, next.captionTerms,
-    next.genderMajority, next.targetCountry, next.targetCity, next.audienceInterests,
-    next.brandTone, next.targetAgeMin, next.targetAgeMax,
-    JSON.stringify(next.performanceTargets),
+    next.brandPersonality, next.genderMajority, next.targetCountry, next.targetCity,
+    next.audienceInterests, next.targetAgeMin, next.targetAgeMax,
     next.preferredCategories, next.preferredPlatforms, next.preferredTiers, next.contentStyles,
-    next.minFollowers, next.minErPct, next.requireCategory, next.verifiedOnly, updatedBy,
+    updatedBy,
   ])
 
   return fromRow(rows[0])
