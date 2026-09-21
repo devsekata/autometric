@@ -27,6 +27,7 @@
     "verify:what-matters": "dotenv -e .env.local -- npx tsx scripts/verify-what-matters.ts",
     "whatmatters:port:verify": "npx tsx scripts/verify-what-matters-port.ts",
     "verify:brand-match-wm": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-what-matters.ts",
+    "verify:automation-e2e": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-automation-e2e.ts",
     "brand-match:recalc": "dotenv -e .env.local -- npx tsx scripts/brand-match-recalc.ts",
     "verify:brand-match-freshness": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-brand-match-freshness.ts",
     "verify:creator-gender": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-creator-gender-filter.ts",
