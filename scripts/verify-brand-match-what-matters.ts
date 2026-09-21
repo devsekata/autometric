@@ -8,7 +8,12 @@
  *
  * The live check reads the KOL database only and never touches brand_profile:
  * it scores a page of creators through `brandMatchForDirectory` and confirms
- * every Match % is exactly the mean of that creator's own What Matters scores.
+ * every Match % is exactly the mean of that creator's own What Matters scores,
+ * then checks the ER decision against independent SQL: engagement rate is the
+ * creator's own-platform Feature ER with no kol_directory fallback, every ER
+ * percentile ranks within one platform, and the views percentiles (High Reach,
+ * Content Quality views) still rank against one mixed Instagram + TikTok
+ * population.
  */
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
@@ -16,7 +21,10 @@ import {
   WHAT_MATTERS_CRITERION, WHAT_MATTERS_KEYS, WHAT_MATTERS_OPTIONS,
   brandMatchForDirectory, brandMatchFromScores, cleanWhatMatters,
 } from '@/lib/discover/whatMatters/brandMatch'
-import { CRITERIA_LABELS, CRITERIA_ORDER, matchWhatMatters, whatMattersScore } from '@/lib/discover/whatMatters'
+import {
+  CRITERIA_LABELS, CRITERIA_ORDER, NO_PLATFORM, matchWhatMatters, percentileScore, whatMattersPopulation,
+  whatMattersRecordsFor, whatMattersScore,
+} from '@/lib/discover/whatMatters'
 import type { CriterionScores } from '@/lib/discover/whatMatters/score'
 
 let failures = 0
@@ -135,6 +143,17 @@ function staticChecks() {
       .replace(/\n\s*-- Both platforms carry the same four columns[\s\S]*?\) aa ON TRUE/, ''),
       /is_verified: boolean \| null; paid_ratio|followerQuality: num|isVerified: r\.is_verified|paidRatio: num/),
   }
+  // The Brand Match ER decision changes WHERE the inputs come from, never how
+  // they are scored: engagement rate is Feature ER only (no kol_directory
+  // fallback), and every percentile ranks within the creator's own platform.
+  // Exactly these loader declarations may differ from v2 for that reason; their
+  // behaviour is checked live below. The formulas (score.ts, scoreRecord,
+  // POST_QUALITY_SQL, model.ts) must still equal v2.
+  const ER_DECISION_EDITED = new Set([
+    'WhatMattersRecord', 'WhatMattersPopulation', 'popCache', 'whatMattersPopulation',
+    'whatMattersRecordsFor', 'matchWhatMatters',
+  ])
+  const ER_DECISION_NEW = new Set(['FEATURE_ER_SQL', 'WhatMattersPopulations', 'NO_PLATFORM'])
   for (const f of ['model', 'score', 'records', 'index']) {
     const path = `src/lib/discover/whatMatters/${f}.ts`
     let ref: string | null = null
@@ -148,11 +167,17 @@ function staticChecks() {
         if (now.has(name)) differs.push(`${name} still present`)
         continue
       }
+      if (ER_DECISION_EDITED.has(name)) {
+        if (!now.has(name)) differs.push(`${name} missing`)
+        continue
+      }
       const expected = BS_EDITED[name] ? BS_EDITED[name](text) : text
       if (now.get(name) !== expected) differs.push(name)
     }
-    for (const name of now.keys()) if (!v2.has(name)) differs.push(`${name} is new`)
-    check(`${path} = engkol_v2@365829c minus Brand Safety (${now.size} declarations)`,
+    for (const name of now.keys()) {
+      if (!v2.has(name) && !ER_DECISION_NEW.has(name)) differs.push(`${name} is new`)
+    }
+    check(`${path} = engkol_v2@365829c minus Brand Safety, plus the Feature ER / per-platform loader (${now.size} declarations)`,
       differs.length === 0, differs.join(', '))
   }
 }
@@ -205,6 +230,93 @@ async function live() {
     ids.length > 0 && same === ids.length)
   const empty = await brandMatchForDirectory(ids, [])
   check('an empty choice scores nobody', empty.unavailable === 'no_selection' && !Object.keys(empty.rows).length)
+
+  console.log('\nLive: engagement rate is Feature ER only, ranked within its own platform')
+  // Independent SQL: every active creator, its platform, its own-platform
+  // Feature ER (or null), and the roster ER Brand Match must NOT fall back to.
+  const { rows: truth } = await kolDb().query<{
+    id: string; platform: string; fer: string | null; roster_er: string | null
+  }>(`
+    SELECT kd.id::text, pl.key AS platform,
+           COALESCE(ig.engagement_rate, tt.engagement_rate)::text AS fer,
+           kd.engagement_rate::text AS roster_er
+      FROM public.kol_directory kd
+      JOIN public.platforms pl ON pl.id = kd.platform_id
+      LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+      LEFT JOIN feature.ig_engagement_analysis ig
+             ON pl.key = 'instagram' AND ig.social_account_id = ksa.social_account_id
+      LEFT JOIN feature.tt_engagement_analysis tt
+             ON pl.key = 'tiktok' AND tt.social_account_id = ksa.social_account_id
+     WHERE kd.directory_status = 'active'`)
+  const withFer = truth.filter(t => t.fer !== null)
+  const rosterOnly = truth.filter(t => t.fer === null && t.roster_er !== null).slice(0, 25)
+  const sample = [...withFer, ...rosterOnly].map(t => t.id)
+  const records = await whatMattersRecordsFor(sample)
+  const pops = await whatMattersPopulation()
+
+  const byId = new Map(truth.map(t => [t.id, t]))
+  let erMatches = 0
+  for (const id of sample) {
+    const t = byId.get(id)!
+    const r = records.get(id)
+    if (r && near(r.engagementRate, t.fer === null ? null : Number(t.fer)) && r.platform === t.platform) erMatches++
+  }
+  check(`record ER = own-platform Feature ER, null when absent (${erMatches}/${sample.length})`,
+    sample.length > 0 && erMatches === sample.length)
+  check('Content Quality ranks the same Feature ER (cqErPct = engagementRate)',
+    [...records.values()].every(r => near(r.cqErPct, r.engagementRate)))
+
+  const eng = await matchWhatMatters(rosterOnly.map(t => t.id), ['engagement'])
+  check(`no fallback: ${rosterOnly.length} creators with a roster ER but no Feature ER score Strong Engagement null`,
+    rosterOnly.length > 0 && rosterOnly.every(t => eng.get(t.id)?.scores.engagement === null))
+
+  const sqlPop = (p: string) => [...new Set(withFer.filter(t => t.platform === p).map(t => Number(t.fer)))]
+  const sameValues = (a: number[], b: number[]) =>
+    JSON.stringify([...a].sort((x, y) => x - y)) === JSON.stringify([...b].sort((x, y) => x - y))
+  check('populations: one per platform (instagram, tiktok) plus the no-platform one',
+    Object.keys(pops).every(k => k === 'instagram' || k === 'tiktok' || k === NO_PLATFORM)
+    && NO_PLATFORM in pops && pops[NO_PLATFORM].er.length === 0, JSON.stringify(Object.keys(pops)))
+  for (const p of ['instagram', 'tiktok']) {
+    const pop = pops[p]
+    check(`${p}: ER population = that platform's Feature ER only (${pop?.er.length ?? 0} values)`,
+      !!pop && sameValues([...new Set(pop.er)], sqlPop(p)) && sameValues(pop.cqEr, pop.er))
+  }
+
+  console.log('\nLive: views stay ONE mixed Instagram + TikTok population')
+  const { rows: cardViews } = await kolDb().query<{ v: string }>(
+    `SELECT median_views::text AS v FROM l2_gold.kol_profile_card WHERE median_views IS NOT NULL`)
+  const { rows: [pmAccts] } = await kolDb().query<{ n: number; platforms: number }>(`
+    SELECT count(DISTINCT social_account_id)::int AS n, count(DISTINCT platform)::int AS platforms
+      FROM l2_gold.post_metric
+     WHERE likes_hidden IS NOT TRUE AND is_collaboration IS NOT TRUE AND views > 0`)
+  const allPops = Object.values(pops)
+  check(`High Reach population = every profile card, both platforms (${cardViews.length} values)`,
+    allPops.every(p => sameValues(p.medianViews, cardViews.map(r => Number(r.v)))))
+  check(`Content Quality views population = every post_metric account, both platforms (${pmAccts.n} accounts, ${pmAccts.platforms} platforms)`,
+    allPops.every(p => p.cqMedianViews.length === pmAccts.n && sameValues(p.cqMedianViews, allPops[0].cqMedianViews)))
+
+  const { rows: reachRows } = await kolDb().query<{ id: string; v: string }>(`
+    SELECT DISTINCT ON (kd.id) kd.id::text, pc.median_views::text AS v
+      FROM public.kol_directory kd
+      JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+      JOIN l2_gold.kol_profile_card pc ON pc.social_account_id = ksa.social_account_id
+     WHERE kd.directory_status = 'active' AND pc.median_views IS NOT NULL
+     ORDER BY kd.id, pc.profile_snapshot_date DESC NULLS LAST`)
+  const reach = await matchWhatMatters(reachRows.map(r => r.id), ['reach'])
+  const mixedViews = cardViews.map(r => Number(r.v))
+  const reachOk = reachRows.filter(r =>
+    near(reach.get(r.id)?.scores.reach ?? null, percentileScore(Number(r.v), mixedViews))).length
+  check(`High Reach = percentile within the mixed population (${reachOk}/${reachRows.length})`,
+    reachRows.length > 0 && reachOk === reachRows.length)
+
+  const scored = await matchWhatMatters(withFer.map(t => t.id), ['engagement'])
+  let ranked = 0
+  for (const t of withFer) {
+    const expected = percentileScore(Number(t.fer), pops[t.platform]?.er ?? [])
+    if (near(scored.get(t.id)?.scores.engagement ?? null, expected)) ranked++
+  }
+  check(`Strong Engagement = percentile within own platform (${ranked}/${withFer.length})`,
+    withFer.length > 0 && ranked === withFer.length)
   await kolDb().end()
 }
 

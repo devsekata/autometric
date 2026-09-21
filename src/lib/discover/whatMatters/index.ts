@@ -7,7 +7,7 @@ import {
   reachProxyScore, whatMattersScore, type CriterionScores,
 } from './score'
 import {
-  whatMattersPopulation, whatMattersRecordsFor,
+  NO_PLATFORM, whatMattersPopulation, whatMattersRecordsFor,
   type WhatMattersPopulation, type WhatMattersRecord,
 } from './records'
 
@@ -82,12 +82,16 @@ export async function matchWhatMatters(
   const out = new Map<string, WhatMattersResult>()
   if (!creatorIds.length) return out
 
-  const [records, pop] = await Promise.all([
+  const [records, pops] = await Promise.all([
     whatMattersRecordsFor(creatorIds),
     whatMattersPopulation(),
   ])
 
   for (const [id, record] of records) {
+    // ER ranks against its own platform only. A row whose platform has no
+    // Feature ER population (or no platform) gets NO_PLATFORM's: no ER to rank
+    // against, and the same mixed views as everyone else.
+    const pop = pops[record.platform ?? NO_PLATFORM] ?? pops[NO_PLATFORM]
     const scores = scoreRecord(record, pop)
     out.set(id, {
       scores,

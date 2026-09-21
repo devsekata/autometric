@@ -12,8 +12,11 @@
  *      → the next GET …/kol-directory?match=1 uses the saved What Matters.
  *
  *   B  KOL data changed (what the Dagster transform chain and the roster
- *      ingest write: kol_directory, l2_gold.kol_profile_card, l2_gold.post_metric)
+ *      ingest write: feature.*_engagement_analysis, l2_gold.kol_profile_card,
+ *      l2_gold.post_metric, kol_directory)
  *      → the next GET recomputes against the changed population, not a cached one.
+ *      Also: a roster engagement_rate change moves nothing (Brand Match ranks
+ *      on Feature ER only), and a TikTok change never moves an Instagram creator.
  *
  * Runs the REAL route handlers under `scripts/verify-brand-profile-kol/tsconfig.json`,
  * whose stubs put every query into ONE transaction that is always rolled back
@@ -82,18 +85,22 @@ async function live() {
         ORDER BY am.agency_id LIMIT 1`)
     if (!A) { ok('an agency admin without a saved profile exists', false); return }
 
-    // T: an active creator at the middle of the measured engagement rates, with
-    // twenty creators below it — moving those above T must lower T's percentile.
+    // T: an active Instagram creator in the upper half of Instagram Feature ER,
+    // and the Instagram accounts below it — moving those above T must lower T's
+    // percentile. Brand Match ranks on Feature ER only, within one platform.
+    const IG_FER = `
+      SELECT kd.id::text AS id, ig.social_account_id::text AS sa, ig.engagement_rate
+        FROM public.kol_directory kd
+        JOIN public.platforms pl ON pl.id = kd.platform_id AND pl.key = 'instagram'
+        JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+        JOIN feature.ig_engagement_analysis ig ON ig.social_account_id = ksa.social_account_id
+       WHERE kd.directory_status = 'active' AND ig.engagement_rate > 0`
     const { rows: [T] } = await pool.query<{ id: string; er: string }>(
-      `SELECT id::text, engagement_rate::text AS er FROM (
-         SELECT id, engagement_rate, ntile(2) OVER (ORDER BY engagement_rate) AS half
-           FROM public.kol_directory
-          WHERE directory_status = 'active' AND engagement_rate > 0 AND engagement_rate < 100
+      `SELECT id, engagement_rate::text AS er FROM (
+         SELECT id, engagement_rate, ntile(2) OVER (ORDER BY engagement_rate) AS half FROM (${IG_FER}) f
        ) x WHERE half = 2 ORDER BY engagement_rate LIMIT 1`)
-    const { rows: below } = await pool.query<{ id: string }>(
-      `SELECT id::text FROM public.kol_directory
-        WHERE directory_status = 'active' AND engagement_rate > 0 AND engagement_rate < $1
-        ORDER BY engagement_rate DESC LIMIT 20`, [T?.er])
+    const { rows: below } = await pool.query<{ sa: string }>(
+      `SELECT sa FROM (${IG_FER}) f WHERE engagement_rate < $1 ORDER BY engagement_rate DESC LIMIT 5`, [T?.er])
     // R: a creator with measured median views, and the cards below it.
     const { rows: [R] } = await pool.query<{ id: string; views: string; card: string }>(
       `SELECT ksa.kol_id::text AS id, pc.median_views::text AS views, pc.social_account_id::text AS card
@@ -102,7 +109,7 @@ async function live() {
          JOIN public.kol_directory kd ON kd.id = ksa.kol_id AND kd.directory_status = 'active'
         WHERE pc.median_views > 0
         ORDER BY pc.median_views DESC OFFSET 3 LIMIT 1`)
-    if (!T || below.length < 20 || !R) { ok('test creators found (T with 20 below, R with median views)', false); return }
+    if (!T || below.length < 3 || !R) { ok('test creators found (T with 3+ Instagram accounts below, R with median views)', false); return }
 
     const client = await pool.connect()
     bindClient(client)
@@ -141,14 +148,31 @@ async function live() {
       await brandMatch(A.agency_id, [T.id])
       ok('population is reused while the data is unchanged', (await whatMattersPopulation()) === p0)
 
-      const e1 = (await brandMatch(A.agency_id, [T.id])).match?.rows?.[T.id]?.matchPct as number | null
-      // The roster ingest writes kol_directory.engagement_rate: lift the twenty
-      // creators below T to above it. T's own row is untouched.
+      const matchOfT = async () =>
+        (await brandMatch(A.agency_id, [T.id])).match?.rows?.[T.id]?.matchPct as number | null
+      const e1 = await matchOfT()
+      ok('T (Instagram, Feature ER) has a Strong Engagement score', typeof e1 === 'number', String(e1))
+
+      // No fallback: the roster's engagement_rate is not an input any more.
       await client.query(
-        `UPDATE public.kol_directory SET engagement_rate = $2::numeric + 1, updated_at = clock_timestamp()
-          WHERE id = ANY($1::uuid[])`, [below.map(b => b.id), T.er])
-      const e2 = (await brandMatch(A.agency_id, [T.id])).match?.rows?.[T.id]?.matchPct as number | null
-      ok('kol_directory change → T\'s Strong Engagement recomputed against the new population',
+        `UPDATE public.kol_directory SET engagement_rate = 99, updated_at = clock_timestamp() WHERE id = $1`, [T.id])
+      const eRoster = await matchOfT()
+      ok('kol_directory.engagement_rate change → Brand Match unchanged (Feature ER only)', eRoster === e1, `${e1} → ${eRoster}`)
+
+      // Platform isolation: every TikTok Feature ER moves, T (Instagram) must not.
+      await client.query(
+        `UPDATE feature.tt_engagement_analysis SET engagement_rate = 99, updated_at = clock_timestamp()
+          WHERE engagement_rate IS NOT NULL`)
+      const eTiktok = await matchOfT()
+      ok('TikTok Feature ER change → Instagram creator unchanged (own-platform population)', eTiktok === e1, `${e1} → ${eTiktok}`)
+
+      // The transform chain writes feature.ig_engagement_analysis: lift the
+      // Instagram accounts below T to above it. T's own row is untouched.
+      await client.query(
+        `UPDATE feature.ig_engagement_analysis SET engagement_rate = $2::numeric + 1, updated_at = clock_timestamp()
+          WHERE social_account_id = ANY($1::uuid[])`, [below.map(b => b.sa), T.er])
+      const e2 = await matchOfT()
+      ok('feature.ig_engagement_analysis change → T\'s Strong Engagement recomputed against the new Instagram population',
         typeof e1 === 'number' && typeof e2 === 'number' && e2 < e1, `${e1} → ${e2}`)
 
       await saveWhatMatters(A.agency_id, ['high_reach'])
