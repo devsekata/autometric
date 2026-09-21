@@ -54,25 +54,48 @@ export async function GET(req: NextRequest, { params }: Params) {
       .split(',').map(v => v.trim()).filter(v => UUID.test(v)).slice(0, 50)
 
     /**
-     * Brand Profile gender — `?brandProfile=1`, sent by the main Directory
-     * list only.
+     * Brand Profile eligibility — `?brandProfile=1`, sent by the main Directory
+     * list only (My Creators included, which is the same list).
      *
-     * Female/Male on the agency's Brand Profile (`gender_majority`) keeps only
-     * creators whose CREATOR gender (kol_profile_card.creator_gender) is that
-     * gender; Any and Balanced filter nothing. Never applied to `?ids=`:
-     * Compare, Cart, SmartDiscovery and the Brand Match request fetch creators
-     * the user already picked, and must get exactly those back. Gender is
-     * eligibility only — it is not part of Match %.
+     * Read once, and turned into hard filters on the criteria whose creator-side
+     * data is real today:
+     *   - gender_majority      → kol_profile_card.creator_gender (Female/Male;
+     *                            Any and Balanced filter nothing)
+     *   - preferred_platforms  → platforms.key
+     *   - preferred_tiers      → kol_tiers.name
+     *   - preferred_categories → kol_categories.taxonomy_key
+     * Several values in one field match any of them; the fields, and the manual
+     * Directory filters, all have to hold together. An empty field filters
+     * nothing.
+     *
+     * Deliberately NOT filters: brand_category (the brand's own industry, not a
+     * creator requirement), and age, country, city, audience interests, content
+     * style, personality and values — their creator-side data is missing or not
+     * mapped yet, and filtering on it would empty the Directory.
+     *
+     * Never applied to `?ids=`: Compare, Cart, SmartDiscovery and the Brand
+     * Match request fetch creators the user already picked, and must get
+     * exactly those back. Eligibility only — none of it is part of Match %.
      */
     let creatorGender: 'female' | 'male' | null = null
+    let profilePlatforms: string[] | null = null
+    let profileTiers: string[] | null = null
+    let profileCategories: string[] | null = null
     if (sp.get('brandProfile') === '1' && !ids.length) {
-      const { genderMajority } = await getBrandProfile(access.orgId)
-      creatorGender = genderMajority === 'Female' ? 'female' : genderMajority === 'Male' ? 'male' : null
+      const profile = await getBrandProfile(access.orgId)
+      const g = profile.genderMajority
+      creatorGender = g === 'Female' ? 'female' : g === 'Male' ? 'male' : null
+      profilePlatforms = profile.preferredPlatforms.length ? profile.preferredPlatforms : null
+      profileTiers = profile.preferredTiers.length ? profile.preferredTiers : null
+      profileCategories = profile.preferredCategories.length ? profile.preferredCategories : null
     }
 
     const data = await listKolDirectory({
       ids,
       creatorGender,
+      profilePlatforms,
+      profileTiers,
+      profileCategories,
       q: sp.get('q'),
       platform: sp.get('platform'),
       category: sp.get('category'),

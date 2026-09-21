@@ -301,6 +301,21 @@ export interface KolDirectoryQuery {
    * unknown (NULL) is left out, the same rule the audience filters follow.
    */
   creatorGender?: 'female' | 'male' | null
+  /**
+   * Brand Profile's Ideal Creator Profile, as hard filters. Set only by the
+   * Directory route under `?brandProfile=1`, and kept apart from the manual
+   * `platform`/`tiers`/`category` so both apply together (AND) instead of one
+   * replacing the other. Inside each list any value matches. Null or empty
+   * means no bound.
+   *
+   *   profilePlatforms  → platforms.key ('instagram', 'tiktok')
+   *   profileTiers      → kol_tiers.name, the same band the `tiers` filter reads
+   *   profileCategories → kol_categories.taxonomy_key; a creator with no
+   *                       category never matches while this is set
+   */
+  profilePlatforms?: string[] | null
+  profileTiers?: string[] | null
+  profileCategories?: string[] | null
   maxPaidRatio?: number | null
   minPostFrequencyMonthly?: number | null
   minShareRate?: number | null
@@ -849,6 +864,13 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          -- NULL (unknown) never equals 'female'/'male', so unknown creators
          -- drop out while the filter is on.
          AND ($36::text IS NULL OR b.creator_gender = $36)
+         -- Brand Profile, Ideal Creator Profile. Separate from the manual
+         -- $2/$3/$4 so the profile and the user's own filters intersect.
+         -- category_keys is NULL for a creator with no category, and
+         -- NULL && x is never true, so those drop out while $39 is set.
+         AND ($37::text[] IS NULL OR b.platform = ANY ($37))
+         AND ($38::text[] IS NULL OR b.tier     = ANY ($38))
+         AND ($39::text[] IS NULL OR b.category_keys::text[] && $39)
          -- Paid ratio is a CEILING: "show me creators who are not mostly ads".
          AND ($19::float8 IS NULL OR b.paid_ratio  <= $19)
          AND ($20::float8 IS NULL OR b.post_frequency_monthly >= $20)
@@ -934,6 +956,9 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.audienceGeoLevel || null,
       query.agencyId || null,
       query.creatorGender ?? null,
+      query.profilePlatforms?.length ? query.profilePlatforms : null,
+      query.profileTiers?.length ? query.profileTiers : null,
+      query.profileCategories?.length ? query.profileCategories : null,
     ],
   )
 

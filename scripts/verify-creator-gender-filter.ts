@@ -53,7 +53,11 @@ async function allIds(orgId: string, qs: string): Promise<{ ids: string[]; total
 }
 async function setGender(orgId: string, g: string, extra: Record<string, unknown> = {}) {
   const res = await PUT(new NextRequest(`http://localhost/api/organizations/${orgId}/discover/brand-profile`, {
-    method: 'PUT', body: JSON.stringify({ genderMajority: g, ...extra }), headers: { 'content-type': 'application/json' },
+    // The Ideal Creator Profile lists are cleared so only gender filters here;
+    // verify:brand-profile-directory covers them.
+    method: 'PUT', body: JSON.stringify({
+      genderMajority: g, preferredPlatforms: [], preferredTiers: [], preferredCategories: [], ...extra,
+    }), headers: { 'content-type': 'application/json' },
   }), params(orgId))
   if (res.status !== 200) throw new Error(`PUT genderMajority=${g} → ${res.status}`)
 }

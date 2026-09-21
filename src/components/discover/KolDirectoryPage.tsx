@@ -542,8 +542,9 @@ export default function KolDirectoryPage({
     if (search) params.set('q', search)
     if (scope === 'mine') params.set('scope', 'mine')
     if (!facetsLoaded.current) params.set('facets', '1')
-    // The main list honours the Brand Profile's gender (creator gender). The
-    // `?ids=` requests below and elsewhere do not send this, on purpose.
+    // The main list (My Creators too) honours the Brand Profile: gender,
+    // platform, tier and category. The `?ids=` requests below and elsewhere
+    // do not send this, on purpose.
     params.set('brandProfile', '1')
 
     let cancelled = false
