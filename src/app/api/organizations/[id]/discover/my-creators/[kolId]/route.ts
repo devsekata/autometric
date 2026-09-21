@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
-import { isUuid, removeMyCreator } from '@/lib/discover/myCreators'
+import { isUuid, removeMyCreator, setMyCreatorMonitoring } from '@/lib/discover/myCreators'
 
 type Params = { params: Promise<{ id: string; kolId: string }> }
 
@@ -23,6 +23,35 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ kolId, removed: true })
   } catch (err) {
     console.error('[DELETE /api/organizations/[id]/discover/my-creators/[kolId]]', err)
+    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
+  }
+}
+
+/**
+ * PATCH /api/organizations/[id]/discover/my-creators/[kolId]   { monitoringEnabled }
+ *
+ * Monitored (true) or Paused (false) for one creator in this agency's My
+ * Creators, stored on the agency's own active link. The agency is the org in
+ * the URL, checked against the session; a creator the agency has no active
+ * link to answers 404. The value is stored only — nothing is scheduled on it.
+ */
+export async function PATCH(req: NextRequest, { params }: Params) {
+  try {
+    const { id: orgId, kolId } = await params
+    const access = await requireOrgMemberById(orgId)
+    if (!access) return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
+    if (!isUuid(kolId)) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+
+    const body = await req.json().catch(() => ({})) as { monitoringEnabled?: unknown }
+    if (typeof body.monitoringEnabled !== 'boolean') {
+      return NextResponse.json({ error: '`monitoringEnabled` must be true or false.' }, { status: 400 })
+    }
+
+    const value = await setMyCreatorMonitoring(access.orgId, kolId, body.monitoringEnabled)
+    if (value === null) return NextResponse.json({ error: 'This creator is not in My Creators.' }, { status: 404 })
+    return NextResponse.json({ kolId, monitoringEnabled: value })
+  } catch (err) {
+    console.error('[PATCH /api/organizations/[id]/discover/my-creators/[kolId]]', err)
     return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
   }
 }

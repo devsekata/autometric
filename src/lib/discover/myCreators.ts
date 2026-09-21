@@ -110,6 +110,52 @@ export async function addMyCreator(
   }
 }
 
+/**
+ * Monitoring state (`agency_kol_accounts.monitoring_enabled`, migration
+ * `migrations/kol/006`) of the agency's active links among `ids`. A creator
+ * that is not in the agency's My Creators is absent from the map.
+ *
+ * Stored only: "Paused" does not yet change what any scheduler scrapes.
+ */
+export async function myCreatorMonitoringAmong(agencyId: string, ids: string[]): Promise<Map<string, boolean>> {
+  const clean = ids.filter(isUuid)
+  if (!clean.length) return new Map()
+  const { rows } = await kolDb().query<{ id: string; monitoring_enabled: boolean }>(
+    `SELECT a.kol_account_id::text AS id, bool_or(a.monitoring_enabled) AS monitoring_enabled
+       FROM public.agency_kol_accounts a
+      WHERE a.agency_id = $1
+        AND a.kol_account_id = ANY ($2::uuid[])
+        AND a.is_active IS TRUE
+      GROUP BY a.kol_account_id`,
+    [agencyId, clean],
+  )
+  return new Map(rows.map(r => [r.id, r.monitoring_enabled]))
+}
+
+/**
+ * Monitored (`true`) or Paused (`false`) for one creator in the agency's My
+ * Creators. Only the agency's own ACTIVE link to an active Creator Database
+ * row can change; anything else answers null. Setting the value it already
+ * has changes nothing (not even `updated_at`). Never inserts a row.
+ */
+export async function setMyCreatorMonitoring(
+  agencyId: string, kolId: string, enabled: boolean,
+): Promise<boolean | null> {
+  const { rows } = await kolDbWrite().query<{ monitoring_enabled: boolean }>(
+    `UPDATE public.agency_kol_accounts a
+        SET monitoring_enabled = $3,
+            updated_at = CASE WHEN a.monitoring_enabled IS DISTINCT FROM $3 THEN now() ELSE a.updated_at END
+      WHERE a.agency_id = $1
+        AND a.kol_account_id = $2
+        AND a.is_active IS TRUE
+        AND EXISTS (SELECT 1 FROM public.kol_directory kd
+                     WHERE kd.id = a.kol_account_id AND kd.directory_status = 'active')
+      RETURNING a.monitoring_enabled`,
+    [agencyId, kolId, enabled],
+  )
+  return rows[0]?.monitoring_enabled ?? null
+}
+
 /** Take a creator out of the agency's My Creators. Returns false when it was not in it. */
 export async function removeMyCreator(agencyId: string, kolId: string): Promise<boolean> {
   const { rowCount } = await kolDbWrite().query(
