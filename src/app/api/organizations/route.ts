@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { listOrgsForUser, createOrg } from '@/lib/organizations/queries'
 import { generateSlug } from '@/lib/organizations/slug'
+import { getDbUserIdById } from '@/lib/auth/handleGoogleSignIn'
 
 // GET /api/organizations — list all orgs for the logged-in user
 export async function GET() {
@@ -27,6 +28,11 @@ export async function POST(req: NextRequest) {
     const userId = session?.user?.id
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    // agencies.created_by references public."user"; a session id from a stale
+    // or foreign cookie would otherwise fail that foreign key as a 500.
+    if (!(await getDbUserIdById(userId))) {
+      return NextResponse.json({ error: 'Sesi tidak valid, silakan login ulang.' }, { status: 401 })
     }
 
     const body = await req.json()

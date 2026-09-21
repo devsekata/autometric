@@ -39,6 +39,14 @@ export async function getDbUserIdByEmail(email: string): Promise<string | null> 
   return result.rows[0]?.id ?? null
 }
 
+// A session id that is not a KOL user (a stale cookie, or one issued by another
+// app on the same localhost port) must never reach a write keyed on it.
+// Compared as text so a non-uuid id simply matches nothing.
+export async function getDbUserIdById(id: string): Promise<string | null> {
+  const result = await kolDb().query('SELECT id FROM public.user WHERE id::text = $1', [id])
+  return result.rows[0]?.id ?? null
+}
+
 export async function getDbUserByEmail(email: string): Promise<{ id: string; name: string; role: 'ADMIN' | 'USER' } | null> {
   const result = await kolDb().query('SELECT id, name, role FROM public.user WHERE email = $1', [email])
   return result.rows[0] ?? null

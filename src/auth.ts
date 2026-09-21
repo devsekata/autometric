@@ -66,7 +66,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           avatarUrl: user.image ?? null,
         })
       } catch (e) {
+        // Without a KOL user row the session would carry Auth.js's random id.
         console.error('[auth] handleGoogleSignIn error:', e)
+        return false
       }
       return true
     },
@@ -82,16 +84,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user?.id)   token.id   = user.id
       if ((user as { role?: string })?.role) token.role = (user as { role: string }).role
       if (account?.provider === 'google' && token.email) {
-        try {
-          const dbUser = await getDbUserByEmail(token.email)
-          if (dbUser) {
-            token.id   = dbUser.id
-            token.name = dbUser.name
-            token.role = dbUser.role
-          }
-        } catch (e) {
-          console.error('[auth] getDbUserByEmail error:', e)
-        }
+        // `user.id` from Google is a random uuid, not a KOL user; fail the
+        // sign-in rather than keep it.
+        const dbUser = await getDbUserByEmail(token.email)
+        if (!dbUser) throw new Error('[auth] no KOL user for this Google account')
+        token.id   = dbUser.id
+        token.name = dbUser.name
+        token.role = dbUser.role
       }
       return token
     },
