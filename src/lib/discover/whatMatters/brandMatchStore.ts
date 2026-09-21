@@ -3,6 +3,9 @@ import {
   brandMatchForDirectory, cleanWhatMatters, currentDataVersion, WHAT_MATTERS_OPTIONS,
   type BrandMatchResult, type DirectoryBrandMatch,
 } from './brandMatch'
+import {
+  NO_AUDIENCE_REQUIREMENTS, selectedAudienceCriteria, type AudienceRequirements,
+} from './audienceMatch'
 
 /**
  * Brand Match, recalculated in the background and kept per agency.
@@ -55,16 +58,34 @@ export interface RecalcOutcome {
   attempts: number
 }
 
-interface ProfileVersion { version: string | null; whatMatters: string[] }
+interface ProfileVersion { version: string | null; whatMatters: string[]; audience: AudienceRequirements }
 
-/** The agency's profile version (µs-exact text) and choice, straight from the row. */
+/**
+ * The agency's profile version (µs-exact text) and choice, straight from the
+ * row: What Matters plus the Target Audience fields that select audience
+ * criteria. All of them live on the same row, so `updated_at` versions both.
+ */
 async function profileVersion(agencyId: string): Promise<ProfileVersion> {
-  const { rows } = await kolDb().query<{ v: string; what_matters: string[] | null }>(
-    `SELECT updated_at::text AS v, what_matters FROM public.brand_profile WHERE organization_id = $1`,
+  const { rows } = await kolDb().query<{
+    v: string; what_matters: string[] | null; gender_majority: string | null
+    target_age_min: number | null; target_age_max: number | null
+    target_country: string | null; target_city: string | null; audience_interests: string[] | null
+  }>(
+    `SELECT updated_at::text AS v, what_matters, gender_majority, target_age_min, target_age_max,
+            target_country, target_city, audience_interests
+       FROM public.brand_profile WHERE organization_id = $1`,
     [agencyId])
-  return rows[0]
-    ? { version: rows[0].v, whatMatters: cleanWhatMatters(rows[0].what_matters ?? []) }
-    : { version: null, whatMatters: [] }
+  const r = rows[0]
+  return r
+    ? {
+      version: r.v,
+      whatMatters: cleanWhatMatters(r.what_matters ?? []),
+      audience: {
+        genderMajority: r.gender_majority, targetAgeMin: r.target_age_min, targetAgeMax: r.target_age_max,
+        targetCountry: r.target_country, targetCity: r.target_city, audienceInterests: r.audience_interests ?? [],
+      },
+    }
+    : { version: null, whatMatters: [], audience: NO_AUDIENCE_REQUIREMENTS }
 }
 
 async function setState(agencyId: string, fields: {
@@ -104,8 +125,9 @@ export async function recalculateBrandMatch(
         const before = await profileVersion(agencyId)
         const dataBefore = await currentDataVersion()
 
-        // No profile, or nothing chosen: there is no Brand Match to keep.
-        if (!before.version || !before.whatMatters.length) {
+        // No profile, or nothing chosen (no What Matters and no audience
+        // requirement filled in): there is no Brand Match to keep.
+        if (!before.version || (!before.whatMatters.length && !selectedAudienceCriteria(before.audience).length)) {
           const client = await kolDbWrite().connect()
           try {
             await client.query('BEGIN')
@@ -129,7 +151,7 @@ export async function recalculateBrandMatch(
         const results: [string, BrandMatchResult][] = []
         for (let i = 0; i < creators.length; i += CHUNK) {
           const ids = creators.slice(i, i + CHUNK).map(c => c.id)
-          const bm = await brandMatchForDirectory(ids, before.whatMatters)
+          const bm = await brandMatchForDirectory(ids, before.whatMatters, before.audience)
           for (const [id, r] of Object.entries(bm.rows)) results.push([id, r])
         }
 
@@ -207,9 +229,11 @@ export async function agenciesToRecalculate(): Promise<string[]> {
  */
 export async function storedBrandMatchForDirectory(
   agencyId: string, creatorIds: string[], whatMatters: readonly string[],
+  audience?: AudienceRequirements | null,
 ): Promise<DirectoryBrandMatch | null> {
   const chosen = cleanWhatMatters(whatMatters)
-  if (!chosen.length || !creatorIds.length) return null
+  const audienceCriteria = selectedAudienceCriteria(audience)
+  if ((!chosen.length && !audienceCriteria.length) || !creatorIds.length) return null
 
   const { rows: [fresh] } = await kolDb().query<{ ok: boolean }>(`
     SELECT (s.status = 'done'
@@ -239,5 +263,5 @@ export async function storedBrandMatchForDirectory(
     if (r.unavailable === 'no_scores' || r.unavailable === 'no_selection') result.unavailable = r.unavailable
     out[r.id] = result
   }
-  return { whatMatters: chosen, options: WHAT_MATTERS_OPTIONS, rows: out }
+  return { whatMatters: chosen, options: WHAT_MATTERS_OPTIONS, audienceCriteria, rows: out }
 }

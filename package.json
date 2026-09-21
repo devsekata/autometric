@@ -32,6 +32,7 @@
     "verify:brand-match-freshness": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-brand-match-freshness.ts",
     "verify:creator-gender": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-creator-gender-filter.ts",
     "verify:brand-profile-directory": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-brand-profile-directory.ts",
+    "verify:brand-match-audience": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-audience.ts",
     "mapping-engine": "cd services/mapping-engine && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
   },
   "keywords": [],

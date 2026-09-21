@@ -23,6 +23,9 @@ import { setSession } from './verify-brand-profile-kol/stubs/auth'
 import { bindClient } from './verify-brand-profile-kol/stubs/kolDb'
 import { PUT } from '@/app/api/organizations/[id]/discover/brand-profile/route'
 import { GET as DIRECTORY } from '@/app/api/organizations/[id]/discover/kol-directory/route'
+import { getBrandProfile } from '@/lib/discover/brandMatch/profile'
+import { WHAT_MATTERS_KEYS } from '@/lib/discover/whatMatters/brandMatch'
+import { audienceRecordsFor, audienceScores } from '@/lib/discover/whatMatters/audienceMatch'
 
 let bad = 0
 const ok = (label: string, pass: boolean, detail = '') => {
@@ -31,7 +34,10 @@ const ok = (label: string, pass: boolean, detail = '') => {
 }
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 type Row = { id: string }
-type Payload = { rows: Row[]; total: number; brandMatch?: { rows: Record<string, { matchPct: number | null }> } }
+type Payload = {
+  rows: Row[]; total: number
+  brandMatch?: { rows: Record<string, { matchPct: number | null; breakdown: { key: string; score: number | null }[] }> }
+}
 
 async function directory(orgId: string, qs: string): Promise<Payload> {
   const res = await DIRECTORY(new NextRequest(
@@ -169,17 +175,36 @@ async function gendersOf(db: PoolClient, ids: string[]): Promise<Record<string, 
     ok('Female profile: a request without brandProfile=1 (Hub, SmartDiscovery) is unfiltered',
       noFlag === exp.active, `${noFlag}`)
 
-    console.log('\n4. Match % is not touched by gender')
+    console.log('\n4. Match %: creator gender filters, AUDIENCE gender scores')
     // What Matters chosen inside the rolled-back transaction, so Match % is real.
     await setGender(A.agency_id, 'Female', { whatMatters: ['strong_engagement', 'high_reach'] })
     const probe = [...female.slice(0, 5), ...others.map(o => o.id)]
     const mFemale = await directory(A.agency_id, `ids=${probe.join(',')}&match=1`)
+    const pFemale = await getBrandProfile(A.agency_id)
     await setGender(A.agency_id, 'Any')
     const mAny = await directory(A.agency_id, `ids=${probe.join(',')}&match=1`)
-    const same = probe.every(id => (mFemale.brandMatch?.rows[id]?.matchPct ?? null) === (mAny.brandMatch?.rows[id]?.matchPct ?? null))
-    const scored = probe.filter(id => typeof mFemale.brandMatch?.rows[id]?.matchPct === 'number').length
-    ok('same creators, Female vs Any → identical Match % (and male/unknown creators still get one)', same && scored > 0,
-      probe.map(id => mFemale.brandMatch?.rows[id]?.matchPct ?? 'null').join(' '))
+    const wmKeys = new Set<string>(WHAT_MATTERS_KEYS)
+    const bd = (p: Payload, id: string) => p.brandMatch?.rows[id]?.breakdown ?? []
+    const recs = await audienceRecordsFor(probe)
+    // Female adds exactly one criterion, Audience Gender, scored from the
+    // follower Audience Analysis — so a male or unknown CREATOR is scored on
+    // the same terms as a female one, and still gets a Match %.
+    const expectFemale = (id: string) => {
+      const g = audienceScores(recs.get(id), { ...pFemale, genderMajority: 'Female' }).audience_gender ?? null
+      const anyBd = bd(mAny, id).filter(b => wmKeys.has(b.key))
+      const vals = [...anyBd.map(b => b.score), g].filter((v): v is number => v !== null)
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+    }
+    const close = (a: number | null, b: number | null) => (a === null || b === null ? a === b : Math.abs(a - b) < 1e-9)
+    const sameWm = probe.every(id => JSON.stringify(bd(mFemale, id).filter(b => wmKeys.has(b.key)))
+      === JSON.stringify(bd(mAny, id).filter(b => wmKeys.has(b.key))))
+    const matches = probe.every(id => close(mFemale.brandMatch?.rows[id]?.matchPct ?? null, expectFemale(id)))
+    const scored = others.filter(o => typeof mFemale.brandMatch?.rows[o.id]?.matchPct === 'number').length
+    ok('Female vs Any: What Matters scores identical; Female adds only Audience Gender (from Audience Analysis)',
+      sameWm && matches && bd(mFemale, probe[0]).some(b => b.key === 'audience_gender')
+      && !bd(mAny, probe[0]).some(b => b.key === 'audience_gender'),
+      probe.map(id => `${mFemale.brandMatch?.rows[id]?.matchPct ?? 'null'}≟${expectFemale(id) ?? 'null'}`).join(' '))
+    ok('male / unknown creators still get a Match % under a Female profile', scored > 0, `${scored}/${others.length}`)
 
     console.log('\n6. EXPLAIN ANALYZE, Directory list with creatorGender=female')
     const q = captured.find(c => c.values[35] === 'female' && c.values[9] === null)

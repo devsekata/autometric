@@ -29,6 +29,11 @@ import { setSession } from './verify-brand-profile-kol/stubs/auth'
 import { bindClient } from './verify-brand-profile-kol/stubs/kolDb'
 import { PUT } from '@/app/api/organizations/[id]/discover/brand-profile/route'
 import { GET as DIRECTORY } from '@/app/api/organizations/[id]/discover/kol-directory/route'
+import { getBrandProfile } from '@/lib/discover/brandMatch/profile'
+import { WHAT_MATTERS_KEYS } from '@/lib/discover/whatMatters/brandMatch'
+import {
+  audienceRecordsFor, audienceScores, selectedAudienceCriteria,
+} from '@/lib/discover/whatMatters/audienceMatch'
 
 let bad = 0
 const ok = (label: string, pass: boolean, detail = '') => {
@@ -37,7 +42,10 @@ const ok = (label: string, pass: boolean, detail = '') => {
 }
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 type Row = { id: string }
-type Payload = { rows: Row[]; total: number; brandMatch?: { rows: Record<string, { matchPct: number | null }> } }
+type Payload = {
+  rows: Row[]; total: number
+  brandMatch?: { rows: Record<string, { matchPct: number | null; breakdown: { key: string; score: number | null }[] }> }
+}
 
 async function directory(orgId: string, qs: string): Promise<Payload> {
   const res = await DIRECTORY(new NextRequest(
@@ -226,18 +234,46 @@ async function fingerprint(pool: Pool, table: string): Promise<string> {
       ok(`DiscoverHub shelf query "${qs}" = active roster`, t === active, `${t}`)
     }
 
-    console.log('\n6. Match % is not touched by the profile filters')
+    console.log('\n6. Match %: eligibility filters never touch it; Target Audience adds its criteria')
     const probe = [...combo.ids.slice(0, 4), ...outside.map(o => o.id)]
     const wm = ['strong_engagement', 'high_reach']
-    await setProfile(org, { ...full, whatMatters: wm })
-    const mFull = await directory(org, `ids=${probe.join(',')}&match=1`)
+    const pct = (p: Payload, id: string) => p.brandMatch?.rows[id]?.matchPct ?? null
+    await setProfile(org, { preferredPlatforms: ['instagram'], preferredTiers: ['Mid-tier'],
+      preferredCategories: ['Beauty'], whatMatters: wm })
+    const mFilters = await directory(org, `ids=${probe.join(',')}&match=1`)
+    const pFilters = await getBrandProfile(org)
     await setProfile(org, { whatMatters: wm })
     const mEmpty = await directory(org, `ids=${probe.join(',')}&match=1`)
-    const pct = (p: Payload, id: string) => p.brandMatch?.rows[id]?.matchPct ?? null
-    const scored = probe.filter(id => typeof pct(mFull, id) === 'number').length
-    ok('same creators, full vs empty profile, same What Matters → identical Match %',
-      probe.every(id => pct(mFull, id) === pct(mEmpty, id)) && scored > 0,
-      probe.map(id => pct(mFull, id) ?? 'null').join(' '))
+    const pEmpty = await getBrandProfile(org)
+    const scored = probe.filter(id => typeof pct(mEmpty, id) === 'number').length
+    ok('platform / tier / category filters alone → identical Match % (they are eligibility, not scoring)',
+      selectedAudienceCriteria(pFilters).join() === selectedAudienceCriteria(pEmpty).join()
+      && probe.every(id => pct(mFilters, id) === pct(mEmpty, id)) && scored > 0,
+      probe.map(id => pct(mEmpty, id) ?? 'null').join(' '))
+
+    // `full` sets genderMajority Female: that selects the Audience Gender
+    // criterion, scored from the Audience Analysis L2 — never creator_gender.
+    await setProfile(org, { ...full, whatMatters: wm })
+    const mFull = await directory(org, `ids=${probe.join(',')}&match=1`)
+    const pFull = await getBrandProfile(org)
+    const recs = await audienceRecordsFor(probe)
+    const wmKeys = new Set<string>(WHAT_MATTERS_KEYS)
+    const bd = (p: Payload, id: string) => p.brandMatch?.rows[id]?.breakdown ?? []
+    const expectFull = (id: string) => {
+      const aud = audienceScores(recs.get(id), pFull)
+      const vals = [
+        ...bd(mEmpty, id).filter(b => wmKeys.has(b.key)).map(b => b.score),
+        ...selectedAudienceCriteria(pFull).map(k => aud[k] ?? null),
+      ].filter((v): v is number => v !== null)
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+    }
+    const close = (a: number | null, b: number | null) => (a === null || b === null ? a === b : Math.abs(a - b) < 1e-9)
+    ok('full profile → What Matters scores unchanged, plus Audience Gender from Audience Analysis',
+      selectedAudienceCriteria(pFull).includes('audience_gender')
+      && probe.every(id => close(pct(mFull, id), expectFull(id))
+        && JSON.stringify(bd(mFull, id).filter(b => wmKeys.has(b.key)))
+          === JSON.stringify(bd(mEmpty, id).filter(b => wmKeys.has(b.key)))),
+      probe.map(id => `${pct(mFull, id) ?? 'null'}≟${expectFull(id) ?? 'null'}`).join(' '))
 
     console.log('\n7. My Creators follows the profile')
     const mineWhere = `id IN (SELECT kol_account_id::text FROM public.agency_kol_accounts

@@ -108,7 +108,10 @@ function staticChecks() {
   check('Directory reads the choice from the authorised agency\'s Brand Profile on ?match=1',
     route.includes("sp.get('match') === '1'")
     && route.includes('getBrandProfile(access.orgId)')
-    && route.includes('brandMatchForDirectory(data.rows.map(r => r.id), profile.whatMatters)'))
+    && route.includes('storedBrandMatchForDirectory(access.orgId, ids, profile.whatMatters, profile)')
+    // The profile is passed whole: its Target Audience fields select the
+    // audience criteria (`audienceMatch.ts`), its What Matters the rest.
+    && route.includes('brandMatchForDirectory(ids, profile.whatMatters, profile)'))
   check('Directory takes no criteria from the query string', !route.includes("sp.get('brandMatch')"))
 
   // Directory UI: renders the API's Match %, and never builds one of its own.

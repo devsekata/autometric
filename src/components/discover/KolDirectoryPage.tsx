@@ -1572,8 +1572,8 @@ function MatchBadge({ m }: { m: BrandMatchResult }) {
   const lines = m.breakdown.map(b =>
     `• ${b.label}: ${b.score === null ? 'belum terukur (tidak dihitung)' : b.score.toLocaleString('id-ID', { maximumFractionDigits: 2 })}`)
   const head = m.matchPct === null
-    ? 'Brand Match belum bisa dihitung: What Matters yang dipilih belum terukur untuk creator ini.'
-    : `Brand Match ${m.matchPct}% = rata-rata ${m.contributing} dari ${m.selected} What Matters yang dipilih.`
+    ? 'Brand Match belum bisa dihitung: kriteria yang dipilih (What Matters / Target Audience) belum terukur untuk creator ini.'
+    : `Brand Match ${m.matchPct}% = rata-rata ${m.contributing} dari ${m.selected} kriteria yang dipilih (What Matters + Target Audience).`
   return (
     <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold whitespace-nowrap"
       style={{

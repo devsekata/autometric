@@ -162,18 +162,21 @@ export async function GET(req: NextRequest, { params }: Params) {
      * The criteria are the ones this agency saved on its Brand Profile
      * (`brand_profile.what_matters`), read here, so no caller passes them.
      * Match % is the plain mean of each KOL's What Matters scores on those
-     * criteria (`whatMatters/brandMatch.ts`); each row carries its breakdown.
-     * With nothing saved, `brandMatch.unavailable` is 'no_selection' and no KOL
-     * is scored. Typed here rather than on `KolDirectoryPayload`, which is not
-     * this change's to widen.
+     * criteria plus, for every Target Audience field the profile fills in
+     * (gender, age, country, city, interests), that criterion's score from the
+     * Audience Analysis L2 (`whatMatters/brandMatch.ts`, `audienceMatch.ts`);
+     * each row carries its breakdown. With nothing chosen, `brandMatch.unavailable`
+     * is 'no_selection' and no KOL is scored. Typed here rather than on
+     * `KolDirectoryPayload`, which is not this change's to widen.
      */
     let brandMatch: DirectoryBrandMatch | undefined
     if (sp.get('match') === '1') {
       const profile = await getBrandProfile(access.orgId)
+      const ids = data.rows.map(r => r.id)
       // The background result (brand_match_result) when it is current for this
       // profile version and this KOL data version; otherwise computed now.
-      brandMatch = await storedBrandMatchForDirectory(access.orgId, data.rows.map(r => r.id), profile.whatMatters)
-        ?? await brandMatchForDirectory(data.rows.map(r => r.id), profile.whatMatters)
+      brandMatch = await storedBrandMatchForDirectory(access.orgId, ids, profile.whatMatters, profile)
+        ?? await brandMatchForDirectory(ids, profile.whatMatters, profile)
     }
 
     return NextResponse.json(brandMatch ? { ...data, brandMatch } : data)

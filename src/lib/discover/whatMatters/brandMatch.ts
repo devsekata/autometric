@@ -3,6 +3,10 @@ import { CRITERIA_LABELS, type CriterionKey } from './model'
 import { contributingCount, whatMattersScore, type CriterionScores } from './score'
 import { matchWhatMatters } from './index'
 import { resetPopulationCache } from './records'
+import {
+  AUDIENCE_CRITERIA_LABELS, audienceRecordsFor, audienceScores, selectedAudienceCriteria,
+  type AudienceCriterionKey, type AudienceRecord, type AudienceRequirements, type AudienceScores,
+} from './audienceMatch'
 
 /**
  * Brand Match — the What Matters a workspace chose on its Brand Profile,
@@ -62,9 +66,10 @@ export function cleanWhatMatters(value: unknown): WhatMattersKey[] {
 
 /** One chosen criterion, as the UI explains it. */
 export interface BrandMatchComponent {
-  key: WhatMattersKey
+  /** A What Matters key, or a Target Audience criterion (`./audienceMatch`). */
+  key: WhatMattersKey | AudienceCriterionKey
   label: string
-  /** The What Matters score, 0–100, or null when it could not be measured. */
+  /** The criterion's score, 0–100, or null when it could not be measured. */
   score: number | null
   /** Whether it entered the mean — false exactly when `score` is null. */
   counted: boolean
@@ -83,32 +88,57 @@ export interface BrandMatchResult {
   breakdown: BrandMatchComponent[]
 }
 
+const finite = (v: number | null | undefined): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null
+
 /**
- * Brand Match for one KOL from scores What Matters already computed. Pure.
- * Only the chosen criteria are read; nothing else in `scores` can move it.
+ * Brand Match for one KOL. Pure.
+ *
+ *     Match % = mean( chosen What Matters scores
+ *                   ∪ selected Target Audience scores )   — only those that are not null
+ *
+ * The What Matters rule, applied to both kinds alike: equal weight per chosen
+ * criterion, a null score leaves the DENOMINATOR (never counted as 0 or 100),
+ * and nothing chosen or everything null gives a null Match %. With no audience
+ * criteria selected this is exactly `whatMattersScore` over the What Matters
+ * choice, as before.
+ *
+ * `audience` carries the Target Audience criteria the Brand Profile selects
+ * (`selectedAudienceCriteria`) and this creator's scores for them
+ * (`audienceScores`, from the Audience Analysis L2).
  */
 export function brandMatchFromScores(
   scores: CriterionScores,
   whatMatters: readonly string[],
+  audience?: { selected: readonly AudienceCriterionKey[]; scores: AudienceScores },
 ): BrandMatchResult {
   const chosen = cleanWhatMatters(whatMatters)
   const criteria = chosen.map(k => WHAT_MATTERS_CRITERION[k])
   const breakdown: BrandMatchComponent[] = chosen.map(key => {
-    const v = scores[WHAT_MATTERS_CRITERION[key]]
-    const score = typeof v === 'number' && Number.isFinite(v) ? v : null
+    const score = finite(scores[WHAT_MATTERS_CRITERION[key]])
     return {
       key, label: CRITERIA_LABELS[WHAT_MATTERS_CRITERION[key]], score, counted: score !== null,
     }
   })
-
-  const matchPct = whatMattersScore(scores, criteria)
-  const result: BrandMatchResult = {
-    matchPct,
-    contributing: contributingCount(scores, criteria),
-    selected: chosen.length,
-    breakdown,
+  const audSelected = audience?.selected ?? []
+  for (const key of audSelected) {
+    const score = finite(audience?.scores[key])
+    breakdown.push({ key, label: AUDIENCE_CRITERIA_LABELS[key], score, counted: score !== null })
   }
-  if (matchPct === null) result.unavailable = chosen.length ? 'no_scores' : 'no_selection'
+
+  let matchPct: number | null
+  let contributing: number
+  if (!audSelected.length) {
+    matchPct = whatMattersScore(scores, criteria)
+    contributing = contributingCount(scores, criteria)
+  } else {
+    const have = breakdown.map(b => b.score).filter((v): v is number => v !== null)
+    matchPct = have.length ? have.reduce((a, b) => a + b, 0) / have.length : null
+    contributing = have.length
+  }
+  const selected = chosen.length + audSelected.length
+  const result: BrandMatchResult = { matchPct, contributing, selected, breakdown }
+  if (matchPct === null) result.unavailable = selected ? 'no_scores' : 'no_selection'
   return result
 }
 
@@ -118,6 +148,8 @@ export interface DirectoryBrandMatch {
   whatMatters: WhatMattersKey[]
   /** The six a profile can choose from, with labels. */
   options: readonly { key: WhatMattersKey; label: string }[]
+  /** Target Audience criteria the Brand Profile's filled-in fields select. */
+  audienceCriteria?: AudienceCriterionKey[]
   /** Set when nothing is chosen: no KOL was scored, and none gets a Match %. */
   unavailable?: 'no_selection'
   /** Creator id → Match % and its breakdown. */
@@ -134,7 +166,9 @@ export interface DirectoryBrandMatch {
  * ingest and Add KOL on `kol_directory`. A write moves the max and a delete
  * moves the count. `kol_social_account` decides which accounts' Feature ER join
  * the population and has no `updated_at`; links are only ever added or
- * removed, so its count is enough.
+ * removed, so its count is enough. The three Audience Analysis L2 tables are
+ * in it because the Target Audience criteria (`./audienceMatch`) read them: a
+ * new audience run must make a stored Match % stale like any other input.
  */
 const POPULATION_VERSION_SQL = `
   SELECT concat_ws('|',
@@ -143,7 +177,10 @@ const POPULATION_VERSION_SQL = `
     (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.post_metric),
     (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM feature.ig_engagement_analysis),
     (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM feature.tt_engagement_analysis),
-    (SELECT count(*)::text FROM public.kol_social_account)
+    (SELECT count(*)::text FROM public.kol_social_account),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.audience_demographics_daily),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.audience_geo_daily),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.audience_interest_daily)
   ) AS v`
 
 let seenVersion: string | null = null
@@ -189,19 +226,40 @@ async function dropPopulationIfDataChanged(): Promise<void> {
  * `whatMatters` from `brand_profile` on the same request, and the population is
  * dropped whenever the KOL data changed. So a saved Brand Profile and a finished
  * pipeline run both reach the very next Brand Match.
+ *
+ * `audience` is the Brand Profile's Target Audience; each filled-in field adds
+ * one criterion scored from the Audience Analysis L2 (`./audienceMatch`).
+ * Omitted, Brand Match is the What Matters mean exactly as before.
  */
 export async function brandMatchForDirectory(
   creatorIds: string[],
   whatMatters: readonly string[],
+  audience?: AudienceRequirements | null,
 ): Promise<DirectoryBrandMatch> {
   const chosen = cleanWhatMatters(whatMatters)
-  const base = { whatMatters: chosen, options: WHAT_MATTERS_OPTIONS }
-  if (!chosen.length) return { ...base, unavailable: 'no_selection', rows: {} }
+  const audSelected = selectedAudienceCriteria(audience)
+  const base = { whatMatters: chosen, options: WHAT_MATTERS_OPTIONS, audienceCriteria: audSelected }
+  if (!chosen.length && !audSelected.length) return { ...base, unavailable: 'no_selection', rows: {} }
   if (!creatorIds.length) return { ...base, rows: {} }
 
   await dropPopulationIfDataChanged()
-  const scored = await matchWhatMatters(creatorIds, chosen.map(k => WHAT_MATTERS_CRITERION[k]))
+  const [scored, audienceRecs] = await Promise.all([
+    chosen.length
+      ? matchWhatMatters(creatorIds, chosen.map(k => WHAT_MATTERS_CRITERION[k]))
+      : Promise.resolve(new Map<string, { scores: CriterionScores }>()),
+    audSelected.length ? audienceRecordsFor(creatorIds) : Promise.resolve(new Map<string, AudienceRecord>()),
+  ])
+  // Every creator What Matters scored; with audience criteria selected, every
+  // creator asked for — one with no audience rows still gets a row, with those
+  // criteria null (unmeasured), never a default.
+  const ids = audSelected.length ? [...new Set([...scored.keys(), ...creatorIds])] : [...scored.keys()]
   const rows: Record<string, BrandMatchResult> = {}
-  for (const [id, r] of scored) rows[id] = brandMatchFromScores(r.scores, chosen)
+  for (const id of ids) {
+    rows[id] = brandMatchFromScores(
+      scored.get(id)?.scores ?? {}, chosen,
+      audSelected.length
+        ? { selected: audSelected, scores: audienceScores(audienceRecs.get(id), audience!) }
+        : undefined)
+  }
   return { ...base, rows }
 }
