@@ -105,8 +105,43 @@ console.log('\nstatic')
   ok('the form never sends organizationId, brandId or updatedAt',
     /NOT_SENT = \['organizationId', 'brandId', 'updatedAt'\]/.test(form) && form.includes('!(NOT_SENT as readonly string[]).includes(k)'))
   ok('the form keeps nothing in browser storage', !/\b(localStorage|sessionStorage|indexedDB)\s*[.[]/.test(form))
-  ok('the form collects the Brand Fit inputs',
-    ['brandTone', 'targetAgeMin', 'targetAgeMax', 'performanceTargets'].every(k => form.includes(`'${k}'`) || form.includes(`.${k}`)))
+  // The form follows the prototype (`brandProfileHTML` in scrapper-project
+  // app/AUTOME~1.HTM.html): five sections, in order, and nothing else.
+  const sections = [...form.matchAll(/<Section\b[^>]*\btitle="([^"]+)"/g)].map(m => m[1])
+  ok('the form has the five prototype sections, in order',
+    sections.join(' | ') === 'Company Profile | Target Audience | Brand Identity | Ideal Creator Profile | What matters most when evaluating creators?',
+    sections.join(' | '))
+  ok('the form carries no Brand Safety and none of the removed extras',
+    !/brand.?safety/i.test(form)
+    && !/Brand Keywords|Performance Targets|Minimum followers|Minimum engagement|Brand tone/.test(form))
+  // Fields the form no longer shows (keywords, tone, targets, minimums) keep
+  // their saved values: the whole loaded draft is sent back, not only what is
+  // rendered, so hiding a field never erases it.
+  ok('the form edits Company Website and Brand Values (saved fields, not placeholders)',
+    form.includes("set('companyWebsite'") && form.includes("toggle('brandValues'")
+    && form.includes("set('brandValues'") && !/Not saved/.test(form))
+  // Every form field is backed by a brand_profile column (migrations/kol/009
+  // left exactly these, plus id / organization_id / brand_id / timestamps).
+  const UI_FIELDS: [string, string][] = [
+    ['brandName', 'brand_name'], ['brandCategory', 'brand_category'],
+    ['companyWebsite', 'company_website'], ['brandDescription', 'brand_description'],
+    ['targetAgeMin', 'target_age_min'], ['targetAgeMax', 'target_age_max'],
+    ['genderMajority', 'gender_majority'], ['targetCountry', 'target_country'],
+    ['targetCity', 'target_city'], ['audienceInterests', 'audience_interests'],
+    ['brandPersonality', 'brand_personality'], ['brandValues', 'brand_values'],
+    ['preferredCategories', 'preferred_categories'], ['preferredPlatforms', 'preferred_platforms'],
+    ['preferredTiers', 'preferred_tiers'], ['contentStyles', 'content_styles'],
+    ['whatMatters', 'what_matters'],
+  ]
+  const unbacked = UI_FIELDS.filter(([k, col]) =>
+    !(form.includes(`'${k}'`) || form.includes(`.${k}`)) || !profile.includes(col))
+  ok('every Brand Profile form field has a brand_profile column behind it (17 fields)',
+    unbacked.length === 0, unbacked.map(([k]) => k).join(', '))
+  const LEGACY = /\b(brandKeywords|brandHashtags|captionTerms|brandTone|performanceTargets|minFollowers|minErPct|requireCategory|verifiedOnly|brand_keywords|brand_hashtags|caption_terms|brand_tone|performance_targets|min_followers|min_er_pct|require_category|verified_only)\b/
+  ok('no legacy field in the form, the profile type, or its read/write SQL',
+    !LEGACY.test(form) && !LEGACY.test(profile), (form.match(LEGACY) ?? profile.match(LEGACY) ?? [''])[0])
+  ok('fields hidden from the form are sent back unchanged on save',
+    form.includes('setDraft(d.profile)') && form.includes('Object.entries(draft).filter'))
 
   // Exactly one Brand Profile API and one Brand Profile UI.
   // One API owns the Brand Profile (writes it); other routes may READ it, and
@@ -174,6 +209,20 @@ async function live() {
     }
     const before = await counts(pool)
 
+    const { rows: colRows } = await pool.query<{ c: string }>(
+      `SELECT column_name AS c FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'brand_profile' ORDER BY column_name`)
+    const EXPECTED_COLUMNS = [
+      'audience_interests', 'brand_category', 'brand_description', 'brand_id', 'brand_name',
+      'brand_personality', 'brand_values', 'company_website', 'content_styles', 'created_at',
+      'gender_majority', 'id', 'organization_id', 'preferred_categories', 'preferred_platforms',
+      'preferred_tiers', 'target_age_max', 'target_age_min', 'target_city', 'target_country',
+      'updated_at', 'updated_by', 'what_matters',
+    ]
+    ok('brand_profile has exactly the 23 columns the form and API need (migration 009 applied)',
+      JSON.stringify(colRows.map(r => r.c)) === JSON.stringify(EXPECTED_COLUMNS),
+      colRows.map(r => r.c).join(','))
+
     // Two agencies, each with its own admin; A's admin is not a member of B.
     const { rows: admins } = await pool.query<{ agency_id: string; user_id: string }>(
       `SELECT am.agency_id::text, am.user_id::text
@@ -226,9 +275,14 @@ async function live() {
         brandName: 'verify-brand-profile-kol (rolled back)',
         brandCategory: 'Beauty',
         brandPersonality: ['Warm'],
+        companyWebsite: '  autometric.io  ',
+        brandValues: ['Trust', 'Innovation', 'trust', '  Craftsmanship  ', ''],
+        // Legacy keys (columns dropped by 009) a stale client might still send:
+        // accepted, ignored, not stored, not echoed back.
         brandTone: ['straightforward'],
         brandKeywords: ['serum'],
         brandHashtags: ['#glowup'],
+        minFollowers: 1000, verifiedOnly: true,
         genderMajority: 'Female',
         targetCity: 'Jakarta',
         audienceInterests: ['beauty', 'not-a-key'],
@@ -245,23 +299,38 @@ async function live() {
 
       const row = async (orgId: string) => (await client.query(
         `SELECT id::text, organization_id::text, brand_id, brand_name, brand_category, brand_personality,
-                brand_tone, brand_keywords, brand_hashtags, gender_majority, target_city, audience_interests,
-                target_age_min, target_age_max, performance_targets, preferred_categories, what_matters,
+                company_website, brand_values, brand_description,
+                gender_majority, target_city, audience_interests,
+                target_age_min, target_age_max, preferred_categories, what_matters,
                 updated_by::text, created_at, updated_at, (updated_at = now()) AS at_now
            FROM public.brand_profile WHERE organization_id = $1`, [orgId])).rows
 
       const r1 = await row(A.agency_id)
       ok('   the row is in public.brand_profile', r1.length === 1)
       const x = r1[0] ?? {}
+      ok('12. PUT Company Website + Brand Values → stored (trimmed; values de-duplicated, custom kept)',
+        x.company_website === 'autometric.io'
+        && JSON.stringify(x.brand_values) === '["Trust","Innovation","Craftsmanship"]',
+        JSON.stringify({ w: x.company_website, v: x.brand_values }))
+      const reload = await callGet(A.agency_id)
+      ok('   GET after the save (a page refresh) returns both',
+        reload.status === 200 && reload.body.profile?.companyWebsite === 'autometric.io'
+        && JSON.stringify(reload.body.profile?.brandValues) === '["Trust","Innovation","Craftsmanship"]')
+      ok('   What Matters still six keys, no brand_safety, after the save',
+        reload.body.vocabulary?.whatMatters?.length === 6
+        && !reload.body.vocabulary.whatMatters.some((o: Json) => /safety/i.test(o.key + o.label))
+        && JSON.stringify(reload.body.profile?.whatMatters) === '["strong_engagement","high_reach"]')
       ok('   values persisted as sent',
         x.brand_name === full.brandName && x.brand_category === 'Beauty'
-        && JSON.stringify(x.brand_tone) === '["straightforward"]' && x.target_age_min === 18 && x.target_age_max === 34
-        && x.performance_targets?.engagement_rate === 3 && x.performance_targets?.median_views === 50000
+        && x.target_age_min === 18 && x.target_age_max === 34
         && x.gender_majority === 'Female' && x.target_city === 'Jakarta')
-      ok('   v2 vocabulary applied: hashtag # stripped, unknown interest and category dropped',
-        JSON.stringify(x.brand_hashtags) === '["glowup"]'
-        && JSON.stringify(x.audience_interests) === '["beauty"]'
+      ok('   vocabulary applied: unknown interest and category dropped',
+        JSON.stringify(x.audience_interests) === '["beauty"]'
         && JSON.stringify(x.preferred_categories) === '["Beauty"]')
+      const LEGACY_KEYS = ['brandTone', 'brandKeywords', 'brandHashtags', 'captionTerms', 'performanceTargets',
+        'minFollowers', 'minErPct', 'requireCategory', 'verifiedOnly']
+      ok('14. legacy keys in the request → still 200, not stored, not returned by PUT or GET',
+        p1.status === 200 && LEGACY_KEYS.every(k => !(k in (p1.body.profile ?? {})) && !(k in (reload.body.profile ?? {}))))
       ok('   what_matters stored cleaned: known keys only, canonical order, no brand_safety',
         JSON.stringify(x.what_matters) === '["strong_engagement","high_reach"]', JSON.stringify(x.what_matters))
       ok('   updated_at = now()', x.at_now === true)
@@ -276,20 +345,33 @@ async function live() {
         [A.agency_id])
       const aged = (await row(A.agency_id))[0]
 
-      const p2 = await callPut(A.agency_id, { brandKeywords: ['sunscreen'] })
+      const p2 = await callPut(A.agency_id, { brandDescription: 'partial edit' })
       const y = (await row(A.agency_id))[0] ?? {}
       ok('6. partial PUT → 200 and updates only what was sent',
-        p2.status === 200 && JSON.stringify(y.brand_keywords) === '["sunscreen"]')
+        p2.status === 200 && y.brand_description === 'partial edit')
       ok('   partial PUT keeps every other field',
-        y.brand_category === 'Beauty' && JSON.stringify(y.brand_tone) === '["straightforward"]'
-        && y.target_age_min === 18 && y.target_age_max === 34 && y.performance_targets?.engagement_rate === 3
+        y.brand_category === 'Beauty'
+        && y.target_age_min === 18 && y.target_age_max === 34
         && JSON.stringify(y.brand_personality) === '["Warm"]' && JSON.stringify(y.audience_interests) === '["beauty"]'
         && JSON.stringify(y.what_matters) === '["strong_engagement","high_reach"]'
-        && y.gender_majority === 'Female')
+        && y.gender_majority === 'Female'
+        && y.company_website === 'autometric.io'
+        && JSON.stringify(y.brand_values) === '["Trust","Innovation","Craftsmanship"]')
       ok('   same row (same id, same created_at), updated_at moved to now()',
         y.id === x.id && y.created_at.getTime() === aged.created_at.getTime()
         && y.updated_at.getTime() > aged.updated_at.getTime() && y.at_now === true,
         `${aged.updated_at.toISOString()} → ${y.updated_at.toISOString()}`)
+
+      console.log('\nlive: tenant isolation')
+      setSession(A.user_id)
+      await client.query(`DELETE FROM public.agency_members WHERE user_id = $1 AND agency_id = $2`, [A.user_id, B.agency_id])
+      const crossGet = await callGet(B.agency_id)
+      const crossPut = await callPut(B.agency_id, { companyWebsite: 'intruder.example', brandValues: ['Trust'] })
+      ok('13. admin of agency A cannot read agency B\'s profile (401)', crossGet.status === 401, String(crossGet.status))
+      ok('   …nor write it (401), and B has no row afterwards',
+        crossPut.status === 401 && (await row(B.agency_id)).length === 0, String(crossPut.status))
+      ok('   A\'s own website and values are untouched by the attempt',
+        (await row(A.agency_id))[0]?.company_website === 'autometric.io')
 
       console.log('\nlive: validation and brand_id')
       const bid = await callPut(A.agency_id, { brandId: randomUUID() })

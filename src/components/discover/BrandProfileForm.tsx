@@ -85,18 +85,23 @@ const PERSONALITIES = [
 ]
 
 /**
- * The five metrics `brand_profile.performance_targets` recognises, verbatim from
- * the column's COMMENT. A metric left blank is NOT MEASURED, and no targets at
- * all means Past Performance as a whole is NOT MEASURED — so blank is a real,
- * valid answer here, not a missing one.
+ * Brand Values, as the prototype lists them. Saved to `brand_profile.brand_values`
+ * (migrations/kol/008) together with any custom value typed below them. Stored
+ * and shown only — no Brand Match, What Matters or Brand Fit code reads it.
  */
-const PERFORMANCE_TARGETS: { key: string; label: string; step: string }[] = [
-  { key: 'engagement_rate', label: 'Engagement rate (%)', step: '0.1' },
-  { key: 'median_views', label: 'Median views', step: '1' },
-  { key: 'followers_growth', label: 'Followers growth', step: 'any' },
-  { key: 'post_frequency_reliability', label: 'Post frequency reliability', step: 'any' },
-  { key: 'performance_stability', label: 'Performance stability', step: 'any' },
+const BRAND_VALUES = [
+  'Innovation', 'Trust', 'Authenticity', 'Creativity', 'Community', 'Sustainability',
+  'Inclusivity', 'Quality', 'Transparency', 'Accessibility', 'Empowerment',
 ]
+
+/**
+ * The prototype's wording for a What Matters option, where it differs from the
+ * criterion label What Matters itself uses. Display only: the key sent and
+ * stored is unchanged, and the Brand Match breakdown keeps its own label.
+ */
+const PROTOTYPE_WM_LABEL: Record<string, string> = {
+  strong_community: 'Strong Community',
+}
 
 /** Server-owned keys the form must never send. */
 const NOT_SENT = ['organizationId', 'brandId', 'updatedAt'] as const
@@ -243,7 +248,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
     setSaved(null)
   }
 
-  const toggle = (key: 'brandPersonality' | 'audienceInterests' | 'preferredCategories'
+  const toggle = (key: 'brandPersonality' | 'brandValues' | 'audienceInterests' | 'preferredCategories'
     | 'preferredPlatforms' | 'preferredTiers' | 'contentStyles' | 'whatMatters', v: string) => {
     setDraft(d => {
       if (!d) return d
@@ -332,14 +337,10 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
           style={{ borderColor: '#fecaca', background: '#fef2f2', color: '#991b1b' }}>{error}</p>
       )}
 
-      {/* ── Brand Identity ── Brand Values is deliberately not here. ── */}
-      <Section
-        icon="storefront"
-        title="Brand Identity"
-        subtitle="Who the brand is. Category is what every creator is compared against."
-      >
+      {/* ── 1. Company Profile ── */}
+      <Section icon="storefront" title="Company Profile">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-          <Field label="Brand name">
+          <Field label="Company / Brand Name">
             <input
               className={inputCls} style={inputStyle} disabled={ro}
               value={draft.brandName ?? ''}
@@ -347,25 +348,28 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
               onChange={e => set('brandName', e.target.value)}
             />
           </Field>
-          <Field
-            label="Brand category"
-            hint="One of the nine categories the creator database itself uses, so both sides of every comparison speak one vocabulary."
-          >
+          <Field label="Industry" hint="Saved as the brand category — one of the categories the creator database uses.">
             <select
               className={inputCls} style={inputStyle} disabled={ro}
               value={draft.brandCategory ?? ''}
               onChange={e => set('brandCategory', e.target.value || null)}
             >
-              <option value="">— Not set —</option>
+              <option value="">Select industry…</option>
               {data.vocabulary.categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
         </div>
 
-        <Field
-          label="Brand description"
-          hint="For your team. It is not scored — no creator-side column can be compared against prose."
-        >
+        <Field label="Company Website (optional)">
+          <input
+            className={inputCls} style={inputStyle} disabled={ro}
+            value={draft.companyWebsite ?? ''}
+            placeholder="e.g. autometric.io"
+            onChange={e => set('companyWebsite', e.target.value)}
+          />
+        </Field>
+
+        <Field label="Company Description">
           <textarea
             className="w-full rounded-lg border text-[12px] px-2.5 py-2 outline-none focus:border-[#4E96AC] min-h-[64px]"
             style={inputStyle} disabled={ro}
@@ -374,81 +378,27 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
             onChange={e => set('brandDescription', e.target.value)}
           />
         </Field>
+      </Section>
 
-        <Field
-          label="Brand personality"
-          hint="Stored and shown, not yet scored: the creator database has no personality or tone reading for anyone, so this dimension is reported as unmeasured rather than guessed at."
-        >
-          <div className="flex flex-wrap gap-1.5">
-            {PERSONALITIES.map(p => (
-              <Chip
-                key={p} label={p} on={draft.brandPersonality.includes(p)}
-                onClick={() => { if (!ro) toggle('brandPersonality', p) }}
+      {/* ── 2. Target Audience ── */}
+      <Section icon="group" title="Target Audience">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+          <Field label="Age Range">
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min={0} max={120} className={inputCls} style={inputStyle} disabled={ro}
+                value={draft.targetAgeMin ?? ''} placeholder="From, e.g. 18" aria-label="Age from"
+                onChange={e => set('targetAgeMin', e.target.value === '' ? null : Number(e.target.value))}
               />
-            ))}
-          </div>
-        </Field>
-
-        <Field
-          label="Brand tone"
-          hint="How the brand speaks, as opposed to who it is. Brand Fit joins it with personality to form the brand attributes Values Alignment is measured against."
-        >
-          <TagInput
-            value={draft.brandTone} disabled={ro}
-            onChange={v => set('brandTone', v)}
-            placeholder="e.g. warm, straightforward"
-          />
-        </Field>
-      </Section>
-
-      {/* ── What the brand talks about ── */}
-      <Section
-        icon="tag"
-        title="Brand Keywords & Topics"
-        subtitle="Searched in what creators actually write — their bio, captions and hashtags."
-      >
-        <Field
-          label="Brand keywords"
-          hint="Searched in creator bios, captions and category names. Sparse today: bios are filled for about 12% of the roster, so this lifts the creators it reaches rather than ranking everyone. Adding terms your creators never use lowers this signal for all of them equally — keep the list tight."
-        >
-          <TagInput
-            value={draft.brandKeywords} disabled={ro}
-            onChange={v => set('brandKeywords', v)}
-            placeholder="Type a keyword and press Enter, or paste a comma-separated list"
-          />
-        </Field>
-
-        <Field
-          label="Brand hashtags"
-          hint="Searched in the creator's own hashtags. Sparser still — only part of the post harvest carries any hashtag. The leading # is optional."
-        >
-          <TagInput
-            value={draft.brandHashtags} disabled={ro}
-            onChange={v => set('brandHashtags', v.map(x => x.replace(/^#+/, '')))}
-            placeholder="e.g. skincare, glowup"
-          />
-        </Field>
-
-        <Field
-          label="Content topics"
-          hint="Searched in creator captions for the Content dimension. Leave blank to reuse your brand keywords."
-        >
-          <TagInput
-            value={draft.captionTerms} disabled={ro}
-            onChange={v => set('captionTerms', v)}
-            placeholder="e.g. morning routine, serum, sunscreen"
-          />
-        </Field>
-      </Section>
-
-      {/* ── Target audience ── */}
-      <Section
-        icon="group"
-        title="Target Audience"
-        subtitle="Compared against measured audience data. Only 24 creators carry a full audience analysis today — the rest report this dimension as unmeasured, and are not penalised for it."
-      >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
-          <Field label="Audience gender" hint="“Any” means gender does not enter the decision.">
+              <span style={{ color: T.t4 }}>–</span>
+              <input
+                type="number" min={0} max={120} className={inputCls} style={inputStyle} disabled={ro}
+                value={draft.targetAgeMax ?? ''} placeholder="To, e.g. 34" aria-label="Age to"
+                onChange={e => set('targetAgeMax', e.target.value === '' ? null : Number(e.target.value))}
+              />
+            </div>
+          </Field>
+          <Field label="Gender">
             <select
               className={inputCls} style={inputStyle} disabled={ro}
               value={draft.genderMajority}
@@ -457,47 +407,24 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
               {data.vocabulary.genderMajorities.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </Field>
-          <Field
-            label="Target country"
-            hint="Format not decided yet: audience data uses ISO-2 codes (ID), one engine expects the country name. Stored as typed."
-          >
-            {/* TODO(BLOCKED): pick one format; see `targetCountry` in brandMatch/profile.ts. */}
+        </div>
+
+        <Field label="Primary Locations">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             <input
               className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.targetCountry ?? ''}
+              value={draft.targetCountry ?? ''} placeholder="Country, e.g. Indonesia" aria-label="Country"
               onChange={e => set('targetCountry', e.target.value)}
             />
-          </Field>
-          <Field label="Target city">
             <input
               className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.targetCity ?? ''} placeholder="e.g. Jakarta"
+              value={draft.targetCity ?? ''} placeholder="City, e.g. Jakarta" aria-label="City"
               onChange={e => set('targetCity', e.target.value)}
             />
-          </Field>
-        </div>
+          </div>
+        </Field>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
-          <Field label="Target age — from" hint="Inclusive. Blank means no age target: age is then not measured, not scored 0.">
-            <input
-              type="number" min={0} max={120} className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.targetAgeMin ?? ''} placeholder="e.g. 18"
-              onChange={e => set('targetAgeMin', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Target age — to" hint="Inclusive.">
-            <input
-              type="number" min={0} max={120} className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.targetAgeMax ?? ''} placeholder="e.g. 34"
-              onChange={e => set('targetAgeMax', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-        </div>
-
-        <Field
-          label="Audience interests"
-          hint="The interest keys the audience pipeline actually records. Sports is kept separate from fitness because the data keeps them separate."
-        >
+        <Field label="Audience Interests">
           <div className="flex flex-wrap gap-1.5">
             {data.vocabulary.interests.map(i => (
               <Chip
@@ -509,13 +436,42 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
         </Field>
       </Section>
 
-      {/* ── Ideal Creator Profile ── narrows, never scores ── */}
-      <Section
-        icon="person_search"
-        title="Ideal Creator Profile"
-        subtitle="Which creators you want to see at all. These narrow the Creator Database; they never change a creator's score, so nobody is penalised twice for the same thing."
-      >
-        <Field label="Preferred creator categories">
+      {/* ── 3. Brand Identity ── */}
+      <Section icon="auto_awesome" title="Brand Identity">
+        <Field label="Brand Personality">
+          <div className="flex flex-wrap gap-1.5">
+            {PERSONALITIES.map(p => (
+              <Chip
+                key={p} label={p} on={draft.brandPersonality.includes(p)}
+                onClick={() => { if (!ro) toggle('brandPersonality', p) }}
+              />
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Brand Values">
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {BRAND_VALUES.map(v => (
+              <Chip
+                key={v} label={v} on={draft.brandValues.includes(v)}
+                onClick={() => { if (!ro) toggle('brandValues', v) }}
+              />
+            ))}
+          </div>
+          {/* Custom values: anything saved that is not one of the prototype's. */}
+          <TagInput
+            value={draft.brandValues.filter(v => !BRAND_VALUES.includes(v))} disabled={ro}
+            onChange={custom => set('brandValues', [
+              ...draft.brandValues.filter(v => BRAND_VALUES.includes(v)), ...custom,
+            ])}
+            placeholder="Add another value and press Enter"
+          />
+        </Field>
+      </Section>
+
+      {/* ── 4. Ideal Creator Profile ── */}
+      <Section icon="person_search" title="Ideal Creator Profile">
+        <Field label="Preferred Creator Categories">
           <div className="flex flex-wrap gap-1.5">
             {data.vocabulary.categories.map(c => (
               <Chip
@@ -527,7 +483,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
         </Field>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-          <Field label="Preferred platforms">
+          <Field label="Preferred Platforms">
             <div className="flex flex-wrap gap-1.5">
               {PLATFORMS.map(p => (
                 <Chip
@@ -537,7 +493,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
               ))}
             </div>
           </Field>
-          <Field label="Preferred creator tier">
+          <Field label="Preferred Creator Tier">
             <div className="flex flex-wrap gap-1.5">
               {TIERS.map(t => (
                 <Chip
@@ -549,10 +505,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
           </Field>
         </div>
 
-        <Field
-          label="Creator content style"
-          hint="Stored for later. The creator database has no content-style column filled, so this cannot narrow results today and is not used as a filter — showing it as active would be a lie about what your results contain."
-        >
+        <Field label="Creator Content Style">
           <div className="flex flex-wrap gap-1.5">
             {CONTENT_STYLES.map(s => (
               <Chip
@@ -562,63 +515,14 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
             ))}
           </div>
         </Field>
-
-        <div style={{ ...PJ, color: T.t4 }} className="text-[10.5px] font-bold uppercase tracking-wider mt-4 mb-2">
-          Creator evaluation preferences
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-          <Field label="Minimum followers" hint="Leave blank for no floor. 0 is a real value and is not the same as blank.">
-            <input
-              type="number" min={0} className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.minFollowers ?? ''} placeholder="e.g. 10000"
-              onChange={e => set('minFollowers', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Minimum engagement rate (%)" hint="Measured for about a quarter of the roster; setting this excludes creators whose rate was never measured.">
-            <input
-              type="number" min={0} step="0.1" className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.minErPct ?? ''} placeholder="e.g. 3"
-              onChange={e => set('minErPct', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-        </div>
-
-        <label className="flex items-center gap-2 mb-2 cursor-pointer">
-          <input
-            type="checkbox" disabled={ro} checked={draft.requireCategory}
-            onChange={e => set('requireCategory', e.target.checked)}
-          />
-          <span style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-bold">
-            Only show creators that carry a category
-          </span>
-          <span className="text-[10.5px]" style={{ color: T.t4 }}>
-            — about 54% of the roster does
-          </span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox" disabled={ro} checked={draft.verifiedOnly}
-            onChange={e => set('verifiedOnly', e.target.checked)}
-          />
-          <span style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-bold">
-            Only show verified creators
-          </span>
-          <span className="text-[10.5px]" style={{ color: T.t4 }}>
-            — about 8% of the roster is
-          </span>
-        </label>
       </Section>
 
-      {/* ── What Matters Most ── the criteria Brand Match averages ── */}
-      <Section
-        icon="tune"
-        title="What Matters Most"
-        subtitle="What matters most when evaluating creators. Brand Match is the average of a creator's scores on the ones you pick — every pick counts equally, and a score that could not be measured is left out rather than counted as zero."
-      >
+      {/* ── 5. What matters most ── the six criteria Brand Match averages ── */}
+      <Section icon="tune" title="What matters most when evaluating creators?">
         <div className="flex flex-wrap gap-1.5">
           {data.vocabulary.whatMatters.map(o => (
             <Chip
-              key={o.key} label={o.label} on={draft.whatMatters.includes(o.key as never)}
+              key={o.key} label={PROTOTYPE_WM_LABEL[o.key] ?? o.label} on={draft.whatMatters.includes(o.key as never)}
               onClick={() => { if (!ro) toggle('whatMatters', o.key) }}
             />
           ))}
@@ -628,30 +532,6 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
             Nothing picked yet — creators show no Brand Match until you choose at least one.
           </p>
         )}
-      </Section>
-
-      {/* ── Performance targets ── Brand Fit, Past Performance (Option B) ── */}
-      <Section
-        icon="trending_up"
-        title="Performance Targets"
-        subtitle="A target per metric, compared directly against the creator's own number. Leave a metric blank to leave it unmeasured."
-      >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
-          {PERFORMANCE_TARGETS.map(m => (
-            <Field key={m.key} label={m.label}>
-              <input
-                type="number" min={0} step={m.step} className={inputCls} style={inputStyle} disabled={ro}
-                value={draft.performanceTargets[m.key] ?? ''}
-                onChange={e => {
-                  const next = { ...draft.performanceTargets }
-                  if (e.target.value === '') delete next[m.key]
-                  else next[m.key] = Number(e.target.value)
-                  set('performanceTargets', next)
-                }}
-              />
-            </Field>
-          ))}
-        </div>
       </Section>
 
       {!ro && (
