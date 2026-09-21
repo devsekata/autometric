@@ -7,11 +7,11 @@
  * a sticky 248px panel with accordion sections that stays open while you browse
  * (never a blocking overlay), collapsing to a vertical tab on the right edge.
  *
- * The reference panel offers sections this roster has no columns for —
- * audience demographics, authenticity, brand fit, paid ratio, campaigns run,
- * rate card, format. Those are left out rather than shipped as controls that
- * filter nothing; what remains is exactly what `public.kol_directory` can
- * answer: platform, tier, followers, engagement, category, connected.
+ * The reference panel offers sections this roster has no columns for — brand
+ * fit, campaigns run, audience age. Those are left out rather than shipped as
+ * controls that filter nothing; what remains is what the roster and its L2 card
+ * can answer: platform, tier, followers, engagement, category, connected,
+ * content format.
  */
 
 import { PJ, TOKENS as T, fmtNum } from './ui'
@@ -89,7 +89,21 @@ export interface KolFilters {
    *  named like a city cannot answer a city question. */
   geoKey: string
   geoLevel: string
+  /**
+   * My Creators only: the derived profiling status (see `PROFILING_STATUS` in
+   * `@/lib/discover/kolDirectory`). Empty string = Any Status.
+   */
+  profilingStatus: ProfilingStatusKey
 }
+
+/** Values are the API's `profiling` param; kept here so the client bundle does not import the query module. */
+export const PROFILING_STATUS_OPTIONS = [
+  { value: '', label: 'Any Status' },
+  { value: 'ready', label: 'Ready' },
+  { value: 'profiling', label: 'Profiling' },
+  { value: 'failed', label: 'Failed' },
+] as const
+export type ProfilingStatusKey = (typeof PROFILING_STATUS_OPTIONS)[number]['value']
 
 /** Label vocabularies, in step with the warehouse. Display only. */
 /**
@@ -104,6 +118,14 @@ export const TOPIC_OPTIONS = [
   'religion', 'sports', 'technology', 'travel',
 ] as const
 export const FORMAT_OPTIONS = ['', 'Video', 'Carousel', 'Image'] as const
+/**
+ * The three values `l2_gold.kol_profile_card.format_dominant` actually holds —
+ * the same list `FORMAT_OPTIONS` offers, without the "Any" entry, so the chips
+ * and the dropdown filter on one vocabulary (D078). The platform's own names
+ * (Reels, Story, Feed, Photo) are deliberately absent: the roster has no
+ * authoritative mapping to them.
+ */
+export const FORMAT_VALUES = FORMAT_OPTIONS.filter(Boolean)
 export const STABILITY_OPTIONS = [
   '', 'High Stability', 'Medium Stability', 'Low Stability',
 ] as const
@@ -142,6 +164,7 @@ export const KOL_FILTERS_DEFAULT: KolFilters = {
   saveMin: 0, viralMin: 0, risingOnly: false, contentTopic: '',
   formatDominant: '', audQuality: '', stability: '', audInterest: '',
   geoKey: '', geoLevel: '',
+  profilingStatus: '',
 }
 
 /**
@@ -173,6 +196,46 @@ export const FOLLOWER_STEPS = [
 ]
 
 /**
+ * Sources whose data is empty today, so the controls that filter on them can
+ * only ever return nothing (UI data-availability cleanup, 2026-09-21 audit).
+ *
+ * Visibility switches only. Every parameter, query, saved list and D124 relax
+ * hint keeps working exactly as before; a control whose value is already set
+ * (from a saved list) is still drawn so it can be seen and cleared. Flip a flag
+ * when its source is filled and the control comes back unchanged.
+ *
+ *   rateCard     l1_silver.unified_rate_card — 0 rows, intentionally emptied by
+ *                the approved migrations 048/050 (2026-09-17).
+ *   creatorCity  public.kol_directory.creator_city — 0 of 1,980 active creators.
+ *   connected    social_account with platform_user_id AND oauth_token — 0; the
+ *                OAuth connect flow has not shipped.
+ *
+ * Not covered here on purpose: Audience age/gender, Creator location and the
+ * Other Filters sliders (D079-D083) — their requirements ask for them to be
+ * shown disabled, so they stay drawn.
+ */
+export const DATA_AVAILABLE = {
+  rateCard: false,
+  creatorCity: false,
+  connected: false,
+} as const
+
+/**
+ * My Creators' Followers dropdown (D090): exactly the six thresholds the
+ * requirement names. The Creator Database keeps the FOLLOWER_STEPS slider
+ * (D074). Both write the same `follMin`, so the API parameter, the SQL and the
+ * D124 relax hint are shared and unchanged.
+ */
+export const MY_CREATORS_FOLLOWER_OPTIONS = [
+  { value: 0, label: 'Any' },
+  { value: 1_000, label: '1K+' },
+  { value: 10_000, label: '10K+' },
+  { value: 50_000, label: '50K+' },
+  { value: 100_000, label: '100K+' },
+  { value: 1_000_000, label: '1M+' },
+] as const
+
+/**
  * Category is excluded on purpose: it has its own chips in the toolbar and its
  * own badge there, exactly as in the source, so counting it here would show the
  * same filter twice.
@@ -185,7 +248,7 @@ export function activeFilterCount(f: KolFilters): number {
     f.shareMin > 0, f.growthClass !== '', f.freqReliability !== '', f.priority !== '',
     f.saveMin > 0, f.viralMin > 0, f.risingOnly, f.contentTopic !== '',
     f.formatDominant !== '', f.audQuality !== '', f.stability !== '',
-    f.audInterest !== '', f.geoKey !== '',
+    f.audInterest !== '', f.geoKey !== '', f.profilingStatus !== '',
   ].filter(Boolean).length
 }
 
@@ -228,7 +291,69 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
     // Level only travels with a key; on its own it would filter nothing.
     if (f.geoLevel) p.geoLevel = f.geoLevel
   }
+  if (f.profilingStatus) p.profiling = f.profilingStatus
   return p
+}
+
+/**
+ * One way out of an empty result: release one active filter (`patch`), or
+ * clear the keyword (`clearQuery`).
+ */
+export type RelaxSuggestion =
+  | { id: string; label: string; patch: Partial<KolFilters> }
+  | { id: string; label: string; clearQuery: true }
+
+/**
+ * The active filters most likely to have emptied the list, first — D124.
+ *
+ * Pure and client-side: it asks the database nothing, so labels name the
+ * filter and never a count. The order follows how sparse each filter's data is
+ * on the KOL server (audit 17 Sep 2026): rate card and Connected have no rows
+ * at all, a handful of creators carry the calculated metrics, most carry ER,
+ * and almost all carry followers, tier, category and platform. The keyword
+ * comes last.
+ *
+ * Pass the filters the page actually applies (`scopedFilters`), so a value the
+ * current scope ignores is never offered. Each patch sets exactly the default
+ * that `activeFilterCount` treats as "off"; Audience location releases
+ * `geoKey` and `geoLevel` together because the level only filters with a key,
+ * and Platform also clears Tier, as the panel's own "All Platform" chip does.
+ */
+export function relaxSuggestions(f: KolFilters, query: string, max = 3): RelaxSuggestion[] {
+  const d = KOL_FILTERS_DEFAULT
+  const all: (RelaxSuggestion | false)[] = [
+    f.maxRate > 0 && { id: 'maxRate', label: 'Lepas batas rate card', patch: { maxRate: d.maxRate } },
+    f.connectedOnly && { id: 'connectedOnly', label: 'Matikan "Connected creators only"', patch: { connectedOnly: false } },
+    f.risingOnly && { id: 'risingOnly', label: 'Matikan "Rising creator saja"', patch: { risingOnly: false } },
+    f.profilingStatus !== '' && { id: 'profilingStatus', label: 'Lepas filter profiling status', patch: { profilingStatus: d.profilingStatus } },
+    f.updatedWithin > 0 && { id: 'updatedWithin', label: 'Lepas batas "Last updated"', patch: { updatedWithin: d.updatedWithin } },
+    f.shareMin > 0 && { id: 'shareMin', label: 'Lepas minimum share rate', patch: { shareMin: d.shareMin } },
+    f.saveMin > 0 && { id: 'saveMin', label: 'Lepas minimum save rate', patch: { saveMin: d.saveMin } },
+    f.stability !== '' && { id: 'stability', label: 'Lepas filter performance stability', patch: { stability: d.stability } },
+    f.growth !== '' && { id: 'growth', label: 'Lepas filter growth', patch: { growth: d.growth } },
+    f.growthClass !== '' && { id: 'growthClass', label: 'Lepas filter growth class', patch: { growthClass: d.growthClass } },
+    f.femaleMin > 0 && { id: 'femaleMin', label: 'Lepas minimum female %', patch: { femaleMin: d.femaleMin } },
+    f.maleMin > 0 && { id: 'maleMin', label: 'Lepas minimum male %', patch: { maleMin: d.maleMin } },
+    f.audQuality !== '' && { id: 'audQuality', label: 'Lepas filter audience quality', patch: { audQuality: d.audQuality } },
+    f.audInterest !== '' && { id: 'audInterest', label: 'Lepas filter audience interest', patch: { audInterest: d.audInterest } },
+    f.geoKey !== '' && { id: 'geo', label: 'Lepas filter audience location', patch: { geoKey: d.geoKey, geoLevel: d.geoLevel } },
+    f.contentTopic !== '' && { id: 'contentTopic', label: 'Lepas filter content topic', patch: { contentTopic: d.contentTopic } },
+    f.formatDominant !== '' && { id: 'formatDominant', label: 'Lepas filter content format', patch: { formatDominant: d.formatDominant } },
+    f.paidMax < 100 && { id: 'paidMax', label: 'Lepas batas paid ratio', patch: { paidMax: d.paidMax } },
+    f.postFreqMin > 0 && { id: 'postFreqMin', label: 'Lepas minimum post / bulan', patch: { postFreqMin: d.postFreqMin } },
+    f.freqReliability !== '' && { id: 'freqReliability', label: 'Lepas filter post frequency reliability', patch: { freqReliability: d.freqReliability } },
+    f.viralMin > 0 && { id: 'viralMin', label: 'Lepas minimum viral frequency', patch: { viralMin: d.viralMin } },
+    f.verifiedOnly && { id: 'verifiedOnly', label: 'Matikan "Verified creators only"', patch: { verifiedOnly: false } },
+    f.erMin > 0 && { id: 'erMin', label: 'Turunkan minimum engagement rate', patch: { erMin: d.erMin } },
+    f.priority !== '' && { id: 'priority', label: 'Lepas filter monitoring priority', patch: { priority: d.priority } },
+    f.follMin > 0 && { id: 'follMin', label: 'Turunkan minimum followers', patch: { follMin: d.follMin } },
+    f.tier !== '' && { id: 'tier', label: 'Lepas filter tier', patch: { tier: d.tier } },
+    f.category !== '' && { id: 'category', label: 'Lepas filter kategori', patch: { category: d.category } },
+    f.platform !== '' && { id: 'platform', label: 'Lepas filter platform', patch: { platform: d.platform, tier: d.tier } },
+    f.agency !== '' && { id: 'agency', label: 'Lepas filter agency', patch: { agency: d.agency } },
+    query.trim() !== '' && { id: 'query', label: 'Hapus kata kunci pencarian', clearQuery: true },
+  ]
+  return all.filter((s): s is RelaxSuggestion => s !== false).slice(0, max)
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -243,20 +368,6 @@ const PLATFORM_LABEL: Record<string, string> = {
  * the facets once they arrive.
  */
 const PLATFORMS = ['instagram', 'tiktok'] as const
-
-/**
- * Content formats per platform, from the reference panel's `igF` / `ttF`.
- *
- * Rendered disabled: `kol_directory` has no content-format column — nor does
- * any other table in the KOL database — so nothing here can filter the roster.
- * The section is kept visible, in the reference's shape and position, so the
- * panel reads the same and the control is ready the day the column lands; it is
- * greyed out rather than shipped as a chip that quietly filters nothing.
- */
-const FORMATS: Record<string, string[]> = {
-  instagram: ['All formats', 'Feed Post', 'Reels', 'Story', 'Carousel', 'Content'],
-  tiktok: ['All formats', 'Video', 'Photo'],
-}
 
 /** The reference panel's audience age bands. */
 const AGE_BANDS = ['All', '13–17', '18–24', '25–34', '35–44', '45–54', '55+']
@@ -367,8 +478,10 @@ function Unavailable({ children }: { children: React.ReactNode }) {
 /* ── panel ────────────────────────────────────────────────────────────────── */
 
 export function KolFilterPanel({
-  filters, facets, open, onToggleSection, onChange, onClear, onCollapse,
+  filters, facets, open, onToggleSection, onChange, onClear, onCollapse, scope = 'database',
 }: {
+  /** `mine` adds the My Creators-only Profiling Status control. */
+  scope?: 'database' | 'mine'
   filters: KolFilters
   facets: KolDirectoryFacets | null
   open: Set<string>
@@ -410,6 +523,22 @@ export function KolFilterPanel({
       </div>
 
       <div className="max-h-[620px] overflow-y-auto pr-1">
+        {scope === 'mine' && (
+          <div className="py-2.5 px-0.5" style={{ borderBottom: `1px solid ${T.outlineSoft}` }}>
+            <label htmlFor="kol-filter-profiling" style={{ ...PJ, color: T.t2 }}
+              className="block text-[11.5px] font-extrabold uppercase tracking-[.04em] mb-1.5">
+              Profiling status
+            </label>
+            <select id="kol-filter-profiling" value={filters.profilingStatus}
+              onChange={e => onChange({ profilingStatus: e.target.value as ProfilingStatusKey })}
+              className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+              style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+              {PROFILING_STATUS_OPTIONS.map(o => (
+                <option key={o.value || 'any'} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <Section id="platform" icon="hub" label="Platform" open={open.has('platform')} onToggle={onToggleSection}
           badge={filters.platform ? PLATFORM_LABEL[filters.platform] ?? filters.platform : null}>
           <div className="flex flex-wrap gap-[7px]">
@@ -426,8 +555,8 @@ export function KolFilterPanel({
           </div>
           <p className="text-[9.5px] leading-[1.4] mt-2" style={{ color: T.t4 }}>
             {filters.platform
-              ? 'Opsi Tier & Format sudah terbuka di bawah.'
-              : 'Pilih platform dulu untuk membuka opsi Tier & Format.'}
+              ? 'Opsi Tier sudah terbuka di bawah.'
+              : 'Pilih platform dulu untuk membuka opsi Tier.'}
           </p>
         </Section>
 
@@ -463,32 +592,65 @@ export function KolFilterPanel({
           </Section>
         )}
 
-        {filters.platform && (
-          <Section id="format" icon="video_library" label="Format" open={open.has('format')} onToggle={onToggleSection}
-            badge={UNAVAILABLE}>
-            <div className="flex flex-wrap gap-[7px]">
-              {(FORMATS[filters.platform] ?? []).map(f => (
-                <Chip key={f} label={f} on={false} disabled onClick={() => {}} />
-              ))}
-            </div>
-            <Unavailable>
-              Format konten belum ada datanya di roster KOL, jadi filter ini
-              belum bisa dipakai.
-            </Unavailable>
-          </Section>
-        )}
+        {/* Format is not a platform question — the card names one dominant
+            format per creator — so this section stands on its own rather than
+            waiting for a platform the way Tier does. */}
+        <Section id="format" icon="video_library" label="Format" open={open.has('format')} onToggle={onToggleSection}
+          badge={filters.formatDominant || null}>
+          <div className="flex flex-wrap gap-[7px]">
+            <Chip label="All formats" on={!filters.formatDominant}
+              onClick={() => onChange({ formatDominant: '' })} />
+            {FORMAT_VALUES.map(f => (
+              <Chip key={f} label={f} on={filters.formatDominant === f}
+                onClick={() => onChange({ formatDominant: filters.formatDominant === f ? '' : f })} />
+            ))}
+          </div>
+          <p className="text-[9.5px] leading-[1.4] mt-2" style={{ color: T.t4 }}>
+            Format dominan baru terukur untuk sebagian kecil roster; memilih satu
+            format menyembunyikan creator yang belum pernah diukur.
+          </p>
+        </Section>
 
         <Section id="reach" icon="bar_chart" label="Reach & Engagement" open={open.has('reach')} onToggle={onToggleSection}
           badge={reachActive ? `${reachActive} active` : null}>
-          <Range label="Min. followers" min={0} max={FOLLOWER_STEPS.length - 1} step={1} value={follIdx}
-            display={filters.follMin ? fmtNum(filters.follMin) : 'Any'}
-            onChange={i => onChange({ follMin: FOLLOWER_STEPS[i] })} />
+          {scope === 'mine' ? (
+            /* D090: My Creators gets the dropdown the requirement names, over the
+               same `follMin` the Creator Database slider writes. A saved list can
+               carry a value from that slider (25K, say); it is kept and shown as
+               its own marked option rather than snapped to a neighbour, so the
+               list still means what it meant when it was saved. */
+            <div className="my-[7px] mb-2.5">
+              <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
+                <label htmlFor="kol-filter-followers">Followers</label>
+              </div>
+              <select id="kol-filter-followers" value={filters.follMin}
+                onChange={e => onChange({ follMin: Number(e.target.value) })}
+                className="w-full text-[10.5px] rounded-md px-2 py-1.5 border"
+                style={{ borderColor: '#d8dde1', color: T.t1, background: '#fff' }}>
+                {MY_CREATORS_FOLLOWER_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+                {!MY_CREATORS_FOLLOWER_OPTIONS.some(o => o.value === filters.follMin) && (
+                  <option value={filters.follMin}>{fmtNum(filters.follMin)}+ (saved filter)</option>
+                )}
+              </select>
+            </div>
+          ) : (
+            <Range label="Min. followers" min={0} max={FOLLOWER_STEPS.length - 1} step={1} value={follIdx}
+              display={filters.follMin ? fmtNum(filters.follMin) : 'Any'}
+              onChange={i => onChange({ follMin: FOLLOWER_STEPS[i] })} />
+          )}
           <Range label="Min. engagement" min={0} max={10} step={0.1} value={filters.erMin}
             display={filters.erMin ? `${filters.erMin.toFixed(1)}%` : 'Any'}
             onChange={v => onChange({ erMin: v })} />
-          <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
-            display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
-            onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
+          {/* D076: no rate card exists (intentionally empty), so any ceiling
+              empties the list. Drawn only when a saved list already carries one,
+              so that value stays visible and clearable. */}
+          {(DATA_AVAILABLE.rateCard || filters.maxRate > 0) && (
+            <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
+              display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
+              onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
+          )}
           <div className="my-[7px] mb-2.5">
             <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>
               <span>Growth</span>
@@ -751,6 +913,10 @@ export function KolFilterPanel({
           </div>
         </div>
 
+        {/* No creator has connected an account yet, so this switch can only
+            return an empty list. Drawn when a saved list has it on, so it can
+            be switched off. */}
+        {(DATA_AVAILABLE.connected || filters.connectedOnly) && (
         <div className="pt-2.5 px-0.5 pb-0.5">
           <div className="flex items-center gap-3">
             <div className="flex-1">
@@ -770,6 +936,7 @@ export function KolFilterPanel({
             </button>
           </div>
         </div>
+        )}
       </div>
     </aside>
   )

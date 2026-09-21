@@ -22,6 +22,8 @@ import { LOCATIONS, TIERS } from '@/lib/discover/vocab'
 import type { KolDirectoryRow } from '@/lib/discover/kolDirectory'
 import type { SimilarCandidate, SimilarResult } from '@/lib/discover/creatorSimilar'
 import { useDiscoverSelection, selectionKey } from './useDiscoverSelection'
+import { useKolFavorites } from './useKolFavorites'
+import { DATA_AVAILABLE } from './KolDirectoryFilters'
 
 export interface SmartDiscoveryProps {
   orgId: string
@@ -148,6 +150,13 @@ export default function SmartDiscovery({
    * resolve.
    */
   const compare = useDiscoverSelection(orgId, 'compare')
+  /**
+   * Shortlist (D065) is the Favorite list (D033): the signed-in user's
+   * favorites in this agency, `agency_kol_favorites` on the KOL server, the
+   * same hook the Creator Database and the profile use.
+   */
+  const [shortlistError, setShortlistError] = useState('')
+  const favorites = useKolFavorites(orgId, setShortlistError)
   const [result, setResult] = useState<SimilarResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -360,22 +369,33 @@ export default function SmartDiscovery({
         <Section step={2} title="What you need"
           subtitle="Similarity in category, audience size, engagement and topics is always part of the ranking. These narrow the field on top of it.">
           <div className="flex items-center gap-2 flex-wrap mb-3">
-            <div className="w-[170px]">
-              <SelectPill icon="payments" label="Rate card" value={maxRate} options={RATE_STEPS}
-                onChange={v => setMaxRate(v)} />
-            </div>
+            {/* D114/D115: no rate card exists (intentionally empty) — a price
+                ceiling returns no candidate and "lower price" has nothing to
+                compare. D116: no creator carries a city, and the city is a
+                hard filter, so any choice returns no candidate. Hidden until
+                their source is filled; the request parameters are unchanged. */}
+            {DATA_AVAILABLE.rateCard && (
+              <div className="w-[170px]">
+                <SelectPill icon="payments" label="Rate card" value={maxRate} options={RATE_STEPS}
+                  onChange={v => setMaxRate(v)} />
+              </div>
+            )}
             <div className="w-[160px]">
               <SelectPill icon="workspace_premium" label="Any tier" value={tier}
                 options={[{ label: 'Any tier', value: '' }, ...TIERS.map(t => ({ label: t, value: t as string }))]}
                 onChange={v => setTier(v)} />
             </div>
-            <div className="w-[170px]">
-              <SelectPill icon="location_on" label="Any location" value={city}
-                options={[{ label: 'Any location', value: '' }, ...LOCATIONS.map(l => ({ label: l, value: l as string }))]}
-                onChange={v => setCity(v)} />
-            </div>
-            <Chip label="Lower price than the reference" icon="trending_down" on={cheaper}
-              onClick={() => setCheaper(v => !v)} />
+            {DATA_AVAILABLE.creatorCity && (
+              <div className="w-[170px]">
+                <SelectPill icon="location_on" label="Any location" value={city}
+                  options={[{ label: 'Any location', value: '' }, ...LOCATIONS.map(l => ({ label: l, value: l as string }))]}
+                  onChange={v => setCity(v)} />
+              </div>
+            )}
+            {DATA_AVAILABLE.rateCard && (
+              <Chip label="Lower price than the reference" icon="trending_down" on={cheaper}
+                onClick={() => setCheaper(v => !v)} />
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -468,9 +488,15 @@ export default function SmartDiscovery({
                   onOpen={() => onOpenRosterCreator(c.id)}
                   inCompare={compare.ids.has(selectionKey('roster', c.id))}
                   onCompare={() => compare.toggle(selectionKey('roster', c.id))}
+                  shortlisted={favorites.has(c.id)}
+                  onShortlist={() => { setShortlistError(''); void favorites.toggle(c.id) }}
                 />
               ))}
             </ol>
+          )}
+
+          {shortlistError && (
+            <p className="mt-3 text-[11px] text-[#a04545]">{shortlistError}</p>
           )}
 
           {!!result.notes.length && (
@@ -548,7 +574,7 @@ function RefButton({
 }
 
 function RecommendationRow({
-  rank, candidate, onOpen, inCompare, onCompare,
+  rank, candidate, onOpen, inCompare, onCompare, shortlisted, onShortlist,
 }: {
   rank: number
   candidate: SimilarCandidate
@@ -556,6 +582,9 @@ function RecommendationRow({
   inCompare: boolean
   /** Null for an org's own creator, which the shortlist has no population for. */
   onCompare: (() => void) | null
+  /** Whether this creator is in the user's Shortlist (= Favorites). */
+  shortlisted: boolean
+  onShortlist: () => void
 }) {
   const c = candidate
   return (
@@ -625,6 +654,17 @@ function RecommendationRow({
             {inCompare ? 'In compare' : 'Compare'}
           </button>
         )}
+        {/* Shortlist = Favorite (D033), stored per user in this agency. */}
+        <button type="button" onClick={onShortlist} style={PJ} aria-pressed={shortlisted}
+          title={shortlisted ? 'Hapus dari Shortlist (Favorit)' : 'Tambahkan ke Shortlist (Favorit)'}
+          className={`inline-flex items-center gap-1 rounded-lg text-[10.5px] font-bold px-2 h-7 border transition-colors cursor-pointer ${
+            shortlisted
+              ? 'bg-[#fdf2f2] border-[#f3d9d9] text-[#a04545]'
+              : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4]'
+          }`}>
+          <span className={`material-symbols-outlined text-[13px] ${shortlisted ? 'fill' : ''}`}>favorite</span>
+          {shortlisted ? 'Shortlisted' : 'Shortlist'}
+        </button>
         {onOpen ? (
           <button type="button" onClick={onOpen} style={PJ}
             className="text-[10.5px] font-bold text-[#285D6E] hover:underline cursor-pointer">

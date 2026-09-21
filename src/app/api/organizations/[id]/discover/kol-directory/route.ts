@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
-import { listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
-import { myCreatorIdsAmong } from '@/lib/discover/myCreators'
+import { PROFILING_STATUSES, listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
+import { myCreatorIdsAmong, myCreatorMonitoringAmong } from '@/lib/discover/myCreators'
 
 type Params = { params: Promise<{ id: string }> }
 
 /**
  * GET /api/organizations/[id]/discover/kol-directory
  *   ?q=&platform=&category=&tier=a,b&follMin=&minEr=&maxRate=&growthMin=&growthMax=&connected=1&verified=1&updatedWithin=&agency=&sort=&page=&pageSize=&facets=1
+ *   &scope=mine&profiling=ready|profiling|failed   (profiling applies to scope=mine only)
  *
  * The roster itself is global — it is the commercial KOL platform's directory,
  * not org-scoped data — but the endpoint still requires org membership so the
@@ -50,6 +51,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     const ids = (sp.get('ids') || '')
       .split(',').map(v => v.trim()).filter(v => UUID.test(v)).slice(0, 50)
+
+    const rawProfiling = sp.get('profiling')
+    const profiling = PROFILING_STATUSES.find(s => s === rawProfiling) ?? null
 
     const data = await listKolDirectory({
       ids,
@@ -98,6 +102,12 @@ export async function GET(req: NextRequest, { params }: Params) {
       // My Creators: the agency is the org in the URL, whose membership was
       // checked above — never a value the client chooses.
       agencyId: sp.get('scope') === 'mine' ? access.orgId : null,
+      // Profiling status is a My Creators filter; the Creator Database ignores
+      // it, as it does any value outside the three statuses.
+      profilingStatus: sp.get('scope') === 'mine' ? profiling : null,
+      // My Creators search also matches the profile-card name (D085); the
+      // Creator Database and every other caller stay username-only.
+      searchDisplayName: sp.get('scope') === 'mine',
       sort: sp.get('sort'),
       dir: sp.get('dir'),
       page: num('page') ?? 1,
@@ -106,11 +116,20 @@ export async function GET(req: NextRequest, { params }: Params) {
     })
 
     // Only the first load asks for facets; later filter changes reuse them.
-    if (sp.get('facets') === '1') data.facets = await listKolFacets()
+    // My Creators' category chips come from the agency's own creators (D087).
+    if (sp.get('facets') === '1') {
+      data.facets = await listKolFacets(sp.get('scope') === 'mine' ? { agencyId: access.orgId } : {})
+    }
 
     // Every card draws an add/remove toggle for My Creators.
     const mine = await myCreatorIdsAmong(access.orgId, data.rows.map(r => r.id))
     for (const r of data.rows) r.inMyCreators = mine.has(r.id)
+
+    // My Creators cards carry the agency's own Monitored/Paused state.
+    if (sp.get('scope') === 'mine') {
+      const monitoring = await myCreatorMonitoringAmong(access.orgId, data.rows.map(r => r.id))
+      for (const r of data.rows) r.monitoringEnabled = monitoring.get(r.id) ?? null
+    }
 
     return NextResponse.json(data)
   } catch (err) {

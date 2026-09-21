@@ -2,6 +2,7 @@ import kolDb from '@/lib/kolDb'
 import { toIso } from './util'
 import { getKolMeasured, type KolMeasured } from './kolMeasured'
 import { getKolGold, type KolGold } from './kolGold'
+import { ADD_KOL_STEP_KEYS, RUN_FAILURE_STEP, STALLED_AFTER_MS } from '@/lib/kolDirectory/addKolRunStatus'
 
 /**
  * Query layer for the KOL Directory page.
@@ -186,6 +187,14 @@ export interface KolDirectoryRow {
   formatDominant: string | null
   audienceQualityScore: number | null
   audienceQualityTier: string | null
+  /**
+   * Share of followers that do not match the bulk-account pattern, from
+   * `feature.{ig,tt}_audience_analysis.authenticity_score` by way of the profile
+   * card — the same value the creator profile shows. Null for a creator whose
+   * follower sample was never analysed, which is most of the roster; it is not
+   * modelled or substituted (D067).
+   */
+  authenticityScore: number | null
   audienceInterestTop: string | null
   audienceInterestSource: string | null
   /** Standard deviation of historical ER in PERCENTAGE POINTS, and how many
@@ -220,6 +229,22 @@ export interface KolDirectoryRow {
   rateCount: number
   /** Whether the requesting agency has this creator in My Creators; set by the route. */
   inMyCreators?: boolean
+  /**
+   * My Creators only (`scope=mine`): the agency's Monitored (true) / Paused
+   * (false) state from `agency_kol_accounts.monitoring_enabled`; null when the
+   * creator is not in the agency's My Creators. Set by the route.
+   */
+  monitoringEnabled?: boolean | null
+  /**
+   * My Creators only (`scope=mine`): Ready / Profiling / Failed for this
+   * creator, from the same `PROFILING_STATUS` expression the D092 filter runs —
+   * attached after paging by `attachRosterExtras`, never joined in.
+   *
+   * Absent on every other surface, and null when the creator answers none of
+   * the three: no Add KOL run of its own and no L2 profile card yet, which is
+   * most of the roster. Null draws no badge rather than a reassuring one.
+   */
+  profilingStatus?: ProfilingStatusFilter | null
 }
 
 export interface KolDirectoryFacets {
@@ -323,6 +348,19 @@ export interface KolDirectoryQuery {
    * by a route that has already checked the caller's membership of it.
    */
   agencyId?: string | null
+  /**
+   * My Creators profiling status (see `PROFILING_STATUS`). Only the route's
+   * `scope=mine` branch passes it; null means no bound.
+   */
+  profilingStatus?: ProfilingStatusFilter | null
+  /**
+   * My Creators search (D085): `q` also matches the creator's
+   * `l2_gold.kol_profile_card.display_name` — the name the card already shows,
+   * never `agency_kol_accounts.label`, which is one agency's own label for the
+   * relationship and differs between agencies. Only the route's `scope=mine`
+   * branch sets it; every other search stays username-only.
+   */
+  searchDisplayName?: boolean
   sort?: string | null
   dir?: string | null
   page?: number
@@ -594,6 +632,7 @@ const BASE = `
          g.format_dominant                         AS format_dominant,
          g.audience_quality_score::float           AS audience_quality_score,
          g.audience_quality_tier                   AS audience_quality_tier,
+         g.authenticity_score::float               AS authenticity_score,
          g.audience_interest_top                   AS audience_interest_top,
          g.audience_interest_source                AS audience_interest_source,
          g.er_stddev_pp::float                     AS er_stddev_pp,
@@ -601,6 +640,10 @@ const BASE = `
          g.performance_stability                   AS performance_stability,
          g.rising_creator                          AS rising_creator,
          kd.last_refreshed_at,
+         -- Not mapped onto the row; inputs of the My Creators profiling-status
+         -- filter (PROFILING_STATUS below).
+         kd.scrape_status                          AS scrape_status,
+         (g.card_id IS NOT NULL)                   AS has_profile_card,
          -- Not mapped onto the row; carried so the list can be ordered by when
          -- a creator was added, which is what the Discovery landing's "Recently
          -- added" shelf asks for. last_refreshed_at above answers a different
@@ -644,7 +687,8 @@ const BASE = `
     -- followers and tier deliberately stay on kol_directory: that is the agreed
     -- source of truth for both, and reconciling them is a separate decision.
     LEFT JOIN LATERAL (
-      SELECT c.followers_growth, c.avatar_url, c.bio, c.display_name, c.is_verified,
+      SELECT c.id AS card_id,
+             c.followers_growth, c.avatar_url, c.bio, c.display_name, c.is_verified,
              -- Avg/Median Views, V2F and L2V. Same card, same account, so they
              -- describe the same profile the avatar and growth already do —
              -- no second lateral, and no chance of two joins disagreeing about
@@ -664,6 +708,9 @@ const BASE = `
              c.save_rate, c.viral_frequency, c.viral_post_count,
              c.content_topic, c.content_topic_source, c.format_dominant,
              c.audience_quality_score, c.audience_quality_tier,
+             -- Authenticity rides the same card as the audience-quality score
+             -- it sits next to, so both describe one account (D067).
+             c.authenticity_score,
              c.audience_interest_top, c.audience_interest_source,
              c.er_stddev_pp, c.er_periods, c.performance_stability,
              c.rising_creator
@@ -674,6 +721,118 @@ const BASE = `
        LIMIT 1
     ) g ON TRUE${ER_LATERAL}
    WHERE ${ACTIVE}`
+
+/**
+ * My Creators profiling status, derived — there is no stored column that can
+ * answer it (`kol_directory.scrape_status` marks attempts, and the TikTok path
+ * never writes it). Evaluated per row of `filtered` (alias `b`), in this order:
+ *
+ *   failed     the creator's newest Add KOL run failed — a failed step, a
+ *              failed `run` row, or a step still `running` past the stall
+ *              threshold — OR `scrape_status = 'failed'` with no L2 card
+ *   profiling  the newest Add KOL run has started one of its steps and has
+ *              neither failed nor finished every step
+ *   ready      the creator has an `l2_gold.kol_profile_card`
+ *   NULL       none of these (only "Any" shows them)
+ *
+ * The run rules are `getAddKolRunStatus`'s: same step lists, same `run` step,
+ * same stall threshold, passed in as $37-$40 from `addKolRunStatus.ts`. The
+ * newest run is the one owning the newest log row across both tables.
+ */
+const PROFILING_STATUS = `(
+  SELECT CASE
+           WHEN run.failed THEN 'failed'
+           WHEN b.scrape_status = 'failed' AND NOT b.has_profile_card THEN 'failed'
+           WHEN run.started AND NOT run.complete THEN 'profiling'
+           WHEN b.has_profile_card THEN 'ready'
+         END
+    FROM (
+      SELECT COALESCE(bool_or(
+               (r.step = ANY (x.steps) OR r.step = $40)
+               AND (r.status = 'failed'
+                    OR (r.status = 'running'
+                        AND r.started_at < now() - make_interval(secs => $37::float8 / 1000)))
+             ), false) AS failed,
+             COUNT(r.step) FILTER (WHERE r.step = ANY (x.steps)) > 0 AS started,
+             COUNT(DISTINCT r.step) FILTER (WHERE r.step = ANY (x.steps) AND r.status = 'success')
+               = cardinality(x.steps) AS complete
+        FROM (SELECT CASE WHEN b.platform = 'tiktok' THEN $39::text[] ELSE $38::text[] END AS steps) x
+        LEFT JOIN (
+          SELECT l.step, l.status, l.started_at
+            FROM (
+              SELECT run_id, step, status, started_at FROM public.add_kol_scrape_log WHERE kol_directory_id = b.id
+              UNION ALL
+              SELECT run_id, step, status, started_at FROM public.add_kol_pipeline_log WHERE kol_directory_id = b.id
+            ) l
+           WHERE l.run_id = (
+             SELECT n.run_id FROM (
+               SELECT run_id, started_at FROM public.add_kol_scrape_log WHERE kol_directory_id = b.id
+               UNION ALL
+               SELECT run_id, started_at FROM public.add_kol_pipeline_log WHERE kol_directory_id = b.id
+             ) n
+             ORDER BY n.started_at DESC
+             LIMIT 1)
+        ) r ON TRUE
+       GROUP BY x.steps
+    ) run
+)`
+
+export const PROFILING_STATUSES = ['ready', 'profiling', 'failed'] as const
+export type ProfilingStatusFilter = (typeof PROFILING_STATUSES)[number]
+
+/**
+ * The four values `PROFILING_STATUS` reads, in the order its placeholders take
+ * them ($37-$40 in the list statement). Kept as one list so a statement that
+ * binds them somewhere else cannot get the order wrong.
+ */
+const RUN_RULE_PARAMS = [
+  STALLED_AFTER_MS,
+  [...ADD_KOL_STEP_KEYS.instagram],
+  [...ADD_KOL_STEP_KEYS.tiktok],
+  RUN_FAILURE_STEP,
+]
+
+/**
+ * `PROFILING_STATUS` with its four run-rule placeholders moved to `$first` and
+ * the three after it. The expression above stays the one definition of the
+ * rules; this moves placeholders and nothing else, because Postgres numbers
+ * parameters per statement: the list query binds these at 37-40, and a
+ * statement that only asks about one page of ids binds them much earlier.
+ *
+ * Padding the short statement out to forty parameters instead does not work —
+ * an unreferenced `$1` fails to parse ("could not determine data type of
+ * parameter $1").
+ */
+const profilingStatusAt = (first: number) =>
+  PROFILING_STATUS.replace(/\$(37|38|39|40)\b/g, (_m, n: string) => `$${first + Number(n) - 37}`)
+
+/**
+ * The same status for an explicit set of creators: same expression, asked only
+ * about the ids that survived paging.
+ *
+ * `b` supplies exactly the columns the expression reads off the row — `id`,
+ * `platform` (which step list applies), `scrape_status` and whether the creator
+ * has an L2 profile card. `has_profile_card` is the EXISTS form of the list
+ * query's `g.card_id IS NOT NULL`: same two tables, same join, so the badge and
+ * the D092 filter can never disagree about who is `ready`.
+ */
+const PROFILING_STATUS_BY_ID = `
+  SELECT b.id, ${profilingStatusAt(2)} AS profiling_status
+    FROM (
+      SELECT kd.id,
+             pl.key AS platform,
+             kd.scrape_status,
+             EXISTS (
+               SELECT 1
+                 FROM public.kol_social_account ksa
+                 JOIN l2_gold.kol_profile_card c
+                   ON c.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = kd.id
+             ) AS has_profile_card
+        FROM public.kol_directory kd
+        LEFT JOIN public.platforms pl ON pl.id = kd.platform_id
+       WHERE kd.id = ANY($1::uuid[])
+    ) b`
 
 /**
  * Fills in `agency`, `rateFrom` and `rateCount` for one page of roster rows.
@@ -687,13 +846,21 @@ const BASE = `
  * Mutates in place and returns nothing: the caller has already built the row
  * objects, and rebuilding them to attach two fields would be the more confusing
  * of the two shapes.
+ *
+ * `profilingStatus` rides along for My Creators only (D052), and for the same
+ * reason the other two do: `PROFILING_STATUS` is a correlated subquery, so in
+ * the list statement's target list the planner would run it for every row of
+ * `filtered` — all 7.4k of them — before `LIMIT` ever trims the page.
  */
-async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
+async function attachRosterExtras(
+  rows: KolDirectoryRow[],
+  opts: { profilingStatus?: boolean } = {},
+): Promise<void> {
   const ids = rows.map(r => r.id)
   if (!ids.length) return
 
   const db = kolDb()
-  const [agencies, rates] = await Promise.all([
+  const [agencies, rates, profiling] = await Promise.all([
     db.query<{ kol_account_id: string; name: string | null }>(
       `SELECT DISTINCT ON (a.kol_account_id) a.kol_account_id, ag.name
          FROM public.agency_kol_accounts a
@@ -712,16 +879,27 @@ async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
         GROUP BY ksa.kol_id`,
       [ids],
     ),
+    opts.profilingStatus
+      ? db.query<{ id: string; profiling_status: ProfilingStatusFilter | null }>(
+          PROFILING_STATUS_BY_ID, [ids, ...RUN_RULE_PARAMS],
+        )
+      : null,
   ])
 
   const byAgency = new Map(agencies.rows.map(r => [r.kol_account_id, r.name]))
   const byRate = new Map(rates.rows.map(r => [r.kol_id, r]))
+  // Absent (not null) on every other surface: the Creator Database does not ask
+  // the question, and a null there would read as "asked, and none of the three".
+  const byProfiling = profiling
+    ? new Map(profiling.rows.map(r => [r.id, r.profiling_status]))
+    : null
 
   for (const row of rows) {
     row.agency = byAgency.get(row.id) ?? null
     const rate = byRate.get(row.id)
     row.rateFrom = rate?.min_fee ? Number(rate.min_fee) : null
     row.rateCount = rate?.n ?? 0
+    if (byProfiling) row.profilingStatus = byProfiling.get(row.id) ?? null
   }
 }
 
@@ -755,6 +933,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     content_topic: string | null; content_topic_source: string | null
     format_dominant: string | null
     audience_quality_score: number | null; audience_quality_tier: string | null
+    authenticity_score: number | null
     audience_interest_top: string | null; audience_interest_source: string | null
     er_stddev_pp: number | null; er_periods: number | null
     performance_stability: string | null; rising_creator: boolean | null
@@ -765,7 +944,18 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
     WITH base AS (${BASE}),
     filtered AS (
       SELECT * FROM base b
-       WHERE ($1::text     IS NULL OR b.username ILIKE '%' || $1 || '%')
+       WHERE ($1::text     IS NULL OR b.username ILIKE '%' || $1 || '%'
+              -- My Creators also searches the profile-card name (D085).
+              -- EXISTS rather than the lateral's column, which would make the
+              -- card lookup run for every creator before the filter applies. A
+              -- creator without a card simply has no name to match.
+              OR ($41::boolean IS TRUE AND EXISTS (
+                   SELECT 1
+                     FROM public.kol_social_account ksa
+                     JOIN l2_gold.kol_profile_card c
+                       ON c.social_account_id = ksa.social_account_id
+                    WHERE ksa.kol_id = b.id
+                      AND c.display_name ILIKE '%' || $1 || '%')))
          AND ($2::text     IS NULL OR b.platform = $2)
          -- Taxonomy key first; the sub-name is still accepted so a link
          -- saved before the chips became keys keeps answering. Safe by
@@ -852,6 +1042,9 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
                 WHERE ksa.kol_id = b.id
                   AND gd.geo_key = $33
                   AND ($34::text IS NULL OR gd.geo_level = $34)))
+         -- My Creators profiling status, before paging so the total and
+         -- every page count only matching creators.
+         AND ($36::text IS NULL OR ${PROFILING_STATUS} = $36)
     )
     SELECT *, COUNT(*) OVER()::int AS total_count
       FROM filtered
@@ -903,6 +1096,12 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.audienceGeoKey || null,
       query.audienceGeoLevel || null,
       query.agencyId || null,
+      query.profilingStatus || null,
+      STALLED_AFTER_MS,
+      [...ADD_KOL_STEP_KEYS.instagram],
+      [...ADD_KOL_STEP_KEYS.tiktok],
+      RUN_FAILURE_STEP,
+      query.searchDisplayName === true,
     ],
   )
 
@@ -955,6 +1154,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       formatDominant: r.format_dominant,
       audienceQualityScore: r.audience_quality_score,
       audienceQualityTier: r.audience_quality_tier,
+      authenticityScore: r.authenticity_score,
       audienceInterestTop: r.audience_interest_top,
       audienceInterestSource: r.audience_interest_source,
       erStddevPp: r.er_stddev_pp,
@@ -972,7 +1172,9 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       rateCount: 0,
   }))
 
-  await attachRosterExtras(mapped)
+  // The status is a My Creators question (D052/D092), and `agencyId` is what
+  // the route sets for `scope=mine` — the same switch the filter already reads.
+  await attachRosterExtras(mapped, { profilingStatus: Boolean(query.agencyId) })
 
   return {
     rows: mapped,
@@ -990,7 +1192,25 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
  * showing with its real count, and re-deriving these on every keystroke would
  * make the option list jump around while someone types.
  */
-export async function listKolFacets(): Promise<KolDirectoryFacets> {
+export async function listKolFacets(
+  opts: {
+    /**
+     * My Creators (D087): categories come only from creators this agency holds
+     * an active `agency_kol_accounts` link to — the same predicate the list
+     * uses for `scope=mine`. Only the category facet is scoped; the others and
+     * the Creator Database (no agency) are unchanged.
+     */
+    agencyId?: string | null
+  } = {},
+): Promise<KolDirectoryFacets> {
+  const mineOnly = opts.agencyId
+    ? `
+         AND EXISTS (SELECT 1
+                       FROM public.agency_kol_accounts a
+                      WHERE a.kol_account_id = kd.id
+                        AND a.agency_id = $1
+                        AND a.is_active IS TRUE)`
+    : ''
   const [categories, platforms, tiers, roster, agencies] = await Promise.all([
     kolDb().query<{ name: string; count: number }>(`
       -- The chip value must be the value the filter matches, or the count on
@@ -1002,9 +1222,9 @@ export async function listKolFacets(): Promise<KolDirectoryFacets> {
              COUNT(DISTINCT kd.id)::int         AS count
         FROM public.kol_directory kd
         JOIN public.kol_categories kc ON kc.id = ANY (${CATEGORY_IDS})
-       WHERE ${ACTIVE}
+       WHERE ${ACTIVE}${mineOnly}
        GROUP BY COALESCE(kc.taxonomy_key, kc.name)
-       ORDER BY count DESC, 1`),
+       ORDER BY count DESC, 1`, opts.agencyId ? [opts.agencyId] : undefined),
     kolDb().query<{ key: string; count: number }>(`
       SELECT pl.key, COUNT(*)::int AS count
         FROM public.kol_directory kd
@@ -1177,6 +1397,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     content_topic: string | null; content_topic_source: string | null
     format_dominant: string | null
     audience_quality_score: number | null; audience_quality_tier: string | null
+    authenticity_score: number | null
     audience_interest_top: string | null; audience_interest_source: string | null
     er_stddev_pp: number | null; er_periods: number | null
     performance_stability: string | null; rising_creator: boolean | null
@@ -1382,6 +1603,7 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
       formatDominant: r.format_dominant,
       audienceQualityScore: r.audience_quality_score,
       audienceQualityTier: r.audience_quality_tier,
+      authenticityScore: r.authenticity_score,
       audienceInterestTop: r.audience_interest_top,
       audienceInterestSource: r.audience_interest_source,
       erStddevPp: r.er_stddev_pp,

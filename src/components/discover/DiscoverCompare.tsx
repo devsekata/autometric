@@ -77,11 +77,18 @@ interface Contender {
   growthPct: number | null
   postsPerMonth: number | null
   audienceQuality: number | null
+  /**
+   * Share of followers that do not match the bulk-account pattern, measured
+   * from a follower sample. Null for a creator whose sample was never
+   * analysed, which is most of the roster — the row then reads —, because a
+   * creator nobody checked is not a creator who scored zero.
+   */
+  authenticity: number | null
 }
 
 const NO_L2 = {
   avgViews: null, medianViews: null, viewsAnalyzed: null, v2fPct: null, l2vPct: null,
-  growthPct: null, postsPerMonth: null, audienceQuality: null,
+  growthPct: null, postsPerMonth: null, audienceQuality: null, authenticity: null,
 }
 
 const fromAccount = (a: DirectoryAccount): Contender => ({
@@ -129,6 +136,7 @@ const fromRoster = (r: KolDirectoryRow): Contender => ({
   growthPct: r.growthPct,
   postsPerMonth: r.postFrequencyMonthly,
   audienceQuality: r.audienceQualityScore,
+  authenticity: r.authenticityScore,
 })
 
 /* ── the rows ─────────────────────────────────────────────────────────────── */
@@ -215,6 +223,10 @@ const GROUPS: MetricGroup[] = [
       {
         label: 'Audience quality', get: c => c.audienceQuality,
         fmt: c => num(c.audienceQuality, n => String(Math.round(n))), higherIsBetter: true, missing: () => notMeasured,
+      },
+      {
+        label: 'Authenticity', get: c => c.authenticity,
+        fmt: c => num(c.authenticity, n => String(Math.round(n))), higherIsBetter: true, missing: () => notMeasured,
       },
     ],
   },

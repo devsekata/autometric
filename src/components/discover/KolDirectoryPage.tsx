@@ -27,7 +27,8 @@ import { Overlay } from './kolViz'
 import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import AddKolDirectoryModal from './AddKolDirectoryModal'
 import {
-  KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, activeFilterCount, filtersToParams,
+  DATA_AVAILABLE, KOL_FILTERS_DEFAULT, KolFilterPanel, KolFilterTab, PROFILING_STATUS_OPTIONS,
+  activeFilterCount, filtersToParams, relaxSuggestions,
   type KolFilters,
 } from './KolDirectoryFilters'
 import { useDiscoverCart } from './useDiscoverCart'
@@ -55,6 +56,26 @@ const STATUS: Record<KolDataStatus, { fg: string; bg: string; icon: string }> = 
  * page rather than degrading one badge.
  */
 const statusOf = (s: KolDataStatus) => STATUS[s] ?? STATUS.Estimated
+
+/**
+ * My Creators profiling status (D052). A different question from the provenance
+ * badge beside it: that one says how the numbers were arrived at, this one says
+ * where the creator is in the Add KOL pipeline.
+ *
+ * Labels come from PROFILING_STATUS_OPTIONS so the badge and the D092 dropdown
+ * cannot drift apart. Null — no run of its own and no L2 profile card, which is
+ * most of the roster — draws nothing at all.
+ */
+const PROFILING: Record<string, { fg: string; bg: string; icon: string; spin?: boolean }> = {
+  ready: { fg: '#3d8a5f', bg: '#eaf5ef', icon: 'check_circle' },
+  profiling: { fg: '#b5761f', bg: '#fdf3e7', icon: 'progress_activity', spin: true },
+  failed: { fg: '#a04545', bg: '#fdf2f2', icon: 'error' },
+}
+const PROFILING_LABEL: Record<string, string> = Object.fromEntries(
+  PROFILING_STATUS_OPTIONS.filter(o => o.value).map(o => [o.value, o.label]),
+)
+/** How often a page holding a profiling creator re-asks the API (D052). */
+const PROFILING_POLL_MS = 2_000
 
 /** Banner tints — steps of the brand ramp, not new hues. */
 const BANNERS = ['#285D6E', '#327488', '#4E96AC', '#1E4A58', '#3d7e96', '#5b8fa3']
@@ -145,6 +166,13 @@ const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => stri
 type ColKey = keyof typeof COLDEFS
 
 const PAGE_SIZE = 12
+
+/**
+ * Keystrokes to settle before the search becomes a request, per scope. My
+ * Creators also searches the creator's name, over a list small enough to answer
+ * sooner (D085); the Creator Database keeps the pace it has always had.
+ */
+const SEARCH_DEBOUNCE_MS = { mine: 300, database: 350 } as const
 
 /* ── row helpers ──────────────────────────────────────────────────────────── */
 
@@ -417,8 +445,10 @@ export default function KolDirectoryPage({
   const [fpOpen, setFpOpen] = useState<Set<string>>(new Set(['platform']))
   const [cols, setCols] = useState<Record<ColKey, boolean>>({
     tier: true, growth: true, reach: true, platform: true, category: false, updated: false,
-    // Rate card is on by default: it is the column a buyer opens the table for.
-    rate: true, agency: false,
+    // Rate card is on by default: it is the column a buyer opens the table for
+    // — when there are rate cards. There are none (intentionally empty), so the
+    // column would be a row of dashes; it stays off until DATA_AVAILABLE.rateCard.
+    rate: DATA_AVAILABLE.rateCard, agency: false,
   })
   const [colOpen, setColOpen] = useState(false)
   const [listsOpen, setListsOpen] = useState(false)
@@ -431,6 +461,14 @@ export default function KolDirectoryPage({
   const [error, setError] = useState<string | null>(null)
   /** Bumped by the retry button — the KOL host is remote and can blip. */
   const [reload, setReload] = useState(0)
+  /**
+   * Bumped by the profiling poll (D052). Separate from `reload` because it must
+   * not show the skeleton: a creator halfway through Add KOL would otherwise
+   * blank the grid every two seconds while the user is reading it. The ref is
+   * what the fetch below reads to keep that one round trip silent.
+   */
+  const [pollTick, setPollTick] = useState(0)
+  const silentFetch = useRef(false)
   // Filter options describe the whole roster, so they are fetched once.
   const facetsLoaded = useRef(false)
 
@@ -460,6 +498,13 @@ export default function KolDirectoryPage({
    * immediately; the server's `inMyCreators` is the truth underneath.
    */
   const [mineOverride, setMineOverride] = useState<Record<string, boolean>>({})
+  /**
+   * My Creators Monitored/Paused values the server confirmed since the last
+   * load, and the card whose toggle is in flight. Only a successful PATCH
+   * changes what a card shows.
+   */
+  const [monitoringSaved, setMonitoringSaved] = useState<Record<string, boolean>>({})
+  const [monitoringBusy, setMonitoringBusy] = useState<string | null>(null)
   /** The creator whose Quick Insight drawer is open. */
   const [quick, setQuick] = useState<KolDirectoryRow | null>(null)
 
@@ -502,9 +547,9 @@ export default function KolDirectoryPage({
 
   /* data */
   useEffect(() => {
-    const t = window.setTimeout(() => { setSearch(query.trim()); setPage(1) }, 350)
+    const t = window.setTimeout(() => { setSearch(query.trim()); setPage(1) }, SEARCH_DEBOUNCE_MS[scope])
     return () => window.clearTimeout(t)
-  }, [query])
+  }, [query, scope])
 
   /**
    * Roster prices and the deliverable catalogue, fetched once.
@@ -528,7 +573,13 @@ export default function KolDirectoryPage({
     return () => { cancelled = true }
   }, [orgId])
 
-  const filterParams = filtersToParams(filters)
+  /**
+   * Profiling status is a My Creators filter. A value that reaches the Creator
+   * Database (from a Saved List made on My Creators) is dropped here, so it
+   * neither filters nor counts where no control shows it.
+   */
+  const scopedFilters = scope === 'mine' ? filters : { ...filters, profilingStatus: '' as const }
+  const filterParams = filtersToParams(scopedFilters)
   const filterKey = JSON.stringify(filterParams)
 
   useEffect(() => {
@@ -540,9 +591,17 @@ export default function KolDirectoryPage({
     if (scope === 'mine') params.set('scope', 'mine')
     if (!facetsLoaded.current) params.set('facets', '1')
 
+    // A poll round trip repaints the rows and nothing else: no skeleton, and a
+    // blip on the KOL host does not replace a readable page with an error
+    // block — the next tick asks again.
+    const silent = silentFetch.current
+    silentFetch.current = false
+
     let cancelled = false
-    setLoading(true)
-    setError(null)
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
 
     fetch(`/api/organizations/${orgId}/discover/kol-directory?${params}`)
       .then(async r => {
@@ -556,18 +615,63 @@ export default function KolDirectoryPage({
         if (cancelled) return
         setRows(d.rows)
         setTotal(d.total)
-        setMineOverride({})
+        if (!silent) {
+          // Optimistic toggles survive a poll: the PATCH behind each one may
+          // still be in flight, and dropping them would flip the button back
+          // under the user's hand.
+          setMineOverride({})
+          setMonitoringSaved({})
+        }
         if (d.facets) { setFacets(d.facets); facetsLoaded.current = true }
       })
-      .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .catch(e => { if (!cancelled && !silent) setError(String(e?.message ?? e)) })
+      .finally(() => { if (!cancelled && !silent) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [orgId, search, filterKey, sort, page, reload, scope])
+  }, [orgId, search, filterKey, sort, page, reload, pollTick, scope])
+
+  /**
+   * D052 — auto refresh status.
+   *
+   * While a creator on this page is mid-profiling, the list re-asks the API so
+   * the badge turns from Profiling into Ready (or Failed) on its own. Driven by
+   * what is on screen, not by a timer someone has to remember to stop: the
+   * effect only subscribes while at least one visible row says `profiling`, so
+   * it unsubscribes the moment the last run finishes, and never runs at all on
+   * the Creator Database, which does not carry the status.
+   *
+   * Counted rather than derived from `rows` so a poll whose answer is unchanged
+   * does not tear the interval down and start a fresh two seconds.
+   */
+  const profilingCount = rows.filter(r => r.profilingStatus === 'profiling').length
+
+  /** Hidden tab = no polling at all, rather than a throttled one. */
+  const [tabVisible, setTabVisible] = useState(true)
+  useEffect(() => {
+    const read = () => setTabVisible(document.visibilityState === 'visible')
+    read()
+    document.addEventListener('visibilitychange', read)
+    return () => document.removeEventListener('visibilitychange', read)
+  }, [])
+
+  useEffect(() => {
+    if (scope !== 'mine' || profilingCount === 0 || !tabVisible) return
+    const timer = window.setInterval(() => {
+      silentFetch.current = true
+      setPollTick(n => n + 1)
+    }, PROFILING_POLL_MS)
+    return () => {
+      window.clearInterval(timer)
+      // Nothing in flight should arrive as a silent fetch after the poll stops.
+      silentFetch.current = false
+    }
+  }, [scope, profilingCount, tabVisible])
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const fCount = activeFilterCount(filters)
+  const fCount = activeFilterCount(scopedFilters)
   const dirty = Boolean(query || filters.category || fCount)
+  /** Empty-result hints (D124), from the filters this scope actually applies. */
+  const relax = relaxSuggestions(scopedFilters, query)
   const rosterTotal = facets?.rosterTotal ?? total
 
   const patchFilters = (patch: Partial<KolFilters>) => { setFilters(f => ({ ...f, ...patch })); setPage(1) }
@@ -702,11 +806,47 @@ export default function KolDirectoryPage({
     }
   }
 
+  /**
+   * My Creators only: Monitored/Paused for this agency
+   * (`agency_kol_accounts.monitoring_enabled`). Null hides the control — on the
+   * Creator Database, and for a card no longer in My Creators.
+   */
+  const monitoringOf = (r: KolDirectoryRow): boolean | null =>
+    scope !== 'mine' || !isMine(r) ? null : (monitoringSaved[r.id] ?? r.monitoringEnabled ?? null)
+
+  /** Stored only; the card changes once the server has saved the new value. */
+  const toggleMonitoring = async (r: KolDirectoryRow) => {
+    const current = monitoringOf(r)
+    if (current === null || monitoringBusy) return
+    setMonitoringBusy(r.id)
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/discover/my-creators/${r.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monitoringEnabled: !current }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok || typeof body?.monitoringEnabled !== 'boolean') {
+        throw new Error(body?.error || `HTTP ${res.status}`)
+      }
+      const saved = body.monitoringEnabled as boolean
+      setMonitoringSaved(m => ({ ...m, [r.id]: saved }))
+      flash(saved ? `@${r.username} dipantau (Monitored)` : `Monitoring @${r.username} dijeda (Paused)`)
+    } catch (e) {
+      flash(`Status monitoring gagal diperbarui: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setMonitoringBusy(null)
+    }
+  }
+
   const cardProps = (r: KolDirectoryRow) => ({
     creator: r,
     fav: isFav(r.id), inCompare: inCompare(r.id), inCart: inCart(r.id),
     inMine: isMine(r),
     onMine: () => { void toggleMine(r) },
+    monitoring: monitoringOf(r),
+    monitoringBusy: monitoringBusy === r.id,
+    onMonitoring: () => { void toggleMonitoring(r) },
     onOpen: () => openProfile(r),
     onFav: () => toggleFav(r),
     onCompare: () => toggleCompare(r),
@@ -773,7 +913,9 @@ export default function KolDirectoryPage({
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Search creators by username…"
+              placeholder={scope === 'mine'
+                ? 'Search creators by name or username…'
+                : 'Search creators by username…'}
               className="h-[38px] w-[280px] pl-[34px] pr-9 rounded-xl border text-[13px] bg-white outline-none"
               style={{ borderColor: T.outline, color: T.t1 }}
               onFocus={e => { e.currentTarget.style.borderColor = T.primary }}
@@ -879,7 +1021,10 @@ export default function KolDirectoryPage({
               </Pill>
               {colOpen && (
                 <Popover onClose={() => setColOpen(false)} width={190}>
-                  {(Object.keys(COLDEFS) as ColKey[]).map(c => (
+                  {(Object.keys(COLDEFS) as ColKey[])
+                    // No rate card exists, so the column is not offered (it would only show dashes).
+                    .filter(c => c !== 'rate' || DATA_AVAILABLE.rateCard)
+                    .map(c => (
                     <label key={c} className="flex items-center gap-2 px-1 py-[5px] text-[12px] cursor-pointer"
                       style={{ color: T.t2 }}>
                       <input type="checkbox" checked={cols[c]} style={{ accentColor: T.primary }}
@@ -935,6 +1080,29 @@ export default function KolDirectoryPage({
             ) : rows.length === 0 ? (
               <Empty icon="person_search" tint="#cfe0f1" title="No creators match your filters"
                 body="Try a different keyword or clear filters."
+                extra={relax.length > 0 && (
+                  // D124: the active filters most likely to have emptied the list.
+                  <div className="mt-3 w-full max-w-[360px] text-left">
+                    <div style={{ ...PJ, color: T.t4 }}
+                      className="text-[10.5px] font-extrabold uppercase tracking-[.05em] mb-1.5">
+                      Coba longgarkan
+                    </div>
+                    <ul className="flex flex-col gap-1.5">
+                      {relax.map(s => (
+                        <li key={s.id} className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5"
+                          style={{ borderColor: T.outline }}>
+                          <span className="text-[12px]" style={{ color: T.t2 }}>{s.label}</span>
+                          <button type="button"
+                            onClick={() => ('clearQuery' in s ? setQuery('') : patchFilters(s.patch))}
+                            style={{ ...PJ, color: T.primary }}
+                            className="text-[11.5px] font-bold hover:underline flex-shrink-0">
+                            Lepas
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 action={<Btn kind="secondary" onClick={resetAll}>Clear filters</Btn>} />
             ) : (
               <div style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 120ms' }}>
@@ -996,7 +1164,8 @@ export default function KolDirectoryPage({
 
           {filtPanel ? (
             <KolFilterPanel
-              filters={filters} facets={facets} open={fpOpen}
+              scope={scope}
+              filters={scopedFilters} facets={facets} open={fpOpen}
               onToggleSection={toggleSection} onChange={patchFilters}
               onClear={clearFilters} onCollapse={() => setFiltPanel(false)}
             />
@@ -1050,6 +1219,11 @@ export default function KolDirectoryPage({
             // the newly added row shows up once its scrape has caught up.
             setReload(n => n + 1)
           }}
+          // Already in the directory: close and open that creator (D008).
+          onViewExisting={id => {
+            setAddOpen(false)
+            router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)
+          }}
         />
       )}
 
@@ -1067,11 +1241,16 @@ export default function KolDirectoryPage({
 
 function CreatorCard({
   creator: c, fav, inCompare, inCart, inMine, onOpen, onFav, onCompare, onCart, onMine, onSimilar, onQuick,
+  monitoring, monitoringBusy, onMonitoring,
 }: {
   creator: KolDirectoryRow
   fav: boolean; inCompare: boolean; inCart: boolean; inMine: boolean
   onOpen: () => void; onFav: () => void; onCompare: () => void; onCart: () => void; onMine: () => void
   onQuick: () => void
+  /** My Creators Monitored (true) / Paused (false); null hides the toggle. */
+  monitoring: boolean | null
+  monitoringBusy: boolean
+  onMonitoring: () => void
   /** Null when the page was mounted without a Smart Discovery destination. */
   onSimilar: (() => void) | null
 }) {
@@ -1081,11 +1260,17 @@ function CreatorCard({
   const subtitle = [ident.handle, c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null, c.city]
     .filter(Boolean).join(' · ')
 
+  /*
+   * The whole card opens the creator, and it opens OUR route, which needs no
+   * `profile_url` from the platform. Gating the cursor and the tooltip on that
+   * column made the 222 active creators without one read as dead cards while
+   * the click worked all along, so the affordance no longer depends on it.
+   */
   return (
     <article onClick={onOpen}
       className="relative rounded-[18px] border overflow-hidden bg-white transition-all hover:-translate-y-[3px]"
-      style={{ borderColor: T.outline, boxShadow: T.shadow, cursor: c.profileUrl ? 'pointer' : 'default' }}
-      title={c.profileUrl ? 'Buka profil creator' : undefined}
+      style={{ borderColor: T.outline, boxShadow: T.shadow, cursor: 'pointer' }}
+      title="Buka profil creator"
     >
       <div className="h-14 relative overflow-hidden" style={{ background: banner }}>
         <span className="absolute rounded-full" style={{ width: 90, height: 90, top: -40, right: 20, background: 'rgba(255,255,255,.16)' }} />
@@ -1159,11 +1344,17 @@ function CreatorCard({
         </div>
 
         <div className="mt-2.5 flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"
-            style={{ ...PJ, background: st.bg, color: st.fg }}
-            title={`Data ${c.status.toLowerCase()} · last synced ${sinceLabel(c.lastRefreshedAt)}`}>
-            <span className="material-symbols-outlined text-[12px]">{st.icon}</span>
-            {c.status} · {sinceLabel(c.lastRefreshedAt)}
+          <span className="inline-flex items-center gap-1 min-w-0 flex-wrap">
+            {/* My Creators only, and only when the creator answers one of the
+                three (D052). Sits before the provenance badge because it is the
+                more volatile of the two. */}
+            <ProfilingBadge status={c.profilingStatus} />
+            <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"
+              style={{ ...PJ, background: st.bg, color: st.fg }}
+              title={`Data ${c.status.toLowerCase()} · last synced ${sinceLabel(c.lastRefreshedAt)}`}>
+              <span className="material-symbols-outlined text-[12px]">{st.icon}</span>
+              {c.status} · {sinceLabel(c.lastRefreshedAt)}
+            </span>
           </span>
 
           {/* The source puts its brand-fit "% match" here. That score has no
@@ -1189,6 +1380,26 @@ function CreatorCard({
                   {PLATFORM_ICON[c.platform] ?? 'public'}
                 </span>
               </span>
+            )}
+            {/* My Creators monitoring. Stored only for now — no scheduler reads it. */}
+            {monitoring !== null && (
+              <button type="button" disabled={monitoringBusy} aria-pressed={monitoring}
+                onClick={e => { e.stopPropagation(); onMonitoring() }}
+                title={monitoring
+                  ? 'Monitoring aktif — klik untuk menjeda'
+                  : 'Monitoring dijeda — klik untuk mengaktifkan'}
+                style={{
+                  ...PJ,
+                  background: monitoring ? '#eaf5ef' : '#fdf3e7',
+                  color: monitoring ? '#3d8a5f' : '#b5761f',
+                }}
+                className={`inline-flex items-center gap-1 h-[22px] px-2 rounded-md text-[10px] font-bold ${
+                  monitoringBusy ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}>
+                <span className={`material-symbols-outlined text-[12px] ${monitoringBusy ? 'animate-spin' : ''}`}>
+                  {monitoringBusy ? 'progress_activity' : monitoring ? 'notifications_active' : 'notifications_off'}
+                </span>
+                {monitoring ? 'Monitored' : 'Paused'}
+              </button>
             )}
           </div>
           <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
@@ -1248,6 +1459,9 @@ function QuickInsight({
       rows: [
         ['Kualitas audiens', c.audienceQualityScore === null ? NA
           : `${Math.round(c.audienceQualityScore)}${c.audienceQualityTier ? ` (${c.audienceQualityTier})` : ''}`],
+        // Same field Compare and the profile already show (D067), rounded the
+        // way the audience-quality row beside it is. Never substituted.
+        ['Authenticity', c.authenticityScore === null ? NA : String(Math.round(c.authenticityScore))],
         ['Gender', c.femalePct === null || c.malePct === null ? NA
           : `P ${c.femalePct.toFixed(1)}% · L ${c.malePct.toFixed(1)}%`
             + (c.genderKnownPct !== null ? ` · dari ${c.genderKnownPct.toFixed(0)}% audiens yang diketahui` : '')],
@@ -1272,6 +1486,11 @@ function QuickInsight({
         ['Rate card', c.rateFrom === null ? 'Belum ada' : `mulai ${idrShort(c.rateFrom)}`],
         ['Agency', c.agency ?? '—'],
         ['Status data', `${c.status} · ${sinceLabel(c.lastRefreshedAt)}`],
+        // My Creators only, and only when the creator answers one of the three
+        // (D052) — the same rule the card badge follows.
+        ...(c.profilingStatus
+          ? [['Status profiling', PROFILING_LABEL[c.profilingStatus] ?? c.profilingStatus] as [string, string]]
+          : []),
       ],
     },
   ]
@@ -1508,6 +1727,33 @@ function Check({ on, onClick, title }: { on: boolean; onClick: () => void; title
   )
 }
 
+/**
+ * Ready / Profiling / Failed for one My Creators row (D052). Renders nothing
+ * for a creator the status does not apply to — absent on the Creator Database,
+ * null for the 5.384 roster creators with no Add KOL run and no L2 profile card
+ * — because an absent answer is not "Ready".
+ */
+function ProfilingBadge({ status }: { status?: string | null }) {
+  if (!status) return null
+  // Never index PROFILING directly, for the reason statusOf exists: a value the
+  // SQL CASE does not produce today would throw inside render.
+  const p = PROFILING[status]
+  if (!p) return null
+  const label = PROFILING_LABEL[status] ?? status
+  return (
+    <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"
+      style={{ ...PJ, background: p.bg, color: p.fg }}
+      title={status === 'profiling'
+        ? 'Add KOL sedang berjalan — status diperbarui otomatis'
+        : status === 'failed'
+          ? 'Proses Add KOL terakhir gagal'
+          : 'Profil creator sudah siap'}>
+      <span className={`material-symbols-outlined text-[12px] ${p.spin ? 'animate-spin' : ''}`}>{p.icon}</span>
+      {label}
+    </span>
+  )
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex-1 rounded-[11px] border px-1.5 py-2 text-center"
@@ -1624,13 +1870,14 @@ function Popover({
 }
 
 function Empty({
-  icon, tint, title, body, action,
-}: { icon: string; tint: string; title: string; body: string; action?: React.ReactNode }) {
+  icon, tint, title, body, action, extra,
+}: { icon: string; tint: string; title: string; body: string; action?: React.ReactNode; extra?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center text-center py-[50px] px-5 gap-[5px]">
       <span className="material-symbols-outlined text-[44px]" style={{ color: tint }}>{icon}</span>
       <h4 style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold mt-2.5">{title}</h4>
       <p className="text-[12.5px] max-w-[340px] leading-[1.5]" style={{ color: T.t4 }}>{body}</p>
+      {extra}
       {action && <div className="mt-3">{action}</div>}
     </div>
   )
