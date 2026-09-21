@@ -129,18 +129,34 @@ export interface DirectoryBrandMatch {
  *
  * `count(*)` and `max(updated_at)` per table — the fingerprint the Dagster
  * `l0_raw_new_data_sensor` uses on `l0_raw`. Every writer of these tables stamps
- * `updated_at = now()` on a real change: the transform chain's `kol_profile_card`
- * and `post_metric` upserts, and the roster ingest and Add KOL on
- * `kol_directory`. A write moves the max and a delete moves the count.
+ * `updated_at = now()` on a real change: the transform chain's `kol_profile_card`,
+ * `post_metric` and `feature.*_engagement_analysis` upserts, and the roster
+ * ingest and Add KOL on `kol_directory`. A write moves the max and a delete
+ * moves the count. `kol_social_account` decides which accounts' Feature ER join
+ * the population and has no `updated_at`; links are only ever added or
+ * removed, so its count is enough.
  */
 const POPULATION_VERSION_SQL = `
   SELECT concat_ws('|',
     (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM public.kol_directory),
     (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.kol_profile_card),
-    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.post_metric)
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM l2_gold.post_metric),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM feature.ig_engagement_analysis),
+    (SELECT count(*) || ':' || COALESCE(max(updated_at)::text, '') FROM feature.tt_engagement_analysis),
+    (SELECT count(*)::text FROM public.kol_social_account)
   ) AS v`
 
 let seenVersion: string | null = null
+
+/**
+ * The fingerprint of the KOL data Brand Match reads, as it is right now. A
+ * stored Brand Match result records it (`brand_match_result.data_version`) and
+ * is used only while it is still current.
+ */
+export async function currentDataVersion(): Promise<string> {
+  const { rows: [{ v }] } = await kolDb().query<{ v: string }>(POPULATION_VERSION_SQL)
+  return v
+}
 
 /**
  * Drops What Matters' cached population when the KOL data under it changed.

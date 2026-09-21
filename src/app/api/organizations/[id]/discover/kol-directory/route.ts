@@ -4,6 +4,7 @@ import { listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
 import { myCreatorIdsAmong } from '@/lib/discover/myCreators'
 import { getBrandProfile } from '@/lib/discover/brandMatch/profile'
 import { brandMatchForDirectory, type DirectoryBrandMatch } from '@/lib/discover/whatMatters/brandMatch'
+import { storedBrandMatchForDirectory } from '@/lib/discover/whatMatters/brandMatchStore'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -169,7 +170,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     let brandMatch: DirectoryBrandMatch | undefined
     if (sp.get('match') === '1') {
       const profile = await getBrandProfile(access.orgId)
-      brandMatch = await brandMatchForDirectory(data.rows.map(r => r.id), profile.whatMatters)
+      // The background result (brand_match_result) when it is current for this
+      // profile version and this KOL data version; otherwise computed now.
+      brandMatch = await storedBrandMatchForDirectory(access.orgId, data.rows.map(r => r.id), profile.whatMatters)
+        ?? await brandMatchForDirectory(data.rows.map(r => r.id), profile.whatMatters)
     }
 
     return NextResponse.json(brandMatch ? { ...data, brandMatch } : data)
