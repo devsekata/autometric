@@ -35,7 +35,7 @@ const KOL_DIR_PLATFORMS: { id: CreatorPlatform; label: string; icon: string; han
   { id: 'tiktok', label: 'TikTok', icon: 'music_note', handleExample: '@radityadika', urlExample: 'https://tiktok.com/@radityadika' },
 ]
 
-type Phase = 'input' | 'checking' | 'result' | 'progress'
+type Phase = 'input' | 'checking' | 'result' | 'progress' | 'success'
 
 type StepStatus = 'pending' | 'running' | 'success' | 'failed'
 
@@ -70,6 +70,8 @@ interface AccountPreview {
   avatarUrl: string | null
   bio: string | null
   followers: number | null
+  /** The platform's own private flag (D009); null when it said neither way. */
+  isPrivate?: boolean | null
   /** Set when this handle already has a roster row that was never scraped
    *  through to follower data — see `addKolCheck.ts`. Threaded straight
    *  through to `/api/kol-directory/add` so it reuses that row instead of
@@ -102,9 +104,17 @@ export interface AddKolDirectoryModalProps {
   onKolAdded: (kolDirectoryId: string) => void
   /** A handle or profile URL to open on, for a link that arrived from elsewhere. */
   initialInput?: string | null
+  /**
+   * Open the profile of a creator the check found already in the directory
+   * (D008). `kolDirectoryId` is that `kol_directory` row. Without it the
+   * duplicate result offers only Close.
+   */
+  onViewExisting?: (kolDirectoryId: string) => void
 }
 
-export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initialInput }: AddKolDirectoryModalProps) {
+export default function AddKolDirectoryModal({
+  orgId, onClose, onKolAdded, initialInput, onViewExisting,
+}: AddKolDirectoryModalProps) {
   const [platform, setPlatform] = useState<CreatorPlatform>(
     () => {
       const p = initialInput ? platformOfUrl(initialInput) : null
@@ -119,6 +129,10 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
   const [added, setAdded] = useState<{ id: string; username: string } | null>(null)
   const [progress, setProgress] = useState<StatusResponse | null>(null)
   const [progressError, setProgressError] = useState('')
+  /** The run a retry started; polled by id so the old failed run is not re-read. */
+  const [runId, setRunId] = useState<string | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -197,14 +211,18 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
 
     async function poll() {
       try {
-        const res = await fetch(`/api/kol-directory/add/${added!.id}/status?orgId=${encodeURIComponent(orgId)}`)
+        const qs = new URLSearchParams({ orgId })
+        if (runId) qs.set('runId', runId)
+        const res = await fetch(`/api/kol-directory/add/${added!.id}/status?${qs}`)
         const data = await res.json()
         if (cancelled) return
         if (!res.ok) throw new Error(data?.error || 'Could not load progress.')
         setProgressError('')
         setProgress(data as StatusResponse)
         if (data.overallStatus === 'success') {
-          onKolAdded(added!.id)
+          // D012: the run is finished, but the modal stays — the hand-off to
+          // the parent (close / refresh / navigate) is what `Selesai` does.
+          setPhase('success')
           return
         }
         if (data.overallStatus === 'failed') return
@@ -219,7 +237,31 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
     poll()
     return () => { cancelled = true; if (timer) clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, added, orgId])
+  }, [phase, added, orgId, runId])
+
+  // Retry: the same creator, a new run, started by the server from what the
+  // KOL database already holds. Polling restarts on the new run id.
+  async function retry() {
+    if (!added || retrying) return
+    setRetrying(true)
+    setRetryError('')
+    try {
+      const res = await fetch(`/api/kol-directory/add/${added.id}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Proses ulang tidak bisa dimulai.')
+      setProgress(null)
+      setProgressError('')
+      setRunId(data.runId as string)
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   const backToInput = () => { setPhase('input'); setResult(null); setError('') }
 
@@ -279,6 +321,7 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
               onEdit={backToInput}
               onAdd={addKol}
               onCancel={onClose}
+              onViewExisting={onViewExisting}
             />
           )}
 
@@ -288,6 +331,18 @@ export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initi
               progress={progress}
               error={progressError}
               onDone={onClose}
+              onRetry={retry}
+              retrying={retrying}
+              retryError={retryError}
+            />
+          )}
+
+          {phase === 'success' && added && (
+            <SuccessPhase
+              username={added.username}
+              progress={progress}
+              onViewCreator={onViewExisting ? () => onViewExisting(added.id) : null}
+              onFinish={() => onKolAdded(added.id)}
             />
           )}
         </div>
@@ -303,6 +358,7 @@ const PHASES: { id: Phase; label: string }[] = [
   { id: 'checking', label: 'Validation' },
   { id: 'result', label: 'Result' },
   { id: 'progress', label: 'Scraping' },
+  { id: 'success', label: 'Done' },
 ]
 
 function PhaseRail({ phase }: { phase: Phase }) {
@@ -492,7 +548,7 @@ function CheckingPhase() {
 /* ── 3. result ────────────────────────────────────────────────────────────── */
 
 function ResultPhase({
-  result, submitting, error, onEdit, onAdd, onCancel,
+  result, submitting, error, onEdit, onAdd, onCancel, onViewExisting,
 }: {
   result: CheckResult
   submitting: boolean
@@ -500,6 +556,8 @@ function ResultPhase({
   onEdit: () => void
   onAdd: (a: AccountPreview) => void
   onCancel: () => void
+  /** Only the "already in the directory" outcome uses it. */
+  onViewExisting?: (kolDirectoryId: string) => void
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -538,11 +596,45 @@ function ResultPhase({
               ? `Last updated ${new Date(result.kol.lastRefreshedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`
               : 'Never refreshed',
           ].filter((n): n is string => !!n)}
-          actions={<Action onClick={onCancel} variant="primary">Close</Action>}
+          actions={onViewExisting ? (
+            <>
+              <Action onClick={onCancel} variant="secondary">Close</Action>
+              {/* D008: open the creator that is already there (its kol_directory id). */}
+              <Action onClick={() => onViewExisting(result.kol.id)} variant="primary">Lihat creator</Action>
+            </>
+          ) : (
+            <Action onClick={onCancel} variant="primary">Close</Action>
+          )}
         />
       )}
 
-      {result.state === 'new' && (
+      {/* D009: a private account is still addable — the requirement is that the
+          user is told what they are getting first, and can back out. Nothing
+          else about the flow changes: "Lanjutkan" is the same `onAdd` the
+          public path uses, and "Batalkan" is the dialog's own close, so no
+          creator, social account or agency link is written. A non-private
+          account never sees this branch. */}
+      {result.state === 'new' && result.account.isPrivate === true && (
+        <Outcome
+          tone="warn" icon="lock" title="Akun ini private"
+          body="Akun ini adalah akun private. Data yang tersedia akan terbatas — post dan sampel follower biasanya tidak bisa diambil, sehingga sebagian metrik profil akan kosong."
+          notes={[
+            'Identitas dasar (nama, bio, jumlah follower) tetap tersimpan.',
+            ...(result.account.existingKolDirectoryId ? ['Belum pernah discrape penuh'] : []),
+          ]}
+          preview={result.account}
+          actions={
+            <>
+              <Action onClick={onCancel} variant="secondary">Batalkan</Action>
+              <Action onClick={() => onAdd(result.account)} variant="primary" busy={submitting}>
+                Lanjutkan dengan data terbatas
+              </Action>
+            </>
+          }
+        />
+      )}
+
+      {result.state === 'new' && result.account.isPrivate !== true && (
         <Outcome
           tone="good" icon="person_add" title="New KOL Detected"
           body={
@@ -569,6 +661,70 @@ function ResultPhase({
   )
 }
 
+/* ── 5. success ───────────────────────────────────────────── */
+
+/**
+ * The run finished (D012).
+ *
+ * Until now a finished run simply closed the dialog, so the one moment the
+ * user had been waiting through ended with the screen disappearing. The same
+ * shape the failure already uses is kept here: what happened, which steps ran,
+ * and what can be done next.
+ *
+ * The note about L2 is deliberate and deliberately vague about timing: the
+ * Add KOL pipeline stores the raw profile and builds L1, while the profile
+ * card and its metrics (growth, views) are built by a separate batch this
+ * flow neither runs nor waits for. Promising a time here would invent one.
+ */
+function SuccessPhase({
+  username, progress, onViewCreator, onFinish,
+}: {
+  username: string
+  progress: StatusResponse | null
+  /** Null when the caller cannot navigate; the action is then not offered. */
+  onViewCreator: (() => void) | null
+  onFinish: () => void
+}) {
+  const steps = progress?.steps ?? []
+  const done = steps.filter(s => s.status === 'success')
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <span className="material-symbols-outlined text-[18px] text-[#3d8a5f]">check_circle</span>
+        <span style={PJ} className="text-[13px] font-bold text-[#285D6E]">
+          @{username} sudah masuk directory
+        </span>
+      </div>
+
+      <ol className="rounded-xl border border-[#f3f4f6] bg-[#f9fafb] px-3.5 py-3 flex flex-col gap-2">
+        {done.map(s => (
+          <li key={s.key} className="flex items-start gap-2">
+            <span className="material-symbols-outlined text-[15px] mt-px" style={{ color: '#3d8a5f' }}>
+              check_circle
+            </span>
+            <span style={PJ} className="text-[11.5px] font-bold text-[#374151]">{s.label}</span>
+          </li>
+        ))}
+        <li className="text-[11px] text-[#9ca3af] leading-snug">
+          {done.length} dari {steps.length} langkah selesai.
+        </li>
+      </ol>
+
+      <p className="text-[11.5px] text-[#6b7280] leading-snug">
+        Metrik L2 seperti growth dan views dibangun oleh batch pipeline yang
+        terpisah dari proses ini, jadi bagian itu bisa menyusul belakangan.
+      </p>
+
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        {onViewCreator && (
+          <Action onClick={onViewCreator} variant="secondary">Lihat creator</Action>
+        )}
+        <Action onClick={onFinish} variant="primary">Selesai</Action>
+      </div>
+    </div>
+  )
+}
+
 /* ── 4. progress ──────────────────────────────────────────────────────────── */
 
 /** Icon and colour per step status, matching the palette `Outcome`/`TONE`
@@ -581,12 +737,16 @@ const STEP_ICON: Record<StepStatus, { icon: string; color: string; spin?: boolea
 }
 
 function ProgressPhase({
-  username, progress, error, onDone,
+  username, progress, error, onDone, onRetry, retrying, retryError,
 }: {
   username: string
   progress: StatusResponse | null
   error: string
   onDone: () => void
+  /** Run the scrape again for the same creator, without entering the handle. */
+  onRetry: () => void
+  retrying: boolean
+  retryError: string
 }) {
   const overall = progress?.overallStatus ?? 'running'
 
@@ -637,8 +797,16 @@ function ProgressPhase({
       )}
 
       {overall === 'failed' ? (
-        <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#f3f4f6]">
-          <Action onClick={onDone} variant="primary">Close</Action>
+        <div className="flex flex-col gap-2 pt-1 border-t border-[#f3f4f6]">
+          {retryError && (
+            <div className="rounded-lg bg-[#fdf2f2] border border-[#f3d9d9] px-3 py-2 text-[11.5px] text-[#a04545]">
+              {retryError}
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <Action onClick={onDone} variant="secondary">Close</Action>
+            <Action onClick={onRetry} variant="primary" busy={retrying}>Coba lagi</Action>
+          </div>
         </div>
       ) : (
         <p className="text-[11px] text-[#9ca3af] border-t border-[#f3f4f6] pt-3">

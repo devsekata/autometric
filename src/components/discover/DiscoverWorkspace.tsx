@@ -625,6 +625,9 @@ export default function DiscoverWorkspace({
           onClose={() => go('directory', view ?? 'database')}
           // Add KOL links the creator to this agency, so it lands in My Creators.
           onKolAdded={() => goCreator('mine')}
+          // Already in the directory: open that creator's profile (D008). The
+          // navigation leaves `?add=1` behind, so the dialog closes with it.
+          onViewExisting={id => router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
         />
       )}
     </div>

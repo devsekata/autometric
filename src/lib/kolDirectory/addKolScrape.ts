@@ -6,7 +6,8 @@ import {
   type ApifyIgPost, type ApifyTiktokAuthorMeta, type ApifyTiktokPost,
 } from '@/lib/apify/client'
 import { fetchIgProfileRaw, fetchIgFollowers, fetchTiktokFollowers } from './apifyKolActors'
-import { withPipelineStep, withScrapeStep } from './stepLog'
+import { logRunFailure, withPipelineStep, withScrapeStep } from './stepLog'
+import { getAddKolRunStatus, STALLED_AFTER_MS } from './addKolRunStatus'
 
 /**
  * "Add New KOL" — step two: turn a checked handle into a roster row with a
@@ -645,6 +646,67 @@ async function insertIdentity(
 }
 
 /**
+ * The ids to reuse arrive in the request body, so they are checked here rather
+ * than trusted: the row must be an active roster row on the selected platform
+ * and, when a social account is named, that account must be the one linked to
+ * it. Anything else means the check result is stale (or was not ours).
+ */
+export class IdentityMismatchError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IdentityMismatchError'
+  }
+}
+
+async function assertReusableRow(
+  client: PoolClient, pfId: string, kolDirectoryId: string, socialAccountId: string | null,
+): Promise<void> {
+  const { rows } = await client.query(
+    `SELECT 1
+       FROM public.kol_directory kd
+      WHERE kd.id = $1
+        AND kd.directory_status = 'active'
+        AND kd.platform_id = $2
+        AND ($3::uuid IS NULL OR EXISTS (
+              SELECT 1 FROM public.kol_social_account ksa
+               WHERE ksa.kol_id = kd.id AND ksa.social_account_id = $3))
+      FOR SHARE OF kd`,
+    [kolDirectoryId, pfId, socialAccountId],
+  )
+  if (!rows.length) {
+    throw new IdentityMismatchError(
+      `kol_directory ${kolDirectoryId} is not an active row on this platform`
+      + (socialAccountId ? ` linked to social account ${socialAccountId}` : ''),
+    )
+  }
+}
+
+/**
+ * Step 1, handle that already has a `kol_directory` row AND its
+ * `kol_social_account` link (most of the roster: imported, never scraped) —
+ * nothing to insert, but the requesting agency still needs its
+ * `agency_kol_accounts` link, or the creator never reaches its My Creators and
+ * the progress endpoint answers 404.
+ */
+async function reuseIdentity(
+  pfId: string, kolDirectoryId: string, socialAccountId: string, input: ScrapeNewKolInput,
+): Promise<{ kolDirectoryId: string; socialAccountId: string }> {
+  const client = await kolDbWrite().connect()
+  try {
+    await client.query('BEGIN')
+    await assertReusableRow(client, pfId, kolDirectoryId, socialAccountId)
+    await ensureAgencyLink(client, kolDirectoryId, pfId, input)
+    await client.query('COMMIT')
+    return { kolDirectoryId, socialAccountId }
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * Step 1, handle that already has a `kol_directory` row but no
  * `kol_social_account` link (imported from Excel, never scraped) — reuse the
  * existing roster row rather than inserting a second one, and only add the
@@ -656,6 +718,7 @@ async function linkSocialAccount(
   const client = await kolDbWrite().connect()
   try {
     await client.query('BEGIN')
+    await assertReusableRow(client, pfId, kolDirectoryId, null)
     const socialAccountId = await insertSocialAccountLink(client, pfId, kolDirectoryId, input)
     await ensureAgencyLink(client, kolDirectoryId, pfId, input)
     await client.query('COMMIT')
@@ -678,13 +741,14 @@ async function linkSocialAccount(
  * `add_kol_pipeline_log` row (inside `runHarmonization`). `scrapeRunId` —
  * already generated for `RawCtx`/the raw-table inserts — doubles as `run_id`
  * for both log tables, so every row from one "Add New KOL" run shares it and
- * the status endpoint can pull the whole run by that one id.
+ * the status endpoint can pull the whole run by that one id. A retry passes
+ * the id in, so the dialog can poll that run before its first row exists.
  */
 async function runRestOfPipeline(
   kolDirectoryId: string, socialAccountId: string, input: ScrapeNewKolInput,
+  scrapeRunId: string = randomUUID(),
 ): Promise<void> {
   const scrapedAt = new Date()
-  const scrapeRunId = randomUUID()
   const ctx: RawCtx = { socialAccountId, scrapeRunId, scrapedAt }
   const stepBase = { runId: scrapeRunId, kolDirectoryId, socialAccountId, platform: input.platform, username: input.username }
 
@@ -748,6 +812,10 @@ async function runRestOfPipeline(
     }
   } catch (err) {
     console.error(`[addKolScrape] pipeline failed for ${input.platform}/@${input.username}:`, err)
+    await logRunFailure({
+      runId: scrapeRunId, kolDirectoryId, platform: input.platform,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    })
     try {
       await kolDbWrite().query(
         `UPDATE public.kol_directory SET scrape_status = 'failed', updated_at = now() WHERE id = $1`,
@@ -757,6 +825,28 @@ async function runRestOfPipeline(
       console.error('[addKolScrape] could not mark kol_directory as failed:', updateErr)
     }
   }
+}
+
+/**
+ * Step 1 alone: the identity rows and the requesting agency's link, committed
+ * before any scrape starts. Every branch ends with `ensureAgencyLink`. Throws
+ * `IdentityMismatchError` when the ids to reuse do not describe an active
+ * roster row (and its linked account) on this platform.
+ */
+export async function prepareKolIdentity(
+  input: ScrapeNewKolInput,
+): Promise<{ kolDirectoryId: string; socialAccountId: string }> {
+  const pfId = await platformId(input.platform)
+
+  // `checkKolExists` sets these when this handle already has a `kol_directory`
+  // row (and, separately, may already have a `kol_social_account` link) that
+  // was never scraped through to follower data. Reuse them instead of
+  // inserting fresh identity rows — inserting again here would fork a
+  // duplicate roster entry for the same KOL.
+  if (!input.existingKolDirectoryId) return insertIdentity(pfId, input)
+  return input.existingSocialAccountId
+    ? reuseIdentity(pfId, input.existingKolDirectoryId, input.existingSocialAccountId, input)
+    : linkSocialAccount(pfId, input.existingKolDirectoryId, input)
 }
 
 /**
@@ -772,18 +862,7 @@ async function runRestOfPipeline(
  * matches `startProfiling()`'s signature shape most closely.
  */
 export async function scrapeNewKol(input: ScrapeNewKolInput): Promise<{ kolDirectoryId: string }> {
-  const pfId = await platformId(input.platform)
-
-  // `checkKolExists` sets these when this handle already has a `kol_directory`
-  // row (and, separately, may already have a `kol_social_account` link) that
-  // was never scraped through to follower data. Reuse them instead of
-  // inserting fresh identity rows — inserting again here would fork a
-  // duplicate roster entry for the same KOL.
-  const { kolDirectoryId, socialAccountId } = input.existingKolDirectoryId
-    ? input.existingSocialAccountId
-      ? { kolDirectoryId: input.existingKolDirectoryId, socialAccountId: input.existingSocialAccountId }
-      : await linkSocialAccount(pfId, input.existingKolDirectoryId, input)
-    : await insertIdentity(pfId, input)
+  const { kolDirectoryId, socialAccountId } = await prepareKolIdentity(input)
 
   runRestOfPipeline(kolDirectoryId, socialAccountId, input).catch(err => {
     console.error('[addKolScrape] unhandled failure in background pipeline:', err)
@@ -803,4 +882,373 @@ export async function scrapeNewKol(input: ScrapeNewKolInput): Promise<{ kolDirec
  */
 export function startKolScrape(input: ScrapeNewKolInput): Promise<{ kolDirectoryId: string }> {
   return scrapeNewKol(input)
+}
+
+/* ── retry ────────────────────────────────────────────────────────────────── */
+
+export type RetryRejection =
+  /** The agency has no active link to this creator (or the id is unknown). */
+  | 'not_linked'
+  /** Not an active roster row on Instagram/TikTok with a linked social account. */
+  | 'invalid_identity'
+  /** The newest run has not failed: still pending/running, or already succeeded. */
+  | 'not_failed'
+
+export type RetryPlan =
+  | { ok: true; kolDirectoryId: string; socialAccountId: string; input: ScrapeNewKolInput }
+  | { ok: false; reason: RetryRejection; status?: string }
+
+/**
+ * Everything a retry needs, decided before anything runs — and read from the
+ * KOL database, never from the client: the creator's own row, its linked
+ * social account and handle. Writes nothing.
+ *
+ * Allowed only when the requesting agency holds an ACTIVE link to the creator
+ * and the creator's newest run is `failed` by the same rules the status
+ * endpoint uses (a failed step, a failed `run` row, or a step past the stall
+ * threshold).
+ */
+export async function prepareRetry(
+  kolDirectoryId: string, agencyId: string, userId: string,
+): Promise<RetryPlan> {
+  const db = kolDb()
+  const { rows: link } = await db.query(
+    `SELECT 1 FROM public.agency_kol_accounts
+      WHERE agency_id = $1 AND kol_account_id = $2 AND is_active IS TRUE
+      LIMIT 1`,
+    [agencyId, kolDirectoryId],
+  )
+  if (!link.length) return { ok: false, reason: 'not_linked' }
+
+  const { rows } = await db.query<{ username: string | null; platform: string; social_account_id: string }>(
+    `SELECT kd.username, pl.key AS platform, ksa.social_account_id
+       FROM public.kol_directory kd
+       JOIN public.platforms pl ON pl.id = kd.platform_id
+       JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+      WHERE kd.id = $1
+        AND kd.directory_status = 'active'
+        AND pl.key IN ('instagram', 'tiktok')
+      ORDER BY ksa.created_at ASC NULLS LAST, ksa.id
+      LIMIT 1`,
+    [kolDirectoryId],
+  )
+  const row = rows[0]
+  if (!row || !row.username?.trim()) return { ok: false, reason: 'invalid_identity' }
+
+  const status = await getAddKolRunStatus(kolDirectoryId)
+  if (status === 'not_found' || status === 'foreign_run') return { ok: false, reason: 'invalid_identity' }
+  if (status.overallStatus !== 'failed') return { ok: false, reason: 'not_failed', status: status.overallStatus }
+
+  return {
+    ok: true,
+    kolDirectoryId,
+    socialAccountId: row.social_account_id,
+    input: {
+      platform: row.platform as AddKolPlatform,
+      username: row.username,
+      // Not read by the pipeline; kept for the input's shape.
+      profileUrl: '',
+      triggeredBy: null,
+      agencyId,
+      createdByUserId: userId,
+    },
+  }
+}
+
+/**
+ * Run the scrape again for a creator whose last run failed. Same identity,
+ * same links — no identity or agency row is written; only the new run's logs
+ * and the pipeline's own output. Returns the new run id right away; the run
+ * itself continues in the background like the first one.
+ */
+export async function retryKolScrape(
+  kolDirectoryId: string, agencyId: string, userId: string,
+): Promise<{ ok: true; kolDirectoryId: string; runId: string } | Extract<RetryPlan, { ok: false }>> {
+  const plan = await prepareRetry(kolDirectoryId, agencyId, userId)
+  if (!plan.ok) return plan
+
+  const runId = randomUUID()
+  runRestOfPipeline(plan.kolDirectoryId, plan.socialAccountId, plan.input, runId).catch(err => {
+    console.error('[addKolScrape] unhandled failure in retried pipeline:', err)
+  })
+  return { ok: true, kolDirectoryId: plan.kolDirectoryId, runId }
+}
+
+/* ── refresh (D054) ───────────────────────────────────────────────────────── */
+
+/**
+ * Minimum gap between two refresh RUNS of one creator, measured from
+ * `MAX(add_kol_scrape_log.started_at)`.
+ *
+ * Not from `kol_directory.last_refreshed_at`: for all but a handful of the
+ * roster that column carries a value from the external import, which predates
+ * any run this app ever made, so a cooldown built on it would wave through a
+ * creator that was scraped minutes ago and block one that never was.
+ */
+export const REFRESH_COOLDOWN_MS = 15 * 60_000
+
+/**
+ * The reservation row's `add_kol_pipeline_log.step`. Deliberately not one of
+ * the step keys in `ADD_KOL_STEP_KEYS` and not `RUN_FAILURE_STEP`, so neither
+ * `getAddKolRunStatus` nor the D092 `PROFILING_STATUS` expression reads it —
+ * both walk their own step lists. It exists for one reader: the in-flight
+ * check below.
+ */
+export const REFRESH_RESERVATION_STEP = 'refresh_reservation'
+
+/** The creator's status for the purpose of D054, mirroring D092's precedence. */
+export type RefreshableStatus = 'ready' | 'failed' | 'profiling' | null
+
+export type RefreshRejection =
+  /** The agency has no active link to this creator (or the id is unknown). */
+  | 'not_linked'
+  /** Not an active roster row on Instagram/TikTok with a linked social account. */
+  | 'invalid_identity'
+  /** A run of this creator is in flight — a refresh, an add, or a D013 retry. */
+  | 'already_running'
+  /** Less than `REFRESH_COOLDOWN_MS` since the last run started. */
+  | 'cooldown'
+  /** The creator answers neither Ready nor Failed (D054 allows only those two). */
+  | 'status_not_refreshable'
+
+export type RefreshPlan =
+  | {
+      ok: true
+      kolDirectoryId: string
+      socialAccountId: string
+      /** Reserved and already anchored in `add_kol_pipeline_log` when this returns. */
+      runId: string
+      status: Exclude<RefreshableStatus, 'profiling' | null>
+      input: ScrapeNewKolInput
+    }
+  | {
+      ok: false
+      reason: RefreshRejection
+      status?: RefreshableStatus
+      /** `cooldown` only: how long until a refresh is allowed again. */
+      retryAfterMs?: number
+    }
+
+/**
+ * The creator's effective status, by the same precedence the D092
+ * `PROFILING_STATUS` expression documents and applies:
+ *
+ *   failed     the newest run failed (a failed step, a failed `run` row, or a
+ *              step past the stall threshold) — or `scrape_status = 'failed'`
+ *              with no L2 card
+ *   profiling  the newest run has started and has neither failed nor finished
+ *   ready      the creator has an `l2_gold.kol_profile_card`
+ *   null       none of these
+ *
+ * The run half is not re-derived here: it is `getAddKolRunStatus`, the same
+ * function D013 uses, so the stall threshold has one source. `verify:kol-refresh`
+ * cross-checks the result of this function against the D092 filter itself for
+ * every fixture state, so the two cannot drift apart unnoticed.
+ */
+async function refreshableStatus(
+  kolDirectoryId: string,
+): Promise<{ status: RefreshableStatus } | 'not_found'> {
+  const db = kolDb()
+  const { rows } = await db.query<{ scrape_status: string | null; has_card: boolean }>(
+    `SELECT kd.scrape_status,
+            EXISTS (SELECT 1
+                      FROM public.kol_social_account ksa
+                      JOIN l2_gold.kol_profile_card c
+                        ON c.social_account_id = ksa.social_account_id
+                     WHERE ksa.kol_id = kd.id) AS has_card
+       FROM public.kol_directory kd
+      WHERE kd.id = $1`,
+    [kolDirectoryId],
+  )
+  const row = rows[0]
+  if (!row) return 'not_found'
+
+  const run = await getAddKolRunStatus(kolDirectoryId)
+  if (run === 'not_found' || run === 'foreign_run') return 'not_found'
+
+  if (run.overallStatus === 'failed') return { status: 'failed' }
+  if (row.scrape_status === 'failed' && !row.has_card) return { status: 'failed' }
+  if (run.overallStatus === 'running') return { status: 'profiling' }
+  return { status: row.has_card ? 'ready' : null }
+}
+
+/**
+ * Everything a refresh needs, decided and reserved in ONE short transaction —
+ * and read from the KOL database, never from the client.
+ *
+ * The transaction does five things under a refresh-only advisory lock and then
+ * commits, all before any actor is called:
+ *
+ *   1. `pg_advisory_xact_lock('kol-refresh:<agency>:<creator>')` — its own key
+ *      space, so it can never contend with the `my-creators:` lock D010/D013
+ *      take around the agency link;
+ *   2. the agency's ACTIVE link and the creator's identity;
+ *   3. whether a run is already in flight (below);
+ *   4. the cooldown, from `MAX(add_kol_scrape_log.started_at)`;
+ *   5. the reservation row, which is what makes step 3 authoritative for the
+ *      NEXT caller: the pipeline's own first log row lands milliseconds later,
+ *      but a second POST arriving inside that gap would otherwise read the
+ *      PREVIOUS run's status and be waved through. The reservation is written
+ *      and committed before this function returns, so the second POST — which
+ *      has to wait for the lock — sees it.
+ *
+ * The lock is released by the commit; the pipeline then runs with no database
+ * transaction held open. A reservation is treated as live for
+ * `STALLED_AFTER_MS`, the same threshold the run engine calls a stalled step
+ * by, which is far shorter than the cooldown, so a process that dies between
+ * the commit and the first step never blocks a creator for longer than the
+ * cooldown would have anyway.
+ *
+ * Writes exactly one row (the reservation) and only on the accepted path;
+ * every rejection leaves the database untouched.
+ */
+export async function prepareRefresh(
+  kolDirectoryId: string, agencyId: string, userId: string,
+): Promise<RefreshPlan> {
+  // Read BEFORE the transaction opens, on the read pool: `getAddKolRunStatus`
+  // owns its own queries, and a pooled query issued while this function holds a
+  // dedicated client would queue behind it under the rollback harness the
+  // verifiers run in. Staleness is not a correctness problem — what closes the
+  // refresh-vs-refresh race is the reservation row checked under the lock
+  // below, not this status.
+  const effective = await refreshableStatus(kolDirectoryId)
+
+  const client = await kolDbWrite().connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,
+      [`kol-refresh:${agencyId}:${kolDirectoryId}`])
+
+    const { rows: link } = await client.query(
+      `SELECT 1 FROM public.agency_kol_accounts
+        WHERE agency_id = $1 AND kol_account_id = $2 AND is_active IS TRUE
+        LIMIT 1`,
+      [agencyId, kolDirectoryId],
+    )
+    if (!link.length) { await client.query('ROLLBACK'); return { ok: false, reason: 'not_linked' } }
+
+    const { rows: identity } = await client.query<
+      { username: string | null; platform: string; social_account_id: string }
+    >(
+      `SELECT kd.username, pl.key AS platform, ksa.social_account_id
+         FROM public.kol_directory kd
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+         JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+        WHERE kd.id = $1
+          AND kd.directory_status = 'active'
+          AND pl.key IN ('instagram', 'tiktok')
+        ORDER BY ksa.created_at ASC NULLS LAST, ksa.id
+        LIMIT 1`,
+      [kolDirectoryId],
+    )
+    const row = identity[0]
+    if (!row || !row.username?.trim()) {
+      await client.query('ROLLBACK')
+      return { ok: false, reason: 'invalid_identity' }
+    }
+
+    // In flight, part one: a reservation this or another request committed and
+    // whose pipeline has not yet written a step row of its own.
+    const { rows: reserved } = await client.query(
+      `SELECT 1 FROM public.add_kol_pipeline_log
+        WHERE kol_directory_id = $1
+          AND step = $2
+          AND started_at > now() - make_interval(secs => $3::float8 / 1000)
+        LIMIT 1`,
+      [kolDirectoryId, REFRESH_RESERVATION_STEP, STALLED_AFTER_MS],
+    )
+    if (reserved.length) {
+      await client.query('ROLLBACK')
+      return { ok: false, reason: 'already_running', status: 'profiling' }
+    }
+
+    // In flight, part two: a run already visible to the engine — this creator's
+    // Add KOL, a D013 retry, or a refresh whose first step has landed. That is
+    // what `profiling` means, so it is reported as `already_running` rather
+    // than as a status the user could do something about.
+    if (effective === 'not_found') {
+      await client.query('ROLLBACK')
+      return { ok: false, reason: 'invalid_identity' }
+    }
+    if (effective.status === 'profiling') {
+      await client.query('ROLLBACK')
+      return { ok: false, reason: 'already_running', status: 'profiling' }
+    }
+    // D054 allows Ready and Failed. A creator with neither a run nor an L2 card
+    // has nothing to refresh from and is left to Add KOL.
+    if (effective.status !== 'ready' && effective.status !== 'failed') {
+      await client.query('ROLLBACK')
+      return { ok: false, reason: 'status_not_refreshable', status: effective.status }
+    }
+
+    const { rows: last } = await client.query<{ ms_since: string | null }>(
+      `SELECT EXTRACT(epoch FROM now() - max(started_at)) * 1000 AS ms_since
+         FROM public.add_kol_scrape_log WHERE kol_directory_id = $1`,
+      [kolDirectoryId],
+    )
+    const msSince = last[0]?.ms_since === null || last[0]?.ms_since === undefined
+      ? null
+      : Number(last[0].ms_since)
+    if (msSince !== null && msSince < REFRESH_COOLDOWN_MS) {
+      await client.query('ROLLBACK')
+      return {
+        ok: false,
+        reason: 'cooldown',
+        status: effective.status,
+        retryAfterMs: Math.max(0, Math.ceil(REFRESH_COOLDOWN_MS - msSince)),
+      }
+    }
+
+    const runId = randomUUID()
+    await client.query(
+      `INSERT INTO public.add_kol_pipeline_log
+         (id, run_id, kol_directory_id, platform, step, status, started_at)
+       VALUES ($1, $2, $3, $4, $5, 'running', now())`,
+      [randomUUID(), runId, kolDirectoryId, row.platform, REFRESH_RESERVATION_STEP],
+    )
+    await client.query('COMMIT')
+
+    return {
+      ok: true,
+      kolDirectoryId,
+      socialAccountId: row.social_account_id,
+      runId,
+      status: effective.status,
+      input: {
+        platform: row.platform as AddKolPlatform,
+        username: row.username,
+        // Not read by the pipeline; kept for the input's shape.
+        profileUrl: '',
+        triggeredBy: null,
+        agencyId,
+        createdByUserId: userId,
+      },
+    }
+  } catch (err) {
+    try { await client.query('ROLLBACK') } catch { /* the connection is going back anyway */ }
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Refresh one creator the agency already holds: the same pipeline the first
+ * add runs, over the same identity and the same links. No identity row, no
+ * agency row, no favorite and no monitoring flag is written — only the new
+ * run's logs and the pipeline's own output, exactly as a D013 retry.
+ *
+ * Returns as soon as the run is reserved; the run itself continues in the
+ * background and is followed through the existing status endpoint.
+ */
+export async function refreshKolScrape(
+  kolDirectoryId: string, agencyId: string, userId: string,
+): Promise<{ ok: true; kolDirectoryId: string; runId: string } | Extract<RefreshPlan, { ok: false }>> {
+  const plan = await prepareRefresh(kolDirectoryId, agencyId, userId)
+  if (!plan.ok) return plan
+
+  runRestOfPipeline(plan.kolDirectoryId, plan.socialAccountId, plan.input, plan.runId).catch(err => {
+    console.error('[addKolScrape] unhandled failure in refreshed pipeline:', err)
+  })
+  return { ok: true, kolDirectoryId: plan.kolDirectoryId, runId: plan.runId }
 }

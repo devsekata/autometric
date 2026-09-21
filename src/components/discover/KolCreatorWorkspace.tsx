@@ -32,7 +32,7 @@
  * empty state, never as a placeholder number.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PJ, TOKENS as T, PLATFORM_ICON, Btn, fmtNum, RosterAvatar } from './ui'
 import { ErrorBlock, Overlay, Row, Skeleton, StatTile, VIZ } from './kolViz'
@@ -64,6 +64,29 @@ const NAV = [
 ] as const
 
 type NavId = (typeof NAV)[number]['id']
+
+/* ── refresh (D054) ───────────────────────────────────────────────────────── */
+
+/** What `GET /api/kol-directory/add/[kolId]/status` answers with. */
+type RunStatusPayload = {
+  runId: string | null
+  overallStatus: 'pending' | 'running' | 'success' | 'failed'
+  steps: { key: string; label: string; status: 'pending' | 'running' | 'success' | 'failed'; detail?: string | null }[]
+}
+
+type RefreshPhase = 'idle' | 'starting' | 'running' | 'success' | 'failed'
+
+/** Same cadence the Add KOL dialog polls its own run at. */
+const REFRESH_POLL_MS = 2_000
+
+/**
+ * What a finished refresh actually changed. Said plainly because the page shows
+ * both kinds of number side by side: the roster fields the pipeline writes
+ * itself, and the L2/feature fields an external batch fills in later.
+ */
+const L2_LATER =
+  'Followers, engagement dan identitas sudah diperbarui. Metrik analitik (growth, views, audience) '
+  + 'menyusul saat batch L2 berikutnya berjalan.'
 
 export default function KolCreatorWorkspace({
   orgId, orgSlug, kolId,
@@ -100,6 +123,61 @@ export default function KolCreatorWorkspace({
     return () => { cancelled = true }
   }, [orgId, kolId])
 
+  /**
+   * Monitored / Paused for this agency (D054), the same
+   * `agency_kol_accounts.monitoring_enabled` the My Creators card toggles.
+   *
+   * Read through the directory list scoped to this agency, which already
+   * answers with `monitoringEnabled` for `scope=mine` — a creator the agency
+   * does not hold comes back as no row at all, so `null` means "not one of
+   * ours" and no control is drawn. Written through the PATCH that already
+   * exists; nothing here defines the state, it only shows it.
+   */
+  const [monitoring, setMonitoring] = useState<boolean | null>(null)
+  const [monitoringBusy, setMonitoringBusy] = useState(false)
+  const loadMonitoring = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/discover/kol-directory?ids=${kolId}&scope=mine`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json() as { rows?: { id: string; monitoringEnabled?: boolean | null }[] }
+      const row = (d.rows ?? []).find(r => r.id === kolId)
+      return row?.monitoringEnabled ?? null
+    } catch {
+      return null
+    }
+  }, [orgId, kolId])
+
+  useEffect(() => {
+    let cancelled = false
+    setMonitoring(null)
+    void loadMonitoring().then((v: boolean | null) => { if (!cancelled) setMonitoring(v) })
+    return () => { cancelled = true }
+  }, [loadMonitoring])
+
+  const toggleMonitoring = async () => {
+    if (monitoring === null || monitoringBusy) return
+    setMonitoringBusy(true)
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/discover/my-creators/${kolId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monitoringEnabled: !monitoring }),
+      })
+      const body = await res.json().catch(() => null) as { monitoringEnabled?: unknown; error?: string } | null
+      if (!res.ok || typeof body?.monitoringEnabled !== 'boolean') {
+        throw new Error(body?.error || `HTTP ${res.status}`)
+      }
+      // Only what the server confirmed reaches the screen.
+      setMonitoring(body.monitoringEnabled)
+      setToast(body.monitoringEnabled ? 'Creator dipantau (Monitored)' : 'Monitoring dijeda (Paused)')
+    } catch (e) {
+      setToast(`Status monitoring gagal diperbarui: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setMonitoringBusy(false)
+    }
+  }
+
   const toggleMine = async () => {
     if (mine === null) return
     const was = mine
@@ -112,6 +190,9 @@ export default function KolCreatorWorkspace({
           })
       if (!res.ok && !(was && res.status === 404)) throw new Error(`HTTP ${res.status}`)
       setToast(was ? 'Dihapus dari My Creators' : 'Ditambahkan ke My Creators')
+      // Leaving My Creators takes the monitoring state with it; joining brings
+      // back whatever the agency had set before (the link keeps it).
+      setMonitoring(was ? null : await loadMonitoring())
     } catch {
       setMine(was)
       setToast('My Creators gagal diperbarui')
@@ -121,6 +202,109 @@ export default function KolCreatorWorkspace({
   const [campaignOpen, setCampaignOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+
+  /**
+   * Refresh (D054) — run the Add KOL pipeline again over this creator.
+   *
+   * Only the run's own progress lives here: the server owns whether a refresh
+   * may start at all (link, status, cooldown, and a reservation that stops two
+   * clicks from both starting one), and this page only reports what the
+   * existing status endpoint says about the run it was given.
+   */
+  const [refreshPhase, setRefreshPhase] = useState<RefreshPhase>('idle')
+  const [refreshRunId, setRefreshRunId] = useState<string | null>(null)
+  const [refreshStep, setRefreshStep] = useState<{ done: number; total: number; label: string | null } | null>(null)
+  const [refreshNote, setRefreshNote] = useState<string | null>(null)
+
+  const applyRunStatus = useCallback((d: RunStatusPayload) => {
+    const steps = d.steps ?? []
+    const done = steps.filter(s => s.status === 'success').length
+    const current = steps.find(s => s.status === 'running') ?? steps.find(s => s.status === 'failed')
+    setRefreshStep({ done, total: steps.length, label: current?.label ?? null })
+    return steps
+  }, [])
+
+  /**
+   * Reopening the page while a run is still going reattaches to it rather than
+   * offering to start a second one: the status endpoint answers for the newest
+   * run of this creator when no `runId` is pinned, which is exactly the run the
+   * previous visit started.
+   */
+  useEffect(() => {
+    if (mine !== true) return
+    let cancelled = false
+    fetch(`/api/kol-directory/add/${kolId}/status?orgId=${orgId}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: RunStatusPayload | null) => {
+        if (cancelled || !d || d.overallStatus !== 'running') return
+        setRefreshRunId(d.runId)
+        setRefreshPhase('running')
+        applyRunStatus(d)
+      })
+      .catch(() => { /* no run to reattach to */ })
+    return () => { cancelled = true }
+  }, [mine, kolId, orgId, applyRunStatus])
+
+  useEffect(() => {
+    if (refreshPhase !== 'running') return
+    let cancelled = false
+    let timer = 0
+    const poll = async () => {
+      try {
+        const qs = new URLSearchParams({ orgId })
+        if (refreshRunId) qs.set('runId', refreshRunId)
+        const res = await fetch(`/api/kol-directory/add/${kolId}/status?${qs}`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const d = await res.json() as RunStatusPayload
+        if (cancelled) return
+        const steps = applyRunStatus(d)
+        if (d.overallStatus === 'success') {
+          setRefreshPhase('success')
+          setRefreshNote(null)
+          // The roster numbers are already new; re-read the profile so the page
+          // shows them without a manual reload.
+          setReload(n => n + 1)
+          return
+        }
+        if (d.overallStatus === 'failed') {
+          setRefreshPhase('failed')
+          setRefreshNote(steps.find(s => s.status === 'failed')?.detail ?? null)
+          return
+        }
+      } catch {
+        // A blip on the KOL host is not a failed run — ask again.
+      }
+      if (!cancelled) timer = window.setTimeout(poll, REFRESH_POLL_MS)
+    }
+    timer = window.setTimeout(poll, REFRESH_POLL_MS)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [refreshPhase, refreshRunId, kolId, orgId, applyRunStatus])
+
+  const startRefresh = async () => {
+    if (refreshPhase === 'starting' || refreshPhase === 'running') return
+    setRefreshPhase('starting')
+    setRefreshNote(null)
+    setRefreshStep(null)
+    try {
+      const res = await fetch(`/api/kol-directory/add/${kolId}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId }),
+      })
+      const body = await res.json().catch(() => null) as { runId?: unknown; error?: string } | null
+      if (res.status === 202 && typeof body?.runId === 'string') {
+        setRefreshRunId(body.runId)
+        setRefreshPhase('running')
+        return
+      }
+      // Every refusal the route makes is already a sentence; show it as it is.
+      setRefreshPhase('idle')
+      setToast(body?.error || `Refresh tidak bisa dimulai (HTTP ${res.status})`)
+    } catch (e) {
+      setRefreshPhase('idle')
+      setToast(`Refresh tidak bisa dimulai: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -192,6 +376,12 @@ export default function KolCreatorWorkspace({
         ))}
       </nav>
 
+      {/* Refresh's own strip, above the creator: it reports one run, and it
+          must not be mistaken for the state of the profile underneath. */}
+      <RefreshStrip
+        phase={refreshPhase} step={refreshStep} note={refreshNote}
+        onDismiss={() => { setRefreshPhase('idle'); setRefreshNote(null); setRefreshStep(null) }} />
+
       {error ? (
         <div className="rounded-[18px] border" style={{ borderColor: T.outline, background: VIZ.surface }}>
           <ErrorBlock title="Creator gagal dimuat"
@@ -205,6 +395,9 @@ export default function KolCreatorWorkspace({
           data={data} intel={intel} view={view} goTo={goTo}
           fav={fav} onFav={toggleFav}
           mine={mine} onMine={() => { void toggleMine() }}
+          monitoring={monitoring} monitoringBusy={monitoringBusy}
+          onMonitoring={() => { void toggleMonitoring() }}
+          refreshPhase={refreshPhase} onRefresh={() => { void startRefresh() }}
           onCompare={() => {
             if (!compareSel.ids.has(selKey)) compareSel.toggle(selKey)
             setCompareTray(true)
@@ -261,7 +454,10 @@ export default function KolCreatorWorkspace({
 /* ── loaded page ──────────────────────────────────────────────────────────── */
 
 function Loaded({
-  data, intel, view, goTo, fav, onFav, mine, onMine, onCompare, onAddCampaign, onReport, setToast,
+  data, intel, view, goTo, fav, onFav, mine, onMine,
+  monitoring, monitoringBusy, onMonitoring,
+  refreshPhase, onRefresh,
+  onCompare, onAddCampaign, onReport, setToast,
 }: {
   data: KolCreatorPayload
   intel: CreatorIntel
@@ -272,6 +468,13 @@ function Loaded({
   /** Null while unknown (loading, or the check failed): the button is hidden. */
   mine: boolean | null
   onMine: () => void
+  /** Monitored (true) / Paused (false) for this agency; null hides the control (D054). */
+  monitoring: boolean | null
+  monitoringBusy: boolean
+  onMonitoring: () => void
+  /** Refresh (D054): the phase of this page's own run, never of the profile. */
+  refreshPhase: RefreshPhase
+  onRefresh: () => void
   onCompare: () => void
   onAddCampaign: () => void
   onReport: () => void
@@ -375,6 +578,22 @@ function Loaded({
               {mine !== null && (
                 <ActionBtn icon={mine ? 'how_to_reg' : 'person_add'} label={mine ? 'In My Creators' : 'Add to My Creators'}
                   on={mine} onClick={onMine} />
+              )}
+              {/* My Creators only: the pipeline that fills this page can only be
+                  re-run for a creator the agency actually holds (D054). */}
+              {mine === true && (
+                <ActionBtn
+                  icon={refreshPhase === 'starting' || refreshPhase === 'running' ? 'progress_activity' : 'refresh'}
+                  label={refreshPhase === 'running' ? 'Memperbarui…' : 'Refresh'}
+                  busy={refreshPhase === 'starting' || refreshPhase === 'running'}
+                  onClick={onRefresh} />
+              )}
+              {/* My Creators only: what the agency set, not a new state (D054). */}
+              {monitoring !== null && (
+                <ActionBtn
+                  icon={monitoringBusy ? 'progress_activity' : monitoring ? 'notifications_active' : 'notifications_off'}
+                  label={monitoring ? 'Monitored' : 'Paused'}
+                  on={monitoring} onClick={onMonitoring} />
               )}
               <ActionBtn icon={fav ? 'favorite' : 'favorite_border'} label="Favorite" on={fav}
                 onClick={onFav} />
@@ -655,19 +874,74 @@ function CreatorSkeleton() {
 }
 
 function ActionBtn({
-  icon, label, onClick, primary, on,
-}: { icon: string; label?: string; onClick: () => void; primary?: boolean; on?: boolean }) {
+  icon, label, onClick, primary, on, busy,
+}: { icon: string; label?: string; onClick: () => void; primary?: boolean; on?: boolean; busy?: boolean }) {
   return (
-    <button type="button" onClick={onClick} title={label ?? icon}
+    <button type="button" onClick={onClick} title={label ?? icon} disabled={busy}
       style={{
         ...PJ,
         background: primary ? T.primary : on ? T.surfaceVariant : VIZ.surface,
         borderColor: primary ? T.primary : on ? T.primary : T.outline,
         color: primary ? '#fff' : on ? T.primaryDeep : T.t2,
       }}
-      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11.5px] font-bold hover:brightness-[.98]">
-      <span className="material-symbols-outlined text-[15px]">{icon}</span>
+      className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11.5px] font-bold hover:brightness-[.98] ${
+        busy ? 'opacity-60 cursor-wait' : ''}`}>
+      <span className={`material-symbols-outlined text-[15px] ${busy ? 'animate-spin' : ''}`}>{icon}</span>
       {label && <span className="hidden sm:inline">{label}</span>}
     </button>
+  )
+}
+
+/* ── refresh strip (D054) ─────────────────────────────────────────────────── */
+
+/**
+ * One run's progress, result or failure — never the profile's. A failed run
+ * says so and says what is still there, because "Refresh gagal" next to a
+ * creator's page reads like the creator is gone otherwise.
+ */
+function RefreshStrip({
+  phase, step, note, onDismiss,
+}: {
+  phase: RefreshPhase
+  step: { done: number; total: number; label: string | null } | null
+  note: string | null
+  onDismiss: () => void
+}) {
+  if (phase === 'idle') return null
+
+  const tone =
+    phase === 'failed' ? { bg: '#fdf2f2', fg: '#a04545', border: '#f3d9d9', icon: 'error' }
+      : phase === 'success' ? { bg: '#eaf5ef', fg: '#2f6b4a', border: '#cfe6da', icon: 'check_circle' }
+        : { bg: '#fdf3e7', fg: '#8a5a17', border: '#f0dcc0', icon: 'progress_activity' }
+
+  const running = phase === 'starting' || phase === 'running'
+  const headline =
+    phase === 'failed' ? 'Refresh gagal'
+      : phase === 'success' ? 'Data creator diperbarui'
+        : 'Memperbarui data creator…'
+  const body =
+    phase === 'failed'
+      ? `${note ? `${note} — ` : ''}Profil dan data lama creator ini tetap tersimpan, tidak ada yang dihapus.`
+      : phase === 'success'
+        ? L2_LATER
+        : step && step.total
+          ? `Langkah ${Math.min(step.done + 1, step.total)} dari ${step.total}${step.label ? ` · ${step.label}` : ''}`
+          : 'Menyiapkan proses…'
+
+  return (
+    <div className="mb-3 rounded-[14px] border px-3.5 py-2.5 flex items-start gap-2.5"
+      style={{ background: tone.bg, borderColor: tone.border }}>
+      <span className={`material-symbols-outlined text-[18px] mt-px ${running ? 'animate-spin' : ''}`}
+        style={{ color: tone.fg }}>{tone.icon}</span>
+      <div className="min-w-0 flex-1">
+        <div style={{ ...PJ, color: tone.fg }} className="text-[12px] font-extrabold">{headline}</div>
+        <div className="text-[11.5px] mt-0.5" style={{ color: tone.fg }}>{body}</div>
+      </div>
+      {!running && (
+        <button type="button" onClick={onDismiss} title="Tutup"
+          className="material-symbols-outlined text-[16px] cursor-pointer shrink-0"
+          style={{ color: tone.fg }}>close</button>
+      )}
+    </div>
   )
 }

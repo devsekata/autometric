@@ -120,6 +120,31 @@ export async function beginPipelineStep(args: {
 }
 
 /**
+ * Record a run that failed outside any step (a profile payload that carried an
+ * error, a raw insert, the roster update): one `add_kol_pipeline_log` row with
+ * `step = 'run'`, `status = 'failed'`. The status endpoint reads it as a failed
+ * run, which a step row alone could not show. Never throws.
+ */
+export async function logRunFailure(args: {
+  runId: string
+  kolDirectoryId: string
+  platform: string
+  errorMessage: string
+}): Promise<void> {
+  const now = new Date()
+  try {
+    await kolDbWrite().query(
+      `INSERT INTO public.add_kol_pipeline_log
+         (id, run_id, kol_directory_id, platform, step, status, error_message, started_at, finished_at, duration_seconds)
+       VALUES ($1,$2,$3,$4,'run','failed',$5,$6,$6,0)`,
+      [randomUUID(), args.runId, args.kolDirectoryId, args.platform, args.errorMessage, now],
+    )
+  } catch (err) {
+    console.error('[stepLog] failed to write add_kol_pipeline_log run-failure row:', err)
+  }
+}
+
+/**
  * Wrap one async unit of work with a scrape-log row: begin before it starts,
  * finish success/failed after it settles, and re-throw whatever it threw so
  * callers keep their existing error handling.

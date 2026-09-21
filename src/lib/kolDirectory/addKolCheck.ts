@@ -33,6 +33,20 @@ export type CheckKolResult =
         avatarUrl: string | null
         bio: string | null
         followers: number | null
+        /**
+         * Whether the platform says the account is private (D009).
+         *
+         * Read from the payload this check already holds — Instagram's
+         * `private`, TikTok's `authorMeta.privateAccount` — and handed to the
+         * dialog so it can warn before anything is written. It is not a second
+         * source of truth and nothing here persists it: the canonical value
+         * stays the `is_private` the harmonisation writes from the same raw
+         * payload, up through `l2_gold.kol_profile_card`.
+         *
+         * `null` when the platform said neither way, so a missing field warns
+         * about nothing and never blocks an add.
+         */
+        isPrivate: boolean | null
         raw: unknown
         /**
          * Set when this handle already has a `kol_directory` row (and,
@@ -50,6 +64,25 @@ export type CheckKolResult =
 const numOrNull = (v: unknown): number | null => {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
+}
+
+/**
+ * The private flag as each platform spells it (D009), from the payload the
+ * check already fetched. Exported so it can be tested against recorded
+ * payloads without calling an actor.
+ *
+ * Only a real boolean answers; anything else is `null` — "the platform did not
+ * say" is not "public", and a truthy-looking string must not become a warning
+ * the user cannot act on.
+ */
+export function readPrivateFlag(
+  platform: AddKolPlatform, payload: { private?: unknown } | { privateAccount?: unknown } | null | undefined,
+): boolean | null {
+  if (!payload || typeof payload !== 'object') return null
+  const v = platform === 'instagram'
+    ? (payload as { private?: unknown }).private
+    : (payload as { privateAccount?: unknown }).privateAccount
+  return typeof v === 'boolean' ? v : null
 }
 
 /**
@@ -148,6 +181,7 @@ async function checkInstagram(username: string, profileUrl: string): Promise<Che
       avatarUrl: (profile.profilePicUrlHD as string | undefined) ?? (profile.profilePicUrl as string | undefined) ?? null,
       bio: (profile.biography as string | undefined) ?? null,
       followers: numOrNull(profile.followersCount),
+      isPrivate: readPrivateFlag('instagram', profile),
       raw: profile,
     },
   }
@@ -203,6 +237,8 @@ async function checkTiktok(username: string, profileUrl: string): Promise<CheckK
       avatarUrl: author.originalAvatarUrl ?? author.avatar ?? null,
       bio: author.signature ?? null,
       followers: numOrNull(author.fans),
+      // TikTok carries the flag on the author, which rides along with the posts.
+      isPrivate: readPrivateFlag('tiktok', author),
       raw: posts,
     },
   }

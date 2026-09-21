@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireAgencyMember } from '@/lib/kolDirectory/agencyAccess'
-import { startKolScrape, type AddKolPlatform } from '@/lib/kolDirectory/addKolScrape'
+import { IdentityMismatchError, startKolScrape, type AddKolPlatform } from '@/lib/kolDirectory/addKolScrape'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * POST /api/kol-directory/add
@@ -40,6 +42,11 @@ export async function POST(req: NextRequest) {
     if (typeof profileUrl !== 'string' || !profileUrl.trim()) {
       return NextResponse.json({ error: 'profileUrl is required.' }, { status: 400 })
     }
+    const badId = (v: unknown) => v !== null && (typeof v !== 'string' || !UUID_RE.test(v))
+    if (badId(existingKolDirectoryId) || badId(existingSocialAccountId)
+      || (existingSocialAccountId && !existingKolDirectoryId)) {
+      return NextResponse.json({ error: 'Invalid existing creator ids.' }, { status: 400 })
+    }
 
     const session = await auth()
     const triggeredBy = session?.user?.email ?? null
@@ -55,6 +62,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ kolDirectoryId })
   } catch (err) {
+    // The check result the client sent no longer matches the roster; nothing
+    // was written and no scrape started.
+    if (err instanceof IdentityMismatchError) {
+      return NextResponse.json(
+        { error: 'Data creator sudah berubah. Cek ulang akun sebelum menambahkan.' },
+        { status: 409 },
+      )
+    }
     console.error('[POST /api/kol-directory/add]', err)
     return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
   }
