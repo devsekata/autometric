@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/auth'
+import { isKolLinkedToAgency, requireAgencyMember } from '@/lib/kolDirectory/agencyAccess'
 import kolDb from '@/lib/kolDb'
 
 type Params = { params: Promise<{ kolId: string }> }
@@ -93,14 +93,17 @@ export interface StatusStep {
   detail?: string | null
 }
 
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const access = await requireAgencyMember(req.nextUrl.searchParams.get('orgId'))
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
 
     const { kolId } = await params
+    // Progress is visible to the agency the creator was added for, not to
+    // every signed-in user.
+    if (!(await isKolLinkedToAgency(kolId, access.agencyId))) {
+      return NextResponse.json({ error: 'KOL not found.' }, { status: 404 })
+    }
 
     const { rows: kdRows } = await kolDb().query<KolDirectoryRow>(
       `SELECT kd.id, kd.username, kd.scrape_status, kd.followers_count, kd.last_refreshed_at, pl.key AS platform_key

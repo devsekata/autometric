@@ -15,8 +15,8 @@ import { selectionKey, type SelectionSource } from './useDiscoverSelection'
  * were gone on navigation.
  *
  * Both now read and write `/api/organizations/[id]/discover/favorites`, keyed by
- * (org, user) — see `@/lib/discover/favorites` for why favourites are personal
- * rather than org-wide.
+ * (agency, user) in the KOL table `agency_kol_favorites` — see
+ * `@/lib/discover/favorites`. Only Creator Database creators can be favourited.
  *
  * ── Keys ────────────────────────────────────────────────────────────────────
  * The set holds the same strings `useDiscoverSelection` uses: a bare UUID for a
@@ -68,6 +68,11 @@ export function useDiscoverFavorites(orgId: string): DiscoverFavorites {
 
   const endpoint = `/api/organizations/${orgId}/discover/favorites`
 
+  /** Server ids → the client keys cards test with (`roster:<uuid>`). */
+  const toKeys = (ids: unknown): Set<string> =>
+    new Set((Array.isArray(ids) ? ids : []).filter((x): x is string => typeof x === 'string')
+      .map(id => selectionKey('roster', id)))
+
   useEffect(() => {
     if (!orgId) return
     let cancelled = false
@@ -75,27 +80,30 @@ export function useDiscoverFavorites(orgId: string): DiscoverFavorites {
 
     ;(async () => {
       try {
-        // A browser holding the old localStorage set hands it over on first
-        // load. The server merges rather than replaces, so a second browser
-        // replaying its own stale copy cannot un-favourite anything.
+        // A browser holding the old localStorage set hands its Creator Database
+        // favourites over on first load, one add each (the endpoint is
+        // idempotent). Tracked-account keys have no KOL home, so when any are
+        // present the local copy is kept rather than dropped.
         const legacy = readLegacy(orgId)
-        const res = legacy
-          ? await fetch(endpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ import: legacy }),
+        if (legacy) {
+          const rosterIds = legacy.filter(k => k.startsWith('roster:')).map(k => k.slice('roster:'.length))
+          for (const kolId of rosterIds) {
+            await fetch(endpoint, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kolId }),
             })
-          : await fetch(endpoint)
+          }
+          if (rosterIds.length === legacy.length) {
+            try { window.localStorage.removeItem(legacyKey(orgId)) } catch { /* ignore */ }
+          }
+        }
 
+        const res = await fetch(endpoint)
         if (!res.ok) throw new Error(String(res.status))
-        const data: { keys?: string[] } = await res.json()
+        const data: { ids?: string[] } = await res.json()
         if (cancelled || mine !== generation.current) return
-
-        setKeys(new Set(data.keys ?? []))
+        setKeys(toKeys(data.ids))
         setError(null)
-        // Only dropped once the server has confirmed it holds them, so a failed
-        // migration leaves the user's list where it was.
-        if (legacy) { try { window.localStorage.removeItem(legacyKey(orgId)) } catch { /* ignore */ } }
       } catch {
         if (!cancelled && mine === generation.current) {
           setError('Unable to load favorites.')
@@ -114,31 +122,45 @@ export function useDiscoverFavorites(orgId: string): DiscoverFavorites {
   )
 
   const toggle = useCallback((source: SelectionSource, id: string) => {
+    // Favourites live in `agency_kol_favorites` on the KOL server, keyed by the
+    // Creator Database id. A tracked account has no row there to point at.
+    if (source !== 'roster') {
+      setError('Favorites are available for Creator Database creators only.')
+      return
+    }
     const key = selectionKey(source, id)
 
     // Optimistic: the heart fills on click. `generation` is bumped so a list
     // load still in flight cannot land on top of this.
     const mine = ++generation.current
     let reverted: Set<string> | null = null
+    let removing = false
     setKeys(prev => {
       reverted = prev
+      removing = prev.has(key)
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key); else next.add(key)
+      if (removing) next.delete(key); else next.add(key)
       return next
     })
     setError(null)
 
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
-    })
+    const write = removing
+      ? fetch(`${endpoint}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      : fetch(endpoint, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kolId: id }),
+        })
+
+    write
       .then(async res => {
-        if (!res.ok) throw new Error(String(res.status))
-        const data: { keys?: string[] } = await res.json()
+        // 404 on DELETE means it was already gone — the end state is the same.
+        if (!res.ok && !(removing && res.status === 404)) throw new Error(String(res.status))
         // The server's set is authoritative — it also reconciles anything
         // favourited in another tab since this page loaded.
-        if (mine === generation.current) setKeys(new Set(data.keys ?? []))
+        const list = await fetch(endpoint)
+        if (!list.ok) return
+        const data: { ids?: string[] } = await list.json()
+        if (mine === generation.current) setKeys(toKeys(data.ids))
       })
       .catch(() => {
         if (mine === generation.current && reverted) setKeys(reverted)

@@ -1,5 +1,24 @@
 import pool from '@/lib/db'
-import { parseFavoriteKey, favoriteKey, type FavoriteRef } from './favorites'
+
+// UNREACHABLE AT RUNTIME: the Saved Lists routes answer `featureUnavailable`.
+// Saved Lists live in the warehouse (`discover_saved_lists`, dropped) and the
+// KOL database has no table for a list of creators — only
+// `agency_kol_saved_filters` (a named filter). Kept, not deleted, until the
+// product decides where creator lists belong.
+//
+// The key helpers below used to live in `./favorites`, which now reads the KOL
+// `agency_kol_favorites` table and no longer needs a source prefix.
+type FavoriteSource = 'account' | 'roster'
+interface FavoriteRef { source: FavoriteSource; id: string }
+const favoriteKey = (ref: FavoriteRef): string => (ref.source === 'roster' ? `roster:${ref.id}` : ref.id)
+const KEY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function parseFavoriteKey(key: string): FavoriteRef | null {
+  if (typeof key !== 'string') return null
+  const roster = key.startsWith('roster:')
+  const id = roster ? key.slice('roster:'.length) : key
+  if (!KEY_UUID.test(id)) return null
+  return { source: roster ? 'roster' : 'account', id }
+}
 
 /**
  * Saved Lists — a named filter configuration, and optionally the creators

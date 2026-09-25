@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getMemberRole } from '@/lib/organizations/queries'
 import { removeMember, updateMemberRole } from '@/lib/organizations/members'
-import pool from '@/lib/db'
+import kolDb from '@/lib/kolDb'
 
 type Params = { params: Promise<{ id: string; memberId: string }> }
 
@@ -26,9 +26,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     // Prevent downgrading the last admin
     if (role === 'MEMBER') {
-      const { rows } = await pool.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM organization_members
-         WHERE organization_id = $1 AND role = 'ADMIN' AND status = 'ACTIVE'`,
+      const { rows } = await kolDb().query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM public.agency_members
+         WHERE agency_id = $1 AND role = 'ADMIN' AND status = 'ACTIVE'`,
         [id]
       )
       if (parseInt(rows[0].count) <= 1) {
@@ -62,8 +62,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!requesterRole) return NextResponse.json({ error: 'Organization not found.' }, { status: 404 })
 
     // Check if the requester is removing themselves (leave)
-    const { rows: target } = await pool.query<{ user_id: string | null }>(
-      `SELECT user_id FROM organization_members WHERE id = $1 AND organization_id = $2`,
+    const { rows: target } = await kolDb().query<{ user_id: string | null }>(
+      `SELECT user_id FROM public.agency_members WHERE id = $1 AND agency_id = $2`,
       [memberId, id]
     )
     const isSelf = target[0]?.user_id === userId

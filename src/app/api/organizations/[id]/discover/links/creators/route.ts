@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import { listCreatorLinks, linkKey } from '@/lib/discover/creatorLinks'
 import { listKolDirectory, type KolDirectoryRow } from '@/lib/discover/kolDirectory'
-import { listCreators } from '@/lib/discover/creatorStore'
-import type { CreatorSummary } from '@/lib/discover/creatorFlow'
 import type { CreatorLink, LinkedCreator } from '@/lib/discover/types'
 
 type Params = { params: Promise<{ id: string }> }
@@ -60,25 +58,6 @@ const fromRoster = (r: KolDirectoryRow, link: CreatorLink): LinkedCreator => ({
   link,
 })
 
-const fromOwn = (c: CreatorSummary, link: CreatorLink): LinkedCreator => ({
-  key: linkKey(link),
-  source: 'account',
-  id: c.id,
-  username: c.username,
-  displayName: c.displayName,
-  avatarUrl: c.avatarUrl,
-  profileUrl: c.profileUrl,
-  platform: c.platform,
-  // The org's own creators carry a single category; the roster carries several.
-  // One shape wins, and it is the wider one — a list is a superset of a value.
-  categories: c.category ? [c.category] : [],
-  city: c.city,
-  followers: c.followers,
-  erPct: c.erPct,
-  tier: c.tier,
-  lastRefreshedAt: c.lastRefreshedAt,
-  link,
-})
 
 export async function GET(req: NextRequest, { params }: Params) {
   try {
@@ -126,17 +105,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       }
     }
 
-    /* ── the org's own creators ── */
-    const ownLinks = wanted.filter(l => l.source === 'account')
-    if (ownLinks.length) {
-      // The org's own roster is a handful of rows, so it is read whole and
-      // matched in memory rather than queried once per id.
-      const own = new Map((await listCreators(orgId)).map(c => [c.id, c]))
-      for (const l of ownLinks) {
-        const c = own.get(l.id)
-        if (c) creators.push(fromOwn(c, l))
-      }
-    }
+    // Creators the org profiled itself (`account` links) lived only in the
+    // warehouse; the KOL database has no equivalent, so none are listed.
 
     /**
      * Ordered by the decision, not by the creator: this list answers "what have

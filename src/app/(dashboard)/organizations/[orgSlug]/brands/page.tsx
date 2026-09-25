@@ -1,17 +1,26 @@
 import { notFound } from 'next/navigation'
 import { auth } from '@/auth'
-import { getOrgBasicBySlug } from '@/lib/organizations/queries'
-import { listBrandsForOrg } from '@/lib/brands/queries'
-import BrandsPage from '@/components/brands/list/BrandsPage'
+import { getOrgBySlugForUser } from '@/lib/organizations/queries'
+import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 
-interface Props { params: Promise<{ orgSlug: string }> }
+type Props = { params: Promise<{ orgSlug: string }> }
 
-export default async function BrandsRoute({ params }: Props) {
+/**
+ * Switched off: the brand list reads the analytics warehouse, and the KOL product uses
+ * the KOL database only.
+ */
+export default async function Page({ params }: Props) {
   const { orgSlug } = await params
-  const [session, org] = await Promise.all([auth(), getOrgBasicBySlug(orgSlug)])
+  const session = await auth()
+  const userId = session?.user?.id
+  if (!userId) notFound()
+  const org = await getOrgBySlugForUser(orgSlug, userId)
   if (!org) notFound()
 
-  const brands = await listBrandsForOrg(org.id)
-
-  return <BrandsPage orgId={org.id} orgName={org.name} initialBrands={brands} />
+  return (
+    <div className="p-5">
+      <FeatureUnavailable title="Brands"
+        body="Modul ini masih membaca data analitik brand di luar database KOL, jadi dinonaktifkan dulu sampai datanya tersedia di KOL." />
+    </div>
+  )
 }

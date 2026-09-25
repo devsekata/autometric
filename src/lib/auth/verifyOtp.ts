@@ -1,4 +1,4 @@
-import pool from '@/lib/db'
+import kolDb, { kolDbWrite } from '@/lib/kolDb'
 import { verifyOtp } from '@/lib/otp'
 
 interface VerifyOtpInput {
@@ -14,9 +14,9 @@ interface VerifyOtpResult {
 export async function verifyEmailOtp(input: VerifyOtpInput): Promise<VerifyOtpResult> {
   const { email, otp } = input
 
-  const result = await pool.query(
+  const result = await kolDb().query(
     `SELECT id, otp_hash, name, password_hash, expires_at
-     FROM otp_verifications
+     FROM public.otp_verifications
      WHERE email = $1 AND purpose = 'register'
      ORDER BY created_at DESC
      LIMIT 1`,
@@ -30,7 +30,7 @@ export async function verifyEmailOtp(input: VerifyOtpInput): Promise<VerifyOtpRe
   const record = result.rows[0]
 
   if (new Date() > new Date(record.expires_at)) {
-    await pool.query('DELETE FROM otp_verifications WHERE id = $1', [record.id])
+    await kolDbWrite().query('DELETE FROM public.otp_verifications WHERE id = $1', [record.id])
     return { success: false, error: 'OTP has expired. Please register again.' }
   }
 
@@ -40,14 +40,14 @@ export async function verifyEmailOtp(input: VerifyOtpInput): Promise<VerifyOtpRe
   }
 
   // Create the user
-  await pool.query(
-    `INSERT INTO users (email, name, password_hash, email_verified)
-     VALUES ($1, $2, $3, true)`,
+  await kolDbWrite().query(
+    `INSERT INTO public.user (email, name, password_hash, email_verified, created_at, updated_at)
+     VALUES ($1, $2, $3, true, NOW(), NOW())`,
     [email, record.name, record.password_hash]
   )
 
   // Remove used OTP
-  await pool.query('DELETE FROM otp_verifications WHERE id = $1', [record.id])
+  await kolDbWrite().query('DELETE FROM public.otp_verifications WHERE id = $1', [record.id])
 
   return { success: true }
 }

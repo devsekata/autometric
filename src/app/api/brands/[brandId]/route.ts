@@ -1,69 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { getBrandById, verifyBrandAccess, updateBrandName, deleteBrand } from '@/lib/brands/queries'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
 type Params = { params: Promise<{ brandId: string }> }
 
-// GET /api/brands/[brandId]
-export async function GET(_req: NextRequest, { params }: Params) {
-  try {
-    const session = await auth()
-    const userId = session?.user?.id
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { brandId } = await params
-    const orgId = await verifyBrandAccess(brandId, userId)
-    if (!orgId) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
-
-    const brand = await getBrandById(brandId)
-    if (!brand) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
-
-    return NextResponse.json({ data: brand })
-  } catch (err) {
-    console.error('[GET /api/brands/[brandId]]', err)
-    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
-  }
+/**
+ * GET, PATCH, DELETE /api/brands/[brandId]
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable(params: Params['params']) {
+  void params
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return featureUnavailable('Brands')
 }
 
-// PATCH /api/brands/[brandId]
-export async function PATCH(req: NextRequest, { params }: Params) {
-  try {
-    const session = await auth()
-    const userId = session?.user?.id
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { brandId } = await params
-    const orgId = await verifyBrandAccess(brandId, userId)
-    if (!orgId) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
-
-    const body = await req.json()
-    const name = typeof body?.name === 'string' ? body.name.trim() : ''
-    if (!name) return NextResponse.json({ error: 'Brand name is required.' }, { status: 400 })
-    if (name.length > 255) return NextResponse.json({ error: 'Brand name is too long.' }, { status: 400 })
-
-    await updateBrandName(brandId, name)
-    return NextResponse.json({ data: { id: brandId, name } })
-  } catch (err) {
-    console.error('[PATCH /api/brands/[brandId]]', err)
-    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
-  }
-}
-
-// DELETE /api/brands/[brandId]
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  try {
-    const session = await auth()
-    const userId = session?.user?.id
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { brandId } = await params
-    const orgId = await verifyBrandAccess(brandId, userId)
-    if (!orgId) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
-
-    await deleteBrand(brandId)
-    return new NextResponse(null, { status: 204 })
-  } catch (err) {
-    console.error('[DELETE /api/brands/[brandId]]', err)
-    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
-  }
-}
+export async function GET(_req: NextRequest, { params }: Params) { return unavailable(params) }
+export async function PATCH(_req: NextRequest, { params }: Params) { return unavailable(params) }
+export async function DELETE(_req: NextRequest, { params }: Params) { return unavailable(params) }

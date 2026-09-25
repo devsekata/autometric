@@ -252,6 +252,12 @@ export interface KolDirectoryQuery {
    * "no results", because an absent selection is not a selection of nothing.
    */
   ids?: string[] | null
+  /**
+   * My Creators: only creators this agency holds an active link to in
+   * `agency_kol_accounts`. Matched on the id, never the name, and only ever set
+   * by a route that has already checked the caller's membership of it.
+   */
+  agencyId?: string | null
   q?: string | null
   platform?: string | null
   /**
@@ -780,6 +786,14 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          AND ($17::float8  IS NULL OR b.growth_pct >= $17)
          AND ($18::float8  IS NULL OR b.growth_pct <= $18)
          AND ($10::uuid[]  IS NULL OR b.id = ANY ($10))
+         -- My Creators: an active link from the requesting agency, keyed on the
+         -- agency id (never its name).
+         AND ($19::uuid    IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.agency_kol_accounts a
+                WHERE a.kol_account_id = b.id
+                  AND a.agency_id = $19
+                  AND a.is_active IS TRUE))
          -- Section Tabs (BE-04). Two different columns on purpose: when the row
          -- appeared, versus when its numbers were last measured.
          AND ($14::timestamptz IS NULL OR b.created_at >= $14)
@@ -821,6 +835,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       // guard that keeps "no bound" and "exactly flat" apart.
       query.minGrowth ?? null,
       query.maxGrowth ?? null,
+      query.agencyId || null,
     ],
     q !== null,
   )

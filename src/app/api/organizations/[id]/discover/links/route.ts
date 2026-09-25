@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import {
   countCreatorLinks, listCreatorLinks, parseLinkKey, toLinkRef, updateCreatorLink,
-  TRACKING_STATUSES, type TrackingStatus,
+  LinkUnavailableError, TRACKING_STATUSES, type TrackingStatus,
 } from '@/lib/discover/creatorLinks'
 
 type Params = { params: Promise<{ id: string }> }
@@ -113,6 +113,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     ])
     return NextResponse.json({ link, links, counts })
   } catch (err) {
+    // Tracking a warehouse-profiled account, or a creator not in the Creator
+    // Database: nothing on the KOL server can hold it. Said plainly, not a 500.
+    if (err instanceof LinkUnavailableError) {
+      return NextResponse.json({ error: err.message, code: 'feature_unavailable' }, { status: 409 })
+    }
     console.error('[POST /api/organizations/[id]/discover/links]', err)
     return NextResponse.json({ error: 'Unable to update this creator.' }, { status: 500 })
   }

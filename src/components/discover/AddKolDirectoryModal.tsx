@@ -94,6 +94,8 @@ type CheckResult =
   | { state: 'new'; account: AccountPreview }
 
 export interface AddKolDirectoryModalProps {
+  /** The workspace (agency) the creator is added for; the API checks membership. */
+  orgId: string
   /** Dismiss without adding anybody. */
   onClose: () => void
   /** The KOL was created in the directory (scraping continues in the background). */
@@ -102,7 +104,7 @@ export interface AddKolDirectoryModalProps {
   initialInput?: string | null
 }
 
-export default function AddKolDirectoryModal({ onClose, onKolAdded, initialInput }: AddKolDirectoryModalProps) {
+export default function AddKolDirectoryModal({ orgId, onClose, onKolAdded, initialInput }: AddKolDirectoryModalProps) {
   const [platform, setPlatform] = useState<CreatorPlatform>(
     () => {
       const p = initialInput ? platformOfUrl(initialInput) : null
@@ -146,7 +148,7 @@ export default function AddKolDirectoryModal({ onClose, onKolAdded, initialInput
       const res = await fetch('/api/kol-directory/add/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform, input: value.trim() }),
+        body: JSON.stringify({ orgId, platform, input: value.trim() }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'The check could not be completed.')
@@ -166,6 +168,7 @@ export default function AddKolDirectoryModal({ onClose, onKolAdded, initialInput
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          orgId,
           platform: account.platform, username: account.username, profileUrl: account.profileUrl,
           existingKolDirectoryId: account.existingKolDirectoryId ?? null,
           existingSocialAccountId: account.existingSocialAccountId ?? null,
@@ -194,7 +197,7 @@ export default function AddKolDirectoryModal({ onClose, onKolAdded, initialInput
 
     async function poll() {
       try {
-        const res = await fetch(`/api/kol-directory/add/${added!.id}/status`)
+        const res = await fetch(`/api/kol-directory/add/${added!.id}/status?orgId=${encodeURIComponent(orgId)}`)
         const data = await res.json()
         if (cancelled) return
         if (!res.ok) throw new Error(data?.error || 'Could not load progress.')
@@ -216,7 +219,7 @@ export default function AddKolDirectoryModal({ onClose, onKolAdded, initialInput
     poll()
     return () => { cancelled = true; if (timer) clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, added])
+  }, [phase, added, orgId])
 
   const backToInput = () => { setPhase('input'); setResult(null); setError('') }
 

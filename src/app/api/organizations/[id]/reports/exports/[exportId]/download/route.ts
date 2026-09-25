@@ -1,37 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
-import { getReportExport } from '@/lib/reports/queries'
-import { downloadFromGCS } from '@/lib/reports/storage/gcs'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
-export const runtime = 'nodejs'
+type Params = { params: Promise<{ id: string; exportId: string }> }
 
-const PPTX_MIME =
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-
-export async function GET(
-  _req: Request,
-  { params }: { params: Promise<{ id: string; exportId: string }> },
-) {
-  const { id: orgId, exportId } = await params
-  const access = await requireOrgMemberById(orgId)
-  if (!access) return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
-
-  const row = await getReportExport(access.orgId, exportId)
-  if (!row) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
-
-  let buffer: Buffer
-  try {
-    buffer = await downloadFromGCS(row.gcsObjectName)
-  } catch (e) {
-    console.error('[reports/exports] GCS download failed:', e)
-    return NextResponse.json({ error: 'File unavailable.' }, { status: 502 })
+/**
+ * GET /api/organizations/[id]/reports/exports/[exportId]/download
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable(params: Params['params']) {
+  const { id: orgId } = await params
+  if (!(await requireOrgMemberById(orgId))) {
+    return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
   }
-
-  const fileName = `${row.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'report'}.pptx`
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      'Content-Type': PPTX_MIME,
-      'Content-Disposition': `attachment; filename="${fileName}"`,
-    },
-  })
+  return featureUnavailable('Reports')
 }
+
+export async function GET(_req: NextRequest, { params }: Params) { return unavailable(params) }

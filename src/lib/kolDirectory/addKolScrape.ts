@@ -552,13 +552,29 @@ async function ensureAgencyLink(
     return
   }
 
-  const existing = await client.query<{ id: string }>(
-    `SELECT id FROM public.agency_kol_accounts
-      WHERE agency_id = $1 AND kol_account_id = $2 AND platform_id = $3
+  // Same lock and the same (agency, creator) key as My Creators' add
+  // (`@/lib/discover/myCreators`), so the two paths cannot both insert a link.
+  // KOL has no unique constraint on the pair; held until this transaction ends.
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`my-creators:${input.agencyId}:${kolDirectoryId}`])
+  const existing = await client.query<{ id: string; is_active: boolean | null }>(
+    `SELECT id, is_active FROM public.agency_kol_accounts
+      WHERE agency_id = $1 AND kol_account_id = $2
+      ORDER BY is_active IS TRUE DESC, created_at ASC NULLS LAST
       LIMIT 1`,
-    [input.agencyId, kolDirectoryId, pfId],
+    [input.agencyId, kolDirectoryId],
   )
-  if (existing.rows[0]) return
+  if (existing.rows[0]) {
+    // Adding a creator the agency once removed from My Creators puts them back.
+    if (existing.rows[0].is_active !== true) {
+      await client.query(
+        `UPDATE public.agency_kol_accounts
+            SET is_active = true, status = 'active', updated_at = now()
+          WHERE id = $1`,
+        [existing.rows[0].id],
+      )
+    }
+    return
+  }
 
   await client.query(
     `INSERT INTO public.agency_kol_accounts

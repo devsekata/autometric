@@ -1,4 +1,4 @@
-import pool from '@/lib/db'
+import kolDb, { kolDbWrite } from '@/lib/kolDb'
 
 export interface OrgMember {
   id: string
@@ -13,66 +13,49 @@ export interface OrgMember {
 }
 
 export async function getMembersByOrgId(orgId: string): Promise<OrgMember[]> {
-  const { rows } = await pool.query<OrgMember>(
+  const { rows } = await kolDb().query<OrgMember>(
     `SELECT
-       om.id,
-       om.user_id,
-       om.email,
+       am.id,
+       am.user_id,
+       u.email,
        u.name,
        u.avatar_url,
-       om.role,
-       om.status,
-       om.joined_at,
-       om.invited_at
-     FROM organization_members om
-     LEFT JOIN users u ON u.id = om.user_id
-     WHERE om.organization_id = $1
-       AND om.status IN ('ACTIVE', 'PENDING')
+       am.role,
+       am.status,
+       am.joined_at,
+       COALESCE(am.invited_at, am.created_at) AS invited_at
+     FROM public.agency_members am
+     JOIN public.user u ON u.id = am.user_id
+     WHERE am.agency_id = $1
+       AND am.status IN ('ACTIVE', 'PENDING')
      ORDER BY
-       CASE om.role WHEN 'ADMIN' THEN 1 ELSE 2 END,
-       om.invited_at ASC`,
+       CASE am.role WHEN 'ADMIN' THEN 1 ELSE 2 END,
+       COALESCE(am.invited_at, am.created_at) ASC`,
     [orgId]
   )
   return rows
 }
 
+/**
+ * Invitations are switched off until the owner decides how the KOL database
+ * stores them (DEC-11 L1): `agency_members.user_id` is NOT NULL and the table
+ * has no email column, so an invite to an address without an account has
+ * nowhere to live. The old body wrote `organization_members` on the analytics
+ * warehouse, which the KOL product must never write to.
+ */
 export async function inviteMember(
-  orgId: string,
-  email: string,
-  role: 'ADMIN' | 'MEMBER',
-  invitedBy: string
+  _orgId: string,
+  _email: string,
+  _role: 'ADMIN' | 'MEMBER',
+  _invitedBy: string
 ): Promise<{ ok: boolean; error?: string; member?: OrgMember }> {
-  const { rows: existing } = await pool.query(
-    `SELECT id FROM organization_members
-     WHERE organization_id = $1 AND email = $2`,
-    [orgId, email]
-  )
-  if (existing.length > 0) {
-    return { ok: false, error: 'This email is already a member or has a pending invitation.' }
-  }
-
-  const { rows: users } = await pool.query<{ id: string }>(
-    `SELECT id FROM users WHERE email = $1 LIMIT 1`,
-    [email]
-  )
-  const userId = users[0]?.id ?? null
-
-  const { rows } = await pool.query<OrgMember>(
-    `INSERT INTO organization_members
-       (organization_id, user_id, email, role, status, invited_by, joined_at)
-     VALUES ($1, $2, $3, $4, 'PENDING', $5, $6)
-     RETURNING id, user_id, email, role, status, joined_at, invited_at`,
-    [orgId, userId, email, role, invitedBy, userId ? new Date() : null]
-  )
-
-  const member: OrgMember = { ...rows[0], name: null, avatar_url: null }
-  return { ok: true, member }
+  return { ok: false, error: 'Inviting members is not available yet.' }
 }
 
 export async function removeMember(memberId: string, orgId: string): Promise<boolean> {
-  const { rowCount } = await pool.query(
-    `DELETE FROM organization_members
-     WHERE id = $1 AND organization_id = $2`,
+  const { rowCount } = await kolDbWrite().query(
+    `DELETE FROM public.agency_members
+     WHERE id = $1 AND agency_id = $2`,
     [memberId, orgId]
   )
   return (rowCount ?? 0) > 0
@@ -83,10 +66,10 @@ export async function updateMemberRole(
   orgId: string,
   role: 'ADMIN' | 'MEMBER'
 ): Promise<boolean> {
-  const { rowCount } = await pool.query(
-    `UPDATE organization_members
-     SET role = $1
-     WHERE id = $2 AND organization_id = $3`,
+  const { rowCount } = await kolDbWrite().query(
+    `UPDATE public.agency_members
+     SET role = $1, updated_at = NOW()
+     WHERE id = $2 AND agency_id = $3`,
     [role, memberId, orgId]
   )
   return (rowCount ?? 0) > 0

@@ -1,174 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { randomUUID } from 'crypto'
 import { auth } from '@/auth'
-import { verifyBrandAccess, connectSocialAccount } from '@/lib/brands/queries'
-import { uploadAvatarFromUrl } from '@/lib/cloudinary/upload'
-import { PLATFORM_LIST, Platform } from '@/lib/brands/types'
-import {
-  assertPlatformFreeForCsv,
-  connectCsvAccount,
-  PlatformTakenError,
-} from '@/lib/csv/queries'
-import { CSV_PLATFORMS, isCsvPlatform } from '@/lib/csv/types'
-import { checkAccountExists } from '@/lib/accounts/verifyAccount'
-import { initialIgSync } from '@/lib/instagram/sync'
-import { initialTtSync } from '@/lib/tiktok/sync'
-import { initialFbSync } from '@/lib/facebook/sync'
-import { logSyncEntries } from '@/lib/monitoring/logger'
+import { featureUnavailable } from '@/lib/discover/featureUnavailable'
 
 type Params = { params: Promise<{ brandId: string }> }
 
-function runInitialSync(
-  fn: () => Promise<Record<string, { count: number; error: string | null }>>,
-  meta: { platform: string; socialAccountId: string; brandId: string; orgId: string }
-) {
-  console.log(`[runInitialSync] START platform=${meta.platform} socialAccountId=${meta.socialAccountId}`)
-  const runId     = randomUUID()
-  const startedAt = new Date()
-
-  fn().then(async (result) => {
-    console.log(`[runInitialSync] SYNC DONE platform=${meta.platform} keys=${Object.keys(result).join(',')}`)
-    const finishedAt = new Date()
-    await logSyncEntries(
-      Object.entries(result).map(([category, { count, error }]) => ({
-        runId,
-        jobName:         'initial-sync',
-        platform:        meta.platform,
-        category,
-        socialAccountId: meta.socialAccountId,
-        brandId:         meta.brandId,
-        orgId:           meta.orgId,
-        status:          error ? 'failed' : 'success',
-        recordsSynced:   error ? null : count,
-        errorMessage:    error ?? null,
-        startedAt,
-        finishedAt,
-      }))
-    ).catch(e => console.error('[runInitialSync] log failed:', e))
-  }).catch(async (err) => {
-    const finishedAt = new Date()
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[runInitialSync] ${meta.platform} failed:`, err)
-    await logSyncEntries([{
-      runId,
-      jobName:         'initial-sync',
-      platform:        meta.platform,
-      category:        'unknown',
-      socialAccountId: meta.socialAccountId,
-      brandId:         meta.brandId,
-      orgId:           meta.orgId,
-      status:          'failed',
-      recordsSynced:   null,
-      errorMessage:    msg,
-      startedAt,
-      finishedAt,
-    }]).catch(e => console.error('[runInitialSync] log failed:', e))
-  })
+/**
+ * POST /api/brands/[brandId]/accounts
+ *
+ * Switched off: this endpoint reads or writes the analytics warehouse, and the
+ * KOL product uses the KOL database only. It answers "unavailable" until its
+ * data has a source of truth on the KOL server.
+ */
+async function unavailable(params: Params['params']) {
+  void params
+  const session = await auth()
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return featureUnavailable('Brands')
 }
 
-// POST /api/brands/[brandId]/accounts
-export async function POST(req: NextRequest, { params }: Params) {
-  try {
-    const session = await auth()
-    const userId = session?.user?.id
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { brandId } = await params
-    const orgId = await verifyBrandAccess(brandId, userId)
-    if (!orgId) return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
-
-    const body = await req.json()
-    const platform        = typeof body?.platform       === 'string' ? body.platform.trim() : ''
-    const username        = typeof body?.username       === 'string' ? body.username.trim().replace(/^@/, '') : ''
-    const oauthToken      = typeof body?.oauthToken     === 'string' ? body.oauthToken     : null
-    const refreshToken    = typeof body?.refreshToken   === 'string' ? body.refreshToken   : null
-    const tokenExpiresAt  = typeof body?.tokenExpiresAt === 'string' ? body.tokenExpiresAt : null
-    const avatarUrl       = typeof body?.avatarUrl      === 'string' ? body.avatarUrl      : null
-    const profileUrl      = typeof body?.profileUrl     === 'string' ? body.profileUrl     : null
-    const platformUserId  = typeof body?.platformUserId === 'string' ? body.platformUserId : null
-    const skipInitialSync = body?.skipInitialSync === true
-    const dataSource      = body?.dataSource === 'csv' ? 'csv' : 'api'
-
-    if (!platform || !PLATFORM_LIST.includes(platform as never)) {
-      return NextResponse.json({ error: 'Valid platform is required.' }, { status: 400 })
-    }
-    if (!username) {
-      return NextResponse.json({ error: 'Username is required.' }, { status: 400 })
-    }
-
-    // Akun bersumber CSV: tidak ada token, tidak ada sinkronisasi, dan HARUS
-    // connected = false supaya scheduler melewatinya. Datanya masuk belakangan
-    // lewat tab Data Sources, bukan di sini.
-    if (dataSource === 'csv') {
-      if (!isCsvPlatform(platform)) {
-        return NextResponse.json({
-          error: `Upload manual belum mendukung ${platform}. ` +
-                 `Yang didukung: ${CSV_PLATFORMS.join(', ')}.`,
-        }, { status: 400 })
-      }
-      try {
-        await assertPlatformFreeForCsv(brandId, platform as Platform)
-      } catch (e) {
-        if (e instanceof PlatformTakenError) {
-          return NextResponse.json({ error: e.message }, { status: 409 })
-        }
-        throw e
-      }
-
-      // Pastikan akunnya betul ADA sebelum dibuat. Akun CSV tidak melewati OAuth,
-      // jadi tanpa ini salah ketik apa pun akan diterima diam-diam — dan seluruh
-      // data L0 yang diunggah nanti menempel pada akun yang tidak pernah ada.
-      const check = await checkAccountExists(platform, username)
-      if (check.state === 'rejected') {
-        return NextResponse.json({ error: check.message }, { status: 400 })
-      }
-      if (check.state === 'unverified') {
-        console.warn(`[accounts] @${username} (${platform}) tidak terverifikasi: ${check.reason}`)
-      }
-
-      const created = await connectCsvAccount(brandId, platform as Platform, username)
-      return NextResponse.json({
-        data: {
-          id: created.id,
-          platform,
-          username: created.username,
-          avatar_url: null,
-          profile_url: null,
-          connected: false,
-          connected_at: null,
-          data_source: 'csv',
-        },
-        is_new: created.is_new,
-      }, { status: 201 })
-    }
-
-    let finalAvatarUrl = avatarUrl
-    if (avatarUrl && !avatarUrl.includes('res.cloudinary.com')) {
-      const slug = username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
-      finalAvatarUrl = await uploadAvatarFromUrl(avatarUrl, `${platform}/${slug}`) ?? avatarUrl
-    }
-
-    const { is_new, ...account } = await connectSocialAccount(brandId, platform, username, {
-      oauthToken, refreshToken, tokenExpiresAt, avatarUrl: finalAvatarUrl, profileUrl, platformUserId,
-    })
-
-    const meta = { platform, socialAccountId: account.id, brandId, orgId }
-
-    if (!skipInitialSync && is_new && platform === 'instagram' && platformUserId && oauthToken) {
-      runInitialSync(() => initialIgSync(account.id, platformUserId, oauthToken, brandId), meta)
-    }
-
-    if (!skipInitialSync && platform === 'tiktok' && oauthToken) {
-      runInitialSync(() => initialTtSync(account.id, oauthToken, brandId), meta)
-    }
-
-    if (!skipInitialSync && platform === 'facebook' && platformUserId && oauthToken) {
-      runInitialSync(() => initialFbSync(account.id, platformUserId, oauthToken, brandId), meta)
-    }
-
-    return NextResponse.json({ data: account, is_new }, { status: 201 })
-  } catch (err) {
-    console.error('[POST /api/brands/[brandId]/accounts]', err)
-    return NextResponse.json({ error: 'Something went wrong.' }, { status: 500 })
-  }
-}
+export async function POST(_req: NextRequest, { params }: Params) { return unavailable(params) }

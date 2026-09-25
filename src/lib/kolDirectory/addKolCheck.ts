@@ -208,6 +208,35 @@ async function checkTiktok(username: string, profileUrl: string): Promise<CheckK
   }
 }
 
+export type ExistingIdentity =
+  | { state: 'invalid_input'; message: string }
+  /** The handle has no roster row: the scrape inserts a fresh identity. */
+  | { state: 'none' }
+  /** A roster row exists but was never scraped through: reuse its ids. */
+  | { state: 'reuse'; kolDirectoryId: string; socialAccountId: string | null }
+  /** Already complete — adding again would overwrite a finished creator. */
+  | { state: 'already_in_directory'; kolDirectoryId: string }
+
+/**
+ * The roster ids an Add may reuse, derived on the SERVER from the handle.
+ *
+ * `POST /api/kol-directory/add` must never take `existingKolDirectoryId` /
+ * `existingSocialAccountId` from the request body at face value: the scrape
+ * UPDATEs `kol_directory` by that id (username, followers, bio, avatar), so a
+ * client-chosen id would let any member overwrite any creator in the shared
+ * roster. The ids are re-read here from (platform, username) — the same
+ * lookup `checkKolExists` uses, without its paid platform call.
+ */
+export async function resolveExistingIdentity(platform: AddKolPlatform, rawInput: string): Promise<ExistingIdentity> {
+  const parsed = parseCreatorInput(platform, rawInput)
+  if (!parsed.ok) return { state: 'invalid_input', message: parsed.message }
+  if (parsed.platform === 'facebook') return { state: 'invalid_input', message: 'Facebook is not supported for Add New KOL.' }
+  const existing = await findInDirectory(parsed.platform, parsed.username)
+  if (!existing) return { state: 'none' }
+  if (existing.hasFollowerData) return { state: 'already_in_directory', kolDirectoryId: existing.id }
+  return { state: 'reuse', kolDirectoryId: existing.id, socialAccountId: existing.social_account_id }
+}
+
 export async function checkKolExists(platform: AddKolPlatform, rawInput: string): Promise<CheckKolResult> {
   if (platform !== 'instagram' && platform !== 'tiktok') {
     return { state: 'invalid_input', message: `Platform "${platform}" is not supported for Add New KOL yet.` }

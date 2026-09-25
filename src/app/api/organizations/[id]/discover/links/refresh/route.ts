@@ -3,10 +3,8 @@ import { auth } from '@/auth'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import { getCreatorLink, markCreatorChecked, parseLinkKey, toLinkRef } from '@/lib/discover/creatorLinks'
 import { getRosterScrapeTarget } from '@/lib/discover/kolDirectory'
-import { startProfiling } from '@/lib/discover/creatorProfiling'
 import { startKolScrape, type AddKolPlatform } from '@/lib/kolDirectory/addKolScrape'
 import { profileUrlFor } from '@/lib/discover/creatorInput'
-import kolDb from '@/lib/kolDb'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -71,9 +69,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     if (ref.source === 'account') {
-      startProfiling(orgId, ref.id, 'refresh')
-      await markCreatorChecked(orgId, ref)
-      return NextResponse.json({ started: true, pipeline: 'profiling' }, { status: 202 })
+      // Warehouse-profiled accounts have no KOL equivalent to refresh.
+      return NextResponse.json(
+        { error: 'Refreshing accounts outside the Creator Database is not available.', code: 'feature_unavailable' },
+        { status: 409 },
+      )
     }
 
     const target = await getRosterScrapeTarget(ref.id)
@@ -96,20 +96,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     // Best-effort, exactly as the Add KOL route does it: `public.user` on the
     // KOL server is not populated from this app, so a miss must not stop a
     // refresh. See the note in `POST /api/kol-directory/add`.
-    let agencyId: string | null = null
-    let createdByUserId: string | null = null
-    if (session?.user?.email) {
-      try {
-        const { rows } = await kolDb().query<{ agency_id: string | null; id: string }>(
-          `SELECT agency_id, id FROM public.user WHERE email = $1 LIMIT 1`,
-          [session.user.email],
-        )
-        agencyId = rows[0]?.agency_id ?? null
-        createdByUserId = rows[0]?.id ?? null
-      } catch (err) {
-        console.warn('[discover/links/refresh] agency lookup failed, continuing without it:', err)
-      }
-    }
+    // The agency is the one the caller was just authorised against
+    // (`agency_members`), never `public.user.agency_id`, which says nothing
+    // about whether that membership is active.
+    const agencyId = access.orgId
+    const createdByUserId = access.userId
 
     await startKolScrape({
       platform: target.platform as AddKolPlatform,

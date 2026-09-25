@@ -1,22 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/auth'
+import { requireAgencyMember } from '@/lib/kolDirectory/agencyAccess'
 import { checkKolExists, type AddKolPlatform } from '@/lib/kolDirectory/addKolCheck'
 
 /**
  * POST /api/kol-directory/add/check
  *
- * "Add New KOL" — step one. Just a login check: `kol_directory` is not
- * org-scoped, so there is no membership to verify beyond "someone is signed
- * in".
+ * "Add New KOL" — step one. `kol_directory` itself is not org-scoped, but
+ * this is the first step of a flow that writes to it on an agency's behalf,
+ * so the caller must be an active member of `orgId`.
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const body = await req.json().catch(() => null)
+    const access = await requireAgencyMember(body?.orgId)
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
     const platform = body?.platform as AddKolPlatform | undefined
     const input = body?.input as string | undefined
 

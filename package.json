@@ -22,7 +22,6 @@
     "verify:profile-real": "dotenv -e .env.local -- npx tsx scripts/verify-creator-profile-real.ts",
     "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
     "verify:nav-roles": "npx tsx scripts/verify-nav-roles.ts",
-    "verify:persistence": "dotenv -e .env.local -- npx tsx scripts/verify-discover-persistence.ts",
     "verify:links": "dotenv -e .env.local -- npx tsx scripts/verify-creator-links.ts",
     "taxonomy:fetch": "dotenv -e .env.local -- node scripts/fetch-kol-categories.mjs",
     "brandmatch:fetch": "dotenv -e .env.local -- node scripts/brand-match/roster-fetch.mjs",

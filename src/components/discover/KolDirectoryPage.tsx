@@ -1421,6 +1421,7 @@ export default function KolDirectoryPage({
 
       {addOpen && (
         <AddKolDirectoryModal
+          orgId={orgId}
           onClose={() => setAddOpen(false)}
           onKolAdded={kolId => {
             setAddOpen(false)
