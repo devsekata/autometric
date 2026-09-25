@@ -596,9 +596,9 @@ const BASE = `
     --
     -- LATERAL ... LIMIT 1 rather than a plain join so the roster row stays one
     -- row even if a creator ever maps to more than one linked account, ordered
-    -- by followers to pick the same account the detail page shows. Only
-    -- followers_growth is read here: followers and tier stay on kol_directory,
-    -- which is the agreed source of truth for both.
+    -- by followers to pick the same account the detail page shows. Growth and
+    -- the audience columns the filters read are taken from here; followers and
+    -- tier stay on kol_directory, which is the agreed source of truth for both.
     LEFT JOIN LATERAL (
       SELECT c.followers_growth, c.female_pct, c.male_pct, c.audience_quality_tier
         FROM public.kol_social_account ksa

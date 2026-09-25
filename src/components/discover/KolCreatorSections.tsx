@@ -890,7 +890,7 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                 only appears for a creator whose posts carry tags. */}
             {!intel.real.hashtags && (
               <VizCard title="Top Hashtags">
-                <Unavailable text="Post creator ini belum memuat hashtag yang terpanen — 30 dari 7.432 creator punya data hashtag." />
+                <Unavailable text="Post creator ini belum memuat hashtag yang terpanen." />
               </VizCard>
             )}
             {intel.real.hashtags && intel.measured && (

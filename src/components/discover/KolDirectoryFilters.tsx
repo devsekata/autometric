@@ -7,28 +7,25 @@
  * a sticky 248px panel with accordion sections that stays open while you browse
  * (never a blocking overlay), collapsing to a vertical tab on the right edge.
  *
- * The reference panel offers sections this roster has no data for. They are
+ * The reference panel offers sections Discover cannot answer yet. They are
  * rendered disabled with the reason rather than shipped as controls that filter
- * nothing — and the reason is a measured number, taken 8 Sep 2026 against the
- * 7.720 active creators:
+ * nothing:
  *
- *   * audience age / gender / location / interest — 23 creators
- *     (`l2_gold.audience_*_daily`, `feature.ig|tt_audience_analysis`)
- *   * authenticity & audience quality — the same 23
- *   * brand fit — `feature.brand_fit_analysis` holds 0 rows
- *   * content format — 56 creators (`l2_gold.content_format_daily`)
- *   * creator location — `kol_directory.creator_city` is non-null for 0
- *   * campaigns run — `public.campaign_kols` holds 0 rows
+ *   * content format — `l2_gold.content_format_daily` has rows for a small part
+ *     of the roster, but no per-creator aggregation rule is set, so nothing
+ *     here reads it
+ *   * creator location — `kol_directory.creator_city` has no writer
+ *   * authenticity, brand fit, paid ratio, campaigns run ("Other Filters") —
+ *     no consumed source; `public.campaign_kols` holds no rows
+ *   * rate card — `l1_silver.unified_rate_card` holds no rows (the
+ *     roster-derived prices were removed by scrapper migration 050 — the roster
+ *     is not an official rate card). See `@/lib/discover/rateCardAvailability`.
  *
- * Rate card used to head that list and no longer does: `l1_silver.unified_rate_card`
- * holds 8.856 priced deliverables over 6.959 creators since 13 Sep 2026. The
- * `kol_profile_card.rate_card_*` columns are still null for every row, which is
- * by design — the directory reads L1 directly and those Gold columns are not a
- * second source for the same figure.
- *
- * What remains is what the roster answers for a usable share of itself:
- * platform, category, tier, followers (min AND max), engagement rate, rate card,
- * follower growth, and the two recency bounds the Section Tabs use.
+ * What is live: platform, category, tier, followers (min AND max), engagement
+ * rate, follower growth, Connected, the audience controls (gender share,
+ * audience quality, audience city — measured for a small part of the roster
+ * only, and an unmeasured creator never passes), and the two recency bounds the
+ * Section Tabs use.
  *
  * Two of those carry a caveat rather than a disabled state. Growth is real but
  * thin — it needs two profile snapshots and only ~25 creators have them — and
@@ -636,11 +633,10 @@ export function KolFilterPanel({
             </select>
           </div>
           <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
-            Engagement rate terpakai untuk 1.744 dari 7.721 creator (22,6%):
-            kolomnya terisi 1.757 kali, tapi 7 nilai di atas 100% dan 6 nilai nol
-            dibuang karena tidak mungkin. Memasang minimum menyembunyikan yang
-            belum pernah diukur. Follower terukur untuk 7.499, jadi batas atas
-            dan bawah bekerja untuk hampir seluruh roster. Growth dihitung dari
+            Engagement rate hanya dipakai bila nilainya mungkin: nilai nol dan
+            nilai di atas 100% dibuang. Memasang minimum menyembunyikan yang
+            belum pernah diukur. Batas atas dan bawah follower berlaku untuk
+            creator yang jumlah follower-nya tercatat. Growth dihitung dari
             perubahan followers sejak snapshot sebelumnya — bukan 30 hari — dan
             baru terukur untuk creator yang sudah punya dua snapshot; memasang
             band menyembunyikan sisanya.

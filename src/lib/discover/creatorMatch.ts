@@ -445,7 +445,7 @@ export const CREATOR_PRESETS: CreatorPreset[] = [
     rank: () => 0,
     matchLabel: 'Growth',
     basis: 'modelled',
-    unavailable: 'Pertumbuhan follower hanya terukur untuk 25 dari 7.720 creator (l2_gold.kol_profile_card.followers_growth).',
+    unavailable: 'Pertumbuhan follower baru terukur untuk creator yang sudah punya dua snapshot profil (l2_gold.kol_profile_card.followers_growth).',
   },
   {
     id: 'audience',
@@ -456,7 +456,7 @@ export const CREATOR_PRESETS: CreatorPreset[] = [
     rank: () => 0,
     matchLabel: 'Audience quality',
     basis: 'modelled',
-    unavailable: 'Skor kualitas audiens & authenticity baru ada untuk 23 dari 7.720 creator (feature.ig/tt_audience_analysis).',
+    unavailable: 'Skor kualitas audiens & authenticity baru ada untuk creator yang audiensnya sudah dianalisis (feature.ig/tt_audience_analysis).',
   },
   {
     id: 'brandfit',
