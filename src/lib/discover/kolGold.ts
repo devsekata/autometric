@@ -1,4 +1,5 @@
 import kolDb from '@/lib/kolDb'
+import { audienceGeoFor } from './audienceGeo'
 import { toIso } from './util'
 
 /**
@@ -16,7 +17,7 @@ import { toIso } from './util'
  *   * `l2_gold.kol_profile_card`            1.976 rows — one card per account
  *   * `l2_gold.kol_metric_daily`              280 rows — per account per day
  *   * `l2_gold.kol_metric_monthly`             68 rows — per account per month
- *   * `l2_gold.audience_demographics_daily`    69 rows — gender today, age later
+ *   * `l2_gold.audience_demographics_daily`    69 rows — gender, and age (mostly unknown)
  *   * `l2_gold.audience_geo_daily`            181 rows — country and city
  *   * `l2_gold.audience_interest_daily`       214 rows — interest keys
  *   * `l2_gold.post_metric`                    477 rows — one row per post
@@ -131,9 +132,10 @@ export interface GoldAudience {
   /** From `audience_type = 'gender'`. Empty when the creator has no inference. */
   gender: GoldAudienceSlice[]
   /**
-   * From `audience_type = 'age'`. **Empty for every creator today** — the
-   * demographics table currently holds only gender rows. Kept because the
-   * column that separates them already exists, so age needs no schema change.
+   * From `audience_type = 'age'`: ages followers state in their own bio
+   * (inferred, never generated). Almost always empty — nearly every follower's
+   * age is `unknown`, which is left out of the slices and shows up only as low
+   * `coverage.age`; a creator's slices may rest on a single known follower.
    */
   age: GoldAudienceSlice[]
   /** From `audience_geo_daily` where `geo_level = 'country'`. */
@@ -438,8 +440,8 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
 
     // Gender and age share one table, separated by `audience_type` — the
     // pipeline writes them as one demographics fact, not two. Only the newest
-    // day is read: these are daily snapshots of the same inference, so summing
-    // across days would count the same follower once per day.
+    // day is read here. (Geo below no longer follows this rule: its dates were
+    // shown to be disjoint follower batches — see `audienceGeo.ts`.)
     db.query<{ key: string | null; n: string | null; confidence: string | null; at: Date | string | null }>(
       `SELECT a.dimension_key AS key, SUM(a.audience_count) AS n,
               MODE() WITHIN GROUP (ORDER BY a.confidence) AS confidence,
@@ -458,8 +460,8 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       [kolId],
     ),
 
-    // Same table, `audience_type = 'age'`. Returns nothing today; wired now so
-    // the chart appears on its own once the pipeline starts writing age rows.
+    // Same table, `audience_type = 'age'`. The pipeline writes a row per follower
+    // batch, mostly `unknown`; only ages stated in a follower's bio are known.
     db.query<{ key: string | null; n: string | null }>(
       `SELECT a.dimension_key AS key, SUM(a.audience_count) AS n
          FROM public.kol_social_account ksa
@@ -476,18 +478,11 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       [kolId],
     ),
 
-    db.query<{ geo_level: string | null; key: string | null; n: string | null }>(
-      `SELECT g.geo_level, g.geo_key AS key, SUM(g.audience_count) AS n
-         FROM public.kol_social_account ksa
-         JOIN l2_gold.audience_geo_daily g ON g.social_account_id = ksa.social_account_id
-        WHERE ksa.kol_id = $1
-          AND g.audience_date = (
-                SELECT MAX(x.audience_date)
-                  FROM l2_gold.audience_geo_daily x
-                 WHERE x.social_account_id = g.social_account_id)
-        GROUP BY g.geo_level, g.geo_key`,
-      [kolId],
-    ),
+    // Geo is NOT newest-day-only, unlike the three reads around it: each geo
+    // date is a separate follower batch, so every inferred date is kept and
+    // only measured snapshots are cut to the newest. The rule lives in
+    // `audienceGeo.ts`, shared with Brand Match and the classifier.
+    audienceGeoFor([kolId], db).then(m => m.get(kolId) ?? {}),
 
     db.query<{ key: string | null; n: string | null }>(
       `SELECT i.interest_key AS key, SUM(i.audience_count) AS n
@@ -605,7 +600,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
 
   const hasAudience =
     gender.rows.length > 0 || age.rows.length > 0 ||
-    geo.rows.length > 0 || interest.rows.length > 0
+    Object.keys(geo).length > 0 || interest.rows.length > 0
 
   if (
     !cards.rows.length && !daily.rows.length && !monthly.rows.length &&
@@ -637,8 +632,10 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
   function buildAudience() {
     const g = toSlices(gender.rows)
     const a = toSlices(age.rows)
-    const country = toSlices(geo.rows.filter(r => r.geo_level === 'country'))
-    const city = toSlices(geo.rows.filter(r => r.geo_level === 'city'))
+    const geoLevel = (level: string) =>
+      Object.entries(geo[level] ?? {}).map(([key, n]) => ({ key, n }))
+    const country = toSlices(geoLevel('country'))
+    const city = toSlices(geoLevel('city'))
     const i = toSlices(interest.rows)
     return {
       gender: g.slices,
