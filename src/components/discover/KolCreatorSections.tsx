@@ -27,7 +27,7 @@ import {
 } from './kolViz'
 import type { ContentItem } from '@/lib/discover/kolIntel'
 import { measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
-import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+import type { BrandMatchResult } from '@/lib/discover/whatMatters/brandMatch'
 import { tabHref } from '@/lib/discover/tabs'
 import { MatchExplanationPanel } from './MatchBadge'
 import type {
@@ -48,7 +48,7 @@ export interface SectionProps {
    * — `matchScoreable` separates the two, because "we are still asking" and
    * "you have not told us who you are" need different screens.
    */
-  match: MatchExplanation | null
+  match: BrandMatchResult | null
   matchScoreable: boolean | null
   orgSlug: string
   /** Measured figures, each null where the warehouse has no source. */
@@ -1370,7 +1370,7 @@ export function BrandFitSection({ match, matchScoreable, orgSlug }: SectionProps
             </a>
           </div>
         ) : (
-          <MatchExplanationPanel match={match} />
+          <MatchExplanationPanel m={match} />
         )}
       </VizCard>
     </div>

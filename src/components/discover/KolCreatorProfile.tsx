@@ -114,12 +114,14 @@ export function ProfileSection({
                   literal string "Open" for every creator, and Match was
                   `kolSample`'s brand-fit number, which knew nothing about any
                   brand. Collab is dropped — the roster has no availability
-                  column — and Match is now the Brand Match Engine's real status
-                  against the saved Brand Profile. */}
+                  column — and Match is now the real Match %: the mean of the
+                  criteria the workspace chose. A dash where it could not be
+                  measured, never a band and never a zero. */}
               <MiniField
                 label="Match"
                 value={matchScoreable === false ? 'atur Brand Profile'
-                  : match?.level ?? 'belum dihitung'}
+                  : match === null || match.matchPct === null ? 'belum terukur'
+                    : `${match.matchPct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}% match`}
               />
             </div>
           </VizCard>

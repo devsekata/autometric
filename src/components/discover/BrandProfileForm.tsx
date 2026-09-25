@@ -41,6 +41,13 @@ interface Payload {
     categories: readonly string[]
     interests: readonly string[]
     genderMajorities: readonly string[]
+    /**
+     * The criteria Brand Match can average, served by the API rather than
+     * listed here. The form offers exactly these and nothing else, so a
+     * criterion the engine cannot score — `brand_safety` above all — is not
+     * offerable rather than offered and silently dropped on save.
+     */
+    whatMatters: readonly { key: string; label: string }[]
   }
 }
 
@@ -73,9 +80,81 @@ const CONTENT_STYLES = [
 const PERSONALITIES = [
   'Playful', 'Premium', 'Warm', 'Bold', 'Minimal', 'Energetic',
   'Trustworthy', 'Youthful', 'Confident', 'Down-to-earth',
+  'Professional', 'Innovative', 'Friendly', 'Educational', 'Authentic', 'Caring', 'Modern',
+]
+
+/**
+ * Brand Values, as the product prototype lists them. Saved to
+ * `brand_profile.brand_values` (migrations/kol/008) together with any custom
+ * value typed below them. Stored and shown only — no Brand Match, What Matters
+ * or Brand Fit code reads it, and the hint under the field says so.
+ */
+const BRAND_VALUES = [
+  'Innovation', 'Trust', 'Authenticity', 'Creativity', 'Community', 'Sustainability',
+  'Inclusivity', 'Quality', 'Transparency', 'Accessibility', 'Empowerment',
+]
+
+/**
+ * The prototype's wording for a What Matters option, where it differs from the
+ * criterion label What Matters itself uses. Display only: the key sent and
+ * stored is unchanged, and the Brand Match breakdown keeps its own label.
+ */
+const PROTOTYPE_WM_LABEL: Record<string, string> = {
+  strong_community: 'Strong Community',
+}
+
+/**
+ * The Target Audience criteria, and what fills each one in.
+ *
+ * A criterion enters Brand Match only when its field says something — the same
+ * rule `selectedAudienceCriteria` applies server-side. This list is what lets
+ * the form SHOW that rule instead of leaving the user to discover it: a
+ * criterion nothing selects is drawn as unselected and unselectable, never as a
+ * chip that looks pickable and then contributes nothing.
+ */
+const AUDIENCE_CRITERIA: { label: string; from: string; on: (p: BrandProfile) => boolean }[] = [
+  { label: 'Audience Gender', from: 'Audience gender', on: p => ['Female', 'Male', 'Balanced'].includes(p.genderMajority) },
+  { label: 'Audience Age', from: 'Age range', on: p => p.targetAgeMin !== null || p.targetAgeMax !== null },
+  { label: 'Audience Country', from: 'Target country', on: p => !!p.targetCountry?.trim() },
+  { label: 'Audience City', from: 'Target city', on: p => !!p.targetCity?.trim() },
+  { label: 'Audience Interest', from: 'Audience interests', on: p => p.audienceInterests.length > 0 },
 ]
 
 /* ── small inputs ─────────────────────────────────────────────────────────── */
+
+/**
+ * A chip that can be UNSELECTABLE, with the reason attached.
+ *
+ * `Chip` in `./ui` has no disabled state, and a criterion Brand Match cannot
+ * score must not be pickable: picking it would either do nothing, or — worse —
+ * invite the reader to believe the creators who lack it were scored zero on it.
+ * They are not. An unmeasured criterion leaves the DENOMINATOR; it is never
+ * counted as a zero, by the engine or by this form.
+ */
+function PickChip({
+  label, on, disabled, reason, onClick,
+}: { label: string; on: boolean; disabled?: boolean; reason?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => { if (!disabled) onClick() }}
+      disabled={disabled}
+      aria-disabled={disabled}
+      title={reason}
+      style={{ ...PJ, cursor: disabled ? 'not-allowed' : 'pointer' }}
+      className={`inline-flex items-center gap-1 rounded-full text-[11px] font-bold px-2.5 h-[26px] border transition-colors ${
+        disabled
+          ? 'bg-[#f9fafb] border-[#f3f4f6] text-[#c3c9d0]'
+          : on
+            ? 'bg-[#f0f7fa] border-[#327488] text-[#285D6E]'
+            : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4] hover:text-[#374151]'
+      }`}
+    >
+      {disabled && <span className="material-symbols-outlined text-[13px]">do_not_disturb_on</span>}
+      {label}
+    </button>
+  )
+}
 
 function Field({
   label, hint, children,
@@ -217,11 +296,16 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
     setSaved(null)
   }
 
-  const toggle = (key: 'brandPersonality' | 'audienceInterests' | 'preferredCategories'
-    | 'preferredPlatforms' | 'preferredTiers' | 'contentStyles', v: string) => {
+  const toggle = (key: 'brandPersonality' | 'brandValues' | 'audienceInterests'
+    | 'preferredCategories' | 'preferredPlatforms' | 'preferredTiers' | 'contentStyles'
+    | 'whatMatters', v: string) => {
     setDraft(d => {
       if (!d) return d
-      const list = d[key]
+      // Widened to `string[]` because `whatMatters` is a union-keyed list: the
+      // server is what validates the vocabulary (`cleanWhatMatters` drops
+      // anything unknown), and the chips can only ever send one of its own
+      // options anyway.
+      const list = d[key] as readonly string[]
       return { ...d, [key]: list.includes(v) ? list.filter(x => x !== v) : [...list, v] }
     })
     setSaved(null)
@@ -256,7 +340,16 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
   if (!data || !draft) return <Spinner label="Loading brand profile…" />
 
   const ro = !data.canEdit
-  const scoreableNow = !!draft.brandCategory
+  /**
+   * Whether this draft would produce a Match % — the same question
+   * `isScoreable` answers server-side, and the same answer: has anything been
+   * SELECTED. It used to be `!!draft.brandCategory`, because the weighted
+   * scorer's Category Match was the one component that reached the whole
+   * roster. That scorer is gone and a brand category now moves no Match %, so
+   * gating the strip on it would promise scoring that a category alone cannot
+   * turn on.
+   */
+  const scoreableNow = draft.whatMatters.length > 0 || AUDIENCE_CRITERIA.some(c => c.on(draft))
 
   return (
     <div className="max-w-[880px]">
@@ -278,12 +371,12 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
           <div style={{ ...PJ, color: scoreableNow ? T.primaryDeep : T.t2 }} className="text-[12px] font-bold">
             {scoreableNow
               ? 'Match scoring is on for the Creator Database'
-              : 'Choose a brand category to turn match scoring on'}
+              : 'Choose what matters to turn match scoring on'}
           </div>
           <div className="text-[11px] leading-snug" style={{ color: T.t3 }}>
             {scoreableNow
               ? 'Every creator is scored against this profile on the next request — no restart needed.'
-              : 'Brand category is the one field the engine needs. Without it, creators are listed but not scored, rather than scored against nothing.'}
+              : 'Brand Match is the average of the criteria you choose below (plus any Target Audience you fill in). With none chosen, creators are listed and show “Match —”, rather than a number averaged over nothing.'}
             {data.profile.updatedAt && ` Last saved ${new Date(data.profile.updatedAt).toLocaleString()}.`}
           </div>
         </div>
@@ -347,6 +440,17 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
         </Field>
 
         <Field
+          label="Company website (optional)"
+          hint="Stored and shown only. Nothing fetches it and no score reads it."
+        >
+          <input
+            className={inputCls} style={inputStyle} disabled={ro}
+            value={draft.companyWebsite ?? ''} placeholder="e.g. https://lumiskin.id"
+            onChange={e => set('companyWebsite', e.target.value || null)}
+          />
+        </Field>
+
+        <Field
           label="Brand personality"
           hint="Stored and shown, not yet scored: the creator database has no personality or tone reading for anyone, so this dimension is reported as unmeasured rather than guessed at."
         >
@@ -359,47 +463,38 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
             ))}
           </div>
         </Field>
-      </Section>
-
-      {/* ── What the brand talks about ── */}
-      <Section
-        icon="tag"
-        title="Brand Keywords & Topics"
-        subtitle="Searched in what creators actually write — their bio, captions and hashtags."
-      >
-        <Field
-          label="Brand keywords"
-          hint="Searched in creator bios, captions and category names. Sparse today: bios are filled for about 12% of the roster, so this lifts the creators it reaches rather than ranking everyone. Adding terms your creators never use lowers this signal for all of them equally — keep the list tight."
-        >
-          <TagInput
-            value={draft.brandKeywords} disabled={ro}
-            onChange={v => set('brandKeywords', v)}
-            placeholder="Type a keyword and press Enter, or paste a comma-separated list"
-          />
-        </Field>
 
         <Field
-          label="Brand hashtags"
-          hint="Searched in the creator's own hashtags. Sparser still — only part of the post harvest carries any hashtag. The leading # is optional."
+          label="Brand values"
+          hint="Stored and shown only (migrations/kol/008). No Brand Match, What Matters or Brand Fit code reads it — it is here because it is real brand configuration, not because it changes a score."
         >
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {BRAND_VALUES.map(v => (
+              <Chip
+                key={v} label={v} on={draft.brandValues.includes(v)}
+                onClick={() => { if (!ro) toggle('brandValues', v) }}
+              />
+            ))}
+          </div>
+          {/* Custom values: anything saved that is not one of the prototype's. */}
           <TagInput
-            value={draft.brandHashtags} disabled={ro}
-            onChange={v => set('brandHashtags', v.map(x => x.replace(/^#+/, '')))}
-            placeholder="e.g. skincare, glowup"
-          />
-        </Field>
-
-        <Field
-          label="Content topics"
-          hint="Searched in creator captions for the Content dimension. Leave blank to reuse your brand keywords."
-        >
-          <TagInput
-            value={draft.captionTerms} disabled={ro}
-            onChange={v => set('captionTerms', v)}
-            placeholder="e.g. morning routine, serum, sunscreen"
+            value={draft.brandValues.filter(v => !BRAND_VALUES.includes(v))} disabled={ro}
+            onChange={custom => set('brandValues', [
+              ...draft.brandValues.filter(v => BRAND_VALUES.includes(v)), ...custom,
+            ])}
+            placeholder="Add another value and press Enter"
           />
         </Field>
       </Section>
+
+      {/*
+        ── Brand Keywords & Topics is gone ──
+        Keywords, hashtags and caption terms were inputs to the weighted Brand
+        Match scorer, which is gone; `migrations/kol/009` dropped their columns
+        with it. Nothing reads them, so the fields are removed rather than left
+        on screen writing to nowhere — a preference a buyer can still type is a
+        preference they will believe is doing something.
+      */}
 
       {/* ── Target audience ── */}
       <Section
@@ -502,50 +597,73 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
           </div>
         </Field>
 
-        <div style={{ ...PJ, color: T.t4 }} className="text-[10.5px] font-bold uppercase tracking-wider mt-4 mb-2">
-          Creator evaluation preferences
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-          <Field label="Minimum followers" hint="Leave blank for no floor. 0 is a real value and is not the same as blank.">
-            <input
-              type="number" min={0} className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.minFollowers ?? ''} placeholder="e.g. 10000"
-              onChange={e => set('minFollowers', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Minimum engagement rate (%)" hint="Measured for about a quarter of the roster; setting this excludes creators whose rate was never measured.">
-            <input
-              type="number" min={0} step="0.1" className={inputCls} style={inputStyle} disabled={ro}
-              value={draft.minErPct ?? ''} placeholder="e.g. 3"
-              onChange={e => set('minErPct', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-        </div>
+        {/*
+          "Creator evaluation preferences" — minimum followers, minimum ER, and
+          the two eligibility toggles — is gone. They had no column after
+          `migrations/kol/009` and nothing read them. The Creator Database's own
+          `minFollowers` / `minEr` / `verifiedOnly` filters are URL filters with
+          the same names and are still there; these were a second, silent copy.
+        */}
+      </Section>
 
-        <label className="flex items-center gap-2 mb-2 cursor-pointer">
-          <input
-            type="checkbox" disabled={ro} checked={draft.requireCategory}
-            onChange={e => set('requireCategory', e.target.checked)}
-          />
-          <span style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-bold">
-            Only show creators that carry a category
-          </span>
-          <span className="text-[10.5px]" style={{ color: T.t4 }}>
-            — about 54% of the roster does
-          </span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox" disabled={ro} checked={draft.verifiedOnly}
-            onChange={e => set('verifiedOnly', e.target.checked)}
-          />
-          <span style={{ ...PJ, color: T.t2 }} className="text-[11.5px] font-bold">
-            Only show verified creators
-          </span>
-          <span className="text-[10.5px]" style={{ color: T.t4 }}>
-            — about 8% of the roster is
-          </span>
-        </label>
+      {/* ── What matters most ── the criteria Brand Match averages ──
+          This section IS the Brand Match configuration. Match % is the mean of
+          what is chosen here plus the Target Audience criteria the fields above
+          fill in — equal weight each, and a criterion this creator cannot be
+          measured on leaves the denominator rather than scoring zero. Nothing
+          else on this page changes a Match %. */}
+      <Section
+        icon="tune"
+        title="What matters most when evaluating creators?"
+        subtitle="Brand Match is the average of the criteria you pick here and the Target Audience you filled in above. Equal weight each — there are no weights to tune, and no Excellent / Strong / Good bands: the number is the mean, and it says so."
+      >
+        <Field
+          label="What Matters"
+          hint="Only criteria Brand Match can actually score are offered. Brand Safety is not among them — there is no sentiment or risk column on this server, so it is absent rather than shown and quietly ignored."
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {data.vocabulary.whatMatters.map(o => (
+              <PickChip
+                key={o.key}
+                label={PROTOTYPE_WM_LABEL[o.key] ?? o.label}
+                on={(draft.whatMatters as readonly string[]).includes(o.key)}
+                onClick={() => { if (!ro) toggle('whatMatters', o.key) }}
+              />
+            ))}
+          </div>
+        </Field>
+
+        {/* The other half of the mean, shown rather than explained: a Target
+            Audience criterion is selected exactly when its field above says
+            something, so an empty field draws as unselectable with the field
+            that would turn it on named in the tooltip. */}
+        <Field
+          label="Target Audience criteria"
+          hint="Selected by the Target Audience fields above, not picked here. An empty field selects nothing and never reaches the average — it is not a zero."
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {AUDIENCE_CRITERIA.map(c => {
+              const on = c.on(draft)
+              return (
+                <PickChip
+                  key={c.label} label={c.label} on={on} disabled={!on}
+                  reason={on
+                    ? `Selected by “${c.from}” above — it counts toward Match %.`
+                    : `Not selected: fill in “${c.from}” above to include it. It is left out of the average, not scored zero.`}
+                  onClick={() => {}}
+                />
+              )
+            })}
+          </div>
+        </Field>
+
+        {!draft.whatMatters.length && !AUDIENCE_CRITERIA.some(c => c.on(draft)) && (
+          <p className="text-[10.5px]" style={{ color: T.t4 }}>
+            <span className="material-symbols-outlined text-[12px] align-[-2px] mr-0.5">info</span>
+            Nothing chosen yet — creators show “Match —” rather than a number, because there is
+            nothing to average.
+          </p>
+        )}
       </Section>
 
       {!ro && (

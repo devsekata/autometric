@@ -42,9 +42,12 @@ import { useDiscoverFavorites } from './useDiscoverFavorites'
 import { useSavedFilters } from './useSavedFilters'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
-  KolDataStatus, KolDirectoryFacets, KolDirectoryMatch, KolDirectoryPayload, KolDirectoryRow,
+  KolDataStatus, KolDirectoryFacets, KolDirectoryMeasured, KolDirectoryPayload, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
-import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+// From `matchSort`, not `kolDirectory`: a VALUE import of the latter pulls
+// `pg` into the browser bundle. Same function, re-exported there.
+import { rankByMatch } from '@/lib/discover/matchSort'
+import type { BrandMatchResult, DirectoryBrandMatch } from '@/lib/discover/whatMatters/brandMatch'
 import { MatchBadge, NoBrandProfileNotice } from './MatchBadge'
 import type { Deliverable, RosterRateCard } from '@/lib/discover/vocab'
 import { RATE_CARD_AVAILABLE } from '@/lib/discover/rateCardAvailability'
@@ -124,9 +127,10 @@ type SortState = { key: SortKey; dir: 'asc' | 'desc' }
  *
  * Three conditions, and each one is a rule the product asked for:
  *
- *   scoreable    There is a saved Brand Profile, so there are scores to order
- *                by. Without one the route returns before it computes anything
- *                and the ordering would be over a page of nulls.
+ *   scoreable    The workspace's Brand Profile has CHOSEN criteria, so there
+ *                are Match % to order by. With nothing chosen the engine
+ *                answers `no_selection` and the ordering would be over a page
+ *                of nulls.
  *   !userPicked  Nobody has chosen an ordering yet. A default may fill a blank;
  *                it may never overrule a choice. This is what stops a workspace
  *                with a profile from snapping back to Match Score every time a
@@ -366,17 +370,21 @@ export default function KolDirectoryPage({
   const [total, setTotal] = useState(0)
   const [facets, setFacets] = useState<KolDirectoryFacets | null>(null)
   /**
-   * The real Brand Match for this page, from `@/lib/discover/brandMatch`.
-   *
-   * Server-computed and carried on the payload rather than derived here: the
-   * engine reads six medallion tables the browser has no access to, and the
-   * score has to be the same number Compare and the creator report show.
-   *
-   * `null` until the first response. `match.scoreable === false` means the
-   * workspace has not saved a Brand Profile, which is a different state from
-   * "this creator could not be scored" and is drawn differently.
+   * The MEASURED creator signals for this page — authenticity, audience
+   * quality, growth, views, cadence — read from the medallion tables by the
+   * route. Creator facts: nothing here depends on a brand, which is why they
+   * ride the list request. Null until the first response.
    */
-  const [match, setMatch] = useState<KolDirectoryMatch | null>(null)
+  const [measured, setMeasured] = useState<KolDirectoryMeasured | null>(null)
+  /**
+   * Brand Match for the creators on this page, from the ONE engine
+   * (`@/lib/discover/whatMatters/brandMatch`).
+   *
+   * Server-computed and fetched in its own request (see the effect below), so
+   * the list never waits on it and never fails with it. Every number drawn is
+   * the API's `matchPct`; nothing here averages anything.
+   */
+  const [brandMatch, setBrandMatch] = useState<DirectoryBrandMatch | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   /** Bumped by the retry button — the KOL host is remote and can blip. */
@@ -499,14 +507,15 @@ export default function KolDirectoryPage({
     if (search) params.set('q', search)
     if (facetsFor.current !== filters.platform) params.set('facets', '1')
     /**
-     * Ask for the real Brand Match alongside the page.
+     * Ask for the measured creator signals alongside the page.
      *
-     * Always, rather than only when a profile exists: the client cannot know
-     * whether one does without asking, and the route returns early — before it
-     * queries anything — for a workspace that has not saved one. So the cost is
-     * a boolean for those orgs, and the scores for the rest.
+     * Brand Match is deliberately NOT asked for here — it has its own request,
+     * by the ids that came back (see the effect below). These are different
+     * questions: what the pipeline measured about a creator, and how well that
+     * creator fits this workspace's stated criteria. Coupling them made the
+     * whole list fail whenever the second one could not be answered.
      */
-    params.set('match', '1')
+    params.set('measured', '1')
 
     let cancelled = false
     setLoading(true)
@@ -524,7 +533,7 @@ export default function KolDirectoryPage({
         if (cancelled) return
         setRows(d.rows)
         setTotal(d.total)
-        setMatch(d.match ?? null)
+        setMeasured(d.measured ?? null)
         if (d.facets) { setFacets(d.facets); facetsFor.current = filters.platform }
       })
       .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
@@ -562,7 +571,33 @@ export default function KolDirectoryPage({
    * list with no Brand Profile has no scores, and an unfiltered list with one
    * has a score for every creator on it.
    */
-  const scored = !!match?.scoreable
+  /**
+   * Brand Match for the ids that came back — its own request.
+   *
+   * `?match=1` makes the route read THIS agency's Brand Profile (its saved What
+   * Matters and Target Audience) and score exactly these creators. Asking for
+   * it separately, by the ids already on screen, keeps the Directory itself
+   * independent of it: if Brand Match cannot be answered (a KOL server hiccup,
+   * a profile that has chosen nothing), the list still loads and the badges
+   * simply do not appear. Nothing here computes a score — every number shown is
+   * the API's `matchPct`.
+   */
+  const pageIds = rows.map(r => r.id).join(',')
+  useEffect(() => {
+    if (!pageIds) { setBrandMatch(null); return }
+    let cancelled = false
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${pageIds}&match=1`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { brandMatch?: DirectoryBrandMatch } | null) => {
+        if (!cancelled) setBrandMatch(d?.brandMatch ?? null)
+      })
+      .catch(() => { if (!cancelled) setBrandMatch(null) })
+    return () => { cancelled = true }
+  }, [orgId, pageIds, reload])
+
+  /** Shown only once the brand has chosen criteria; `no_selection` shows nothing. */
+  const matchOn = !!brandMatch && !brandMatch.unavailable
+  const scored = matchOn
 
   /**
    * A workspace that has said who it is opens on Match Score, High to Low.
@@ -608,14 +643,14 @@ export default function KolDirectoryPage({
    */
   const signals = useMemo(() => {
     const map = new Map<string, CreatorSignals>()
-    // `match.measured` is what the server read out of the medallion tables for
-    // this exact page. Absent while the first response is in flight, which
-    // leaves every measured field null — the same thing the UI draws for a
-    // creator nobody has analysed, and the correct thing to draw before the
-    // answer arrives.
-    for (const r of rows) map.set(r.id, creatorSignals(r, match?.measured[r.id] ?? null))
+    // `measured` is what the server read out of the medallion tables for this
+    // exact page. Absent while the first response is in flight, which leaves
+    // every measured field null — the same thing the UI draws for a creator
+    // nobody has analysed, and the correct thing to draw before the answer
+    // arrives.
+    for (const r of rows) map.set(r.id, creatorSignals(r, measured?.[r.id] ?? null))
     return map
-  }, [rows, match])
+  }, [rows, measured])
 
   const badgesOf = useCallback(
     (id: string): CreatorBadge[] => {
@@ -626,23 +661,45 @@ export default function KolDirectoryPage({
   )
 
   /**
-   * The authoritative brand match for one row.
+   * The authoritative Brand Match for one row.
    *
    * This used to be `matchScore(row, signals, criteria)` — a score for how well
    * a creator answered the FILTERS the user had just set, which is a restatement
    * of the query rather than a judgement about the creator, and which drew part
-   * of its number from figures `kolSample` invents. It is gone.
+   * of its number from figures `kolSample` invents. It is gone, and so is the
+   * weighted scorer that replaced it.
    *
-   * What replaces it is the Brand Match Engine's Final Match Score: the creator
-   * against the workspace's saved Brand Profile, computed on the server from
-   * `public.kol_directory` and the medallion tables, by the same model the
-   * published comparison workbook runs. `null` means either no profile is saved
-   * or this creator was not in the scored set — `match.scoreable` tells the UI
-   * which, and the two are drawn differently.
+   * What answers it now is the one Brand Match engine: the mean of the criteria
+   * this workspace's Brand Profile chose — its What Matters, plus each Target
+   * Audience field it filled in — computed on the KOL server. `null` means this
+   * creator was not in the scored set; `matchOn` is false when the profile has
+   * chosen nothing at all, and the two are drawn differently.
    */
   const matchOf = useCallback(
-    (r: KolDirectoryRow): MatchExplanation | null => match?.rows[r.id] ?? null,
-    [match],
+    (r: KolDirectoryRow): BrandMatchResult | null => (matchOn ? brandMatch?.rows[r.id] ?? null : null),
+    [matchOn, brandMatch],
+  )
+
+  /**
+   * `sort=match` — this page, ordered by Match %.
+   *
+   * Applied here rather than by the route, because Brand Match is a separate
+   * request now: the list cannot be made to wait for it without reintroducing
+   * the coupling that separation removed. The page itself is unchanged — it was
+   * selected and tie-broken by the follower ordering `SORT_COLUMNS.match`
+   * aliases to — so only the order within it moves. Paging, filters and `total`
+   * are untouched, which is why the sort is labelled "halaman ini".
+   *
+   * The ordering is `rankByMatch` from `kolDirectory`: one pure implementation,
+   * verified without a database, used by the card grid and the table alike, and
+   * unscored creators sink to the bottom in BOTH directions — "lowest match
+   * first" must never mean "unmeasured first".
+   */
+  const ordered = useMemo(
+    () => (sort.key === 'match' && matchOn
+      ? rankByMatch(rows, r => matchOf(r)?.matchPct ?? null, sort.dir)
+      : rows),
+    [rows, sort.key, sort.dir, matchOn, matchOf],
   )
 
   /**
@@ -901,7 +958,7 @@ export default function KolDirectoryPage({
 
         {/* Nothing is broken — something has not been said yet. Shown once, above
             the list, rather than as an empty badge on every card. */}
-        {match && !match.scoreable && (
+        {brandMatch && !matchOn && (
           <NoBrandProfileNotice href={`${tabHref(orgSlug, 'settings')}&view=discover`} />
         )}
 
@@ -929,10 +986,12 @@ export default function KolDirectoryPage({
                     "halaman ini" is load-bearing: the scores rank the ~20
                     creators that loaded, not the roster.
                   */}
-                  {scored && sort.key === 'match' && (
-                    match?.brandCategory
-                      ? ` · halaman ini diurutkan dari yang paling cocok untuk brand ${match.brandCategory}`
-                      : ' · halaman ini diurutkan dari yang paling cocok'
+                  {matchOn && sort.key === 'match' && (
+                    brandMatch?.whatMatters.length
+                      ? ` · halaman ini diurutkan dari Match % tertinggi atas ${
+                        brandMatch.whatMatters.length + (brandMatch.audienceCriteria?.length ?? 0)
+                      } kriteria yang dipilih workspace`
+                      : ' · halaman ini diurutkan dari Match % tertinggi'
                   )}
                   {` · ${favorites.keys.size} favorites · ${compare.ids.size} in compare`}
                   {links.counts.roster > 0 && ` · ${links.counts.roster} in My Creators`}
@@ -1310,7 +1369,7 @@ export default function KolDirectoryPage({
                   </div>
                 ) : (
                   <DirectoryTable
-                    rows={rows} cols={cols} sort={sort} onSort={sortBy}
+                    rows={ordered} cols={cols} sort={sort} onSort={sortBy}
                     selected={selected} onToggleRow={toggleRow}
                     allOnPage={pageAllSelected} onToggleAll={toggleAllOnPage}
                     inCart={inCart}
@@ -1400,7 +1459,7 @@ export default function KolDirectoryPage({
         <CreatorQuickInsight
           creator={insightRow}
           match={matchOf(insightRow)}
-          measured={match?.measured[insightRow.id] ?? null}
+          measured={measured?.[insightRow.id] ?? null}
           inShortlist={favorites.has('roster', insightRow.id)}
           inCompare={inCompare(insightRow.id)}
           inRoster={links.inRoster('roster', insightRow.id)}
@@ -1473,7 +1532,7 @@ function CreatorCard({
    * The Brand Match Engine's verdict on this creator, or null when the
    * workspace has no saved Brand Profile to compare them against.
    */
-  match: MatchExplanation | null
+  match: BrandMatchResult | null
   fav: boolean; inCompare: boolean; inCart: boolean
   /** In this organization's My Creators — an org-wide state, unlike `fav`. */
   inRoster: boolean
@@ -1561,10 +1620,12 @@ function CreatorCard({
       {match && (
         <div className="absolute top-[9px] left-[9px] z-[3] rounded-lg"
           style={{ background: 'rgba(255,255,255,.92)', boxShadow: T.shadow }}>
-          {/* Score AND status, not a bare percentage. "63" alone invites the
-              reader to invent their own threshold; "63 Moderate" is the band the
-              engine actually assigned. Hovering gives the sentence behind it. */}
-          <MatchBadge match={match} size="sm" />
+          {/* The percentage, and nothing standing in for it. There is no band
+              here — no Moderate, no Strong: the number is the mean of the
+              criteria this workspace chose, and naming a tier would assert a
+              judgement the model never made. Hovering gives the breakdown, and
+              says which chosen criteria this creator could not be measured on. */}
+          <MatchBadge m={match} size="sm" />
         </div>
       )}
 

@@ -6,10 +6,10 @@
  * `whatmatters:port:verify` sudah memastikan enam kriteria mereproduksi Python.
  * Yang TIDAK bisa dijamin olehnya ada dua:
  *
- *   Content Quality   Python selalu mengembalikan None di sini, jadi tidak ada
- *                     yang bisa dibandingkan. Seluruh formula + dua rubriknya
- *                     hanya hidup di TypeScript, dan hanya file ini yang
- *                     menjaganya.
+ *   Content Quality   Paritas angkanya dengan Python sudah dijaga port
+ *                     verifier (sejak scrapper 5cf0578). File ini menjaga
+ *                     PERILAKU-nya: kasus normal, tiap komponen NULL, semua
+ *                     NULL, renormalisasi bobot, dan aturan sampel post.
  *
  *   Nullable          Cabang null adalah tempat model ini paling mudah rusak
  *                     dengan cara yang MENGHASILKAN ANGKA alih-alih error:
@@ -23,12 +23,13 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  brandSafetyScore, communityStrengthScore, contentQualityScore,
-  percentileScore, whatMattersScore,
+  communityStrengthScore, contentQualityScore,
+  percentileScore, stabilityLabel, summarisePostQuality, whatMattersScore,
+  type PostQualityInput,
 } from '@/lib/discover/whatMatters/score'
 import {
-  CRITERIA_ORDER, CRITERIA_LABELS, FORMAT_RUBRIC, TOPIC_SOURCE_RUBRIC,
-  W_CQ_ENGAGEMENT, W_CQ_FORMAT, W_CQ_TOPIC, type CriterionKey,
+  CRITERIA_ORDER, CRITERIA_LABELS,
+  W_CQ_CONSISTENCY, W_CQ_ENGAGEMENT, W_CQ_VIEWS, type CriterionKey,
 } from '@/lib/discover/whatMatters/model'
 import { parseMatters, rankByWhatMatters } from '@/lib/discover/whatMatters'
 
@@ -52,80 +53,81 @@ function main() {
 
   /* ── Content Quality ──────────────────────────────────────────────────── */
 
-  console.log('\nContent Quality — Engagement 40 + Format 30 + Topic 30\n')
+  console.log('\nContent Quality — Engagement 50 + Views 30 + Consistency 20\n')
 
-  check('bobot berjumlah 100',
-    W_CQ_ENGAGEMENT + W_CQ_FORMAT + W_CQ_TOPIC === 100)
-  check('engagement TIDAK melebihi bobot 40', W_CQ_ENGAGEMENT === 40)
+  check('bobot 50 / 30 / 20',
+    W_CQ_ENGAGEMENT === 50 && W_CQ_VIEWS === 30 && W_CQ_CONSISTENCY === 20)
 
-  // Semua tersedia: (50x40 + 100x30 + 100x30) / 100 = 80
-  const all = contentQualityScore(3, POP, 'Video', 'beauty', 'content')
-  check('semua data tersedia → 80', near(all, 80), String(all))
+  // Populasi kecil yang bisa dihitung tangan: percentile = lebih kecil / (n-1).
+  const POP_ER_CQ = [0.5, 1.0, 2.0, 4.0]
+  const POP_V_CQ = [1000, 5000, 20000, 80000]
+  const post = (
+    eng: number | null, foll: number | null, er: number | null, views: number | null,
+    hidden = false, kolab = false,
+  ): PostQualityInput => ({
+    engagement_owned: eng, followers_at_post_date: foll, er_followers: er,
+    views, likes_hidden: hidden, is_collaboration: kolab,
+  })
+  const cq = (posts: PostQualityInput[]) => {
+    const s = summarisePostQuality(posts)
+    return contentQualityScore(s.erPct, POP_ER_CQ, s.medianViews, POP_V_CQ, s.erSdPp, s.erPosts)
+  }
+  // ER 2,0 / 2,1 / 1,9 / 2,0 % -> SD 0,08 pp -> High. ER aditif 80/4000 = 2,0%
+  // -> percentile 66,6667. Median views 5.350 -> 66,6667.
+  const STABLE = [post(20, 1000, 0.020, 5000), post(21, 1000, 0.021, 6000),
+    post(19, 1000, 0.019, 5500), post(20, 1000, 0.020, 5200)]
 
-  // format NULL: bobot 30 dilepas, sisanya dinormalisasi ke 70.
-  const noFmt = contentQualityScore(3, POP, null, 'beauty', 'content')
-  check('format NULL → renormalisasi ke 5000/70, bukan 80 dan bukan 56',
-    near(noFmt, 5000 / 70), String(noFmt))
+  check('data normal → 0,5 x 66,6667 + 0,3 x 66,6667 + 0,2 x 100',
+    near(cq(STABLE), 0.5 * 66.6667 + 0.3 * 66.6667 + 0.2 * 100), String(cq(STABLE)))
 
-  const noTopic = contentQualityScore(3, POP, 'Video', null, null)
-  check('topic NULL → renormalisasi ke 5000/70',
-    near(noTopic, 5000 / 70), String(noTopic))
+  const noViews = STABLE.map(p => ({ ...p, views: null }))
+  check('views NULL → dikeluarkan dari penyebut (dibagi 0,7), bukan views = 0',
+    near(cq(noViews), (0.5 * 66.6667 + 0.2 * 100) / 0.7), String(cq(noViews)))
+  check('views NULL tidak menurunkan skor seolah nol',
+    (cq(noViews) ?? 0) > 0.5 * 66.6667 + 0.2 * 100)
 
-  const noEr = contentQualityScore(null, POP, 'Video', 'beauty', 'content')
-  check('engagement NULL → (100x30 + 100x30)/60 = 100', near(noEr, 100), String(noEr))
+  // Tanpa ER per post, engagement DAN consistency tidak terukur.
+  const noEr = [post(null, null, null, 5000), post(null, null, null, 6000),
+    post(null, null, null, 5500)]
+  check('engagement NULL → tinggal views (66,6667)', near(cq(noEr), 66.6667), String(cq(noEr)))
 
-  check('semua NULL → null, bukan 0',
-    contentQualityScore(null, POP, null, null, null) === null)
+  const onePost = [post(20, 1000, 0.020, 5000)]
+  check('consistency NULL (1 post, minimum 3) → (0,5 x 66,6667 + 0,3 x 33,3333) / 0,8',
+    near(cq(onePost), (0.5 * 66.6667 + 0.3 * 33.3333) / 0.8), String(cq(onePost)))
+  check('consistency NULL dengan 2 post ber-ER (di bawah minimum), bukan "stabil"',
+    stabilityLabel(summarisePostQuality(STABLE.slice(0, 2)).erSdPp, 2) === null)
 
-  // Rubrik harus benar-benar dipakai, dan case-insensitive.
-  const lower = contentQualityScore(null, POP, 'video', 'beauty', 'content')
-  const upper = contentQualityScore(null, POP, 'VIDEO', 'beauty', 'content')
-  check('format cocok tanpa peduli besar-kecil huruf',
-    near(lower, 100) && near(upper, 100))
-  check('format tak dikenal → null, bukan 0 (bobotnya dilepas)',
-    near(contentQualityScore(null, POP, 'Reel Panjang', 'beauty', 'content'), 100))
-  check('rubrik format persis 3 nilai nyata di kolomnya',
-    Object.keys(FORMAT_RUBRIC).sort().join(',') === 'carousel,image,video',
-    Object.keys(FORMAT_RUBRIC).join(','))
-  check('Video > Carousel > Image',
-    FORMAT_RUBRIC.video > FORMAT_RUBRIC.carousel
-    && FORMAT_RUBRIC.carousel > FORMAT_RUBRIC.image)
+  check('semua komponen NULL → null, bukan 0',
+    contentQualityScore(null, POP_ER_CQ, null, POP_V_CQ, null, 0) === null)
+  check('kreator tanpa post → null', cq([]) === null)
+  const empty = summarisePostQuality([])
+  check('ringkasan tanpa post: semua null, 0 post ber-ER',
+    empty.erPct === null && empty.medianViews === null && empty.erSdPp === null
+    && empty.erPosts === 0)
 
-  // Sumbu topic menilai KEKUATAN BUKTI, bukan meranking subjeknya.
-  const fromContent = contentQualityScore(null, POP, null, 'religion', 'content')
-  const fromFallback = contentQualityScore(null, POP, null, 'religion', 'creator_category_fallback')
-  check('topic dari caption (100) > topic dari fallback (50)',
-    near(fromContent, 100) && near(fromFallback, 50),
-    `${fromContent} vs ${fromFallback}`)
-  check('topic yang BERBEDA dengan sumber sama mendapat skor SAMA — tidak ada ranking subjek',
-    contentQualityScore(null, POP, null, 'religion', 'content')
-      === contentQualityScore(null, POP, null, 'food', 'content'))
-  check('topic NULL tapi source ada → tetap null (source tanpa topic tidak berarti)',
-    contentQualityScore(null, POP, null, null, 'content') === null)
-  check('rubrik topic hanya dua sumber yang benar-benar ada di kolomnya',
-    Object.keys(TOPIC_SOURCE_RUBRIC).sort().join(',') === 'content,creator_category_fallback',
-    Object.keys(TOPIC_SOURCE_RUBRIC).join(','))
+  check('performa stabil → consistency 100',
+    contentQualityScore(null, POP_ER_CQ, null, POP_V_CQ,
+      summarisePostQuality(STABLE).erSdPp, 4) === 100)
+  const unstable = [post(5, 1000, 0.005, 5000), post(80, 1000, 0.080, 6000),
+    post(10, 1000, 0.010, 5500), post(120, 1000, 0.120, 5200)]
+  const u = summarisePostQuality(unstable)
+  check('performa sangat tidak stabil → SD > 3 pp → consistency 0',
+    (u.erSdPp ?? 0) > 3
+    && contentQualityScore(null, POP_ER_CQ, null, POP_V_CQ, u.erSdPp, u.erPosts) === 0)
+  check('ketidakstabilan menurunkan skor dibanding tanpa komponen consistency',
+    (cq(unstable) ?? 100) < (0.5 * 100 + 0.3 * 66.6667) / 0.8, String(cq(unstable)))
 
-  /* ── Brand Safety ─────────────────────────────────────────────────────── */
+  check('ambang stability = metrics_thresholds (<=1 High, <=3 Medium, sisanya Low)',
+    stabilityLabel(1.0, 3) === 'High Stability'
+    && stabilityLabel(1.0001, 3) === 'Medium Stability'
+    && stabilityLabel(3.0, 3) === 'Medium Stability'
+    && stabilityLabel(3.01, 3) === 'Low Stability'
+    && stabilityLabel(null, 5) === null)
 
-  console.log('\nBrand Safety — Auth 40 + FQ 30 + Verified 15 + Paid 15\n')
-
-  // auth 80, fq 60, verified true (100), paid 20 -> 50
-  // (80x40 + 60x30 + 100x15 + 50x15) / 100 = 72,5
-  check('semua komponen tersedia → 72,5',
-    near(brandSafetyScore(80, 60, true, 20), 72.5),
-    String(brandSafetyScore(80, 60, true, 20)))
-  check('unverified = 50, bukan 0 (pertanyaan belum terjawab, bukan bukti bahaya)',
-    near(brandSafetyScore(null, null, false, null), 50))
-  check('verified null → dilepas dari bobot, bukan jadi 0',
-    near(brandSafetyScore(80, null, null, null), 80))
-  check('sebagian NULL → hanya yang ada yang dihitung',
-    near(brandSafetyScore(80, 60, null, null), (80 * 40 + 60 * 30) / 70),
-    String(brandSafetyScore(80, 60, null, null)))
-  check('semua NULL → null, bukan 0',
-    brandSafetyScore(null, null, null, null) === null)
-  check('paid ratio tinggi menurunkan skor, tidak pernah negatif',
-    near(brandSafetyScore(null, null, null, 80), 0))
+  check('aturan sampel views: likes_hidden, kolaborasi dan views 0 tidak ikut',
+    summarisePostQuality([post(null, null, null, 5000),
+      post(null, null, null, 999_999, true), post(null, null, null, 999_999, false, true),
+      post(null, null, null, 0)]).medianViews === 5000)
 
   /* ── Community ────────────────────────────────────────────────────────── */
 
@@ -152,7 +154,7 @@ function main() {
 
   const s = {
     engagement: 80, audience_quality: null, consistency: 40,
-    community: null, reach: 10, content_quality: null, brand_safety: null,
+    community: null, reach: 10, content_quality: null,
   }
   check('kriteria terpilih yang NULL keluar dari PENYEBUT, bukan dihitung nol',
     near(whatMattersScore(s, ['engagement', 'audience_quality'] as CriterionKey[]), 80),
@@ -164,7 +166,12 @@ function main() {
     whatMattersScore(s, ['audience_quality', 'community'] as CriterionKey[]) === null)
   check('tidak ada yang dipilih → null', whatMattersScore(s, []) === null)
 
-  check('7 kriteria terdaftar', CRITERIA_ORDER.length === 7, CRITERIA_ORDER.join(','))
+  check('6 kriteria terdaftar, tanpa brand_safety',
+    CRITERIA_ORDER.join(',') === 'engagement,audience_quality,consistency,community,reach,content_quality',
+    CRITERIA_ORDER.join(','))
+  check('brand_safety tidak punya label', !('brand_safety' in CRITERIA_LABELS))
+  check('parseMatters membuang brand_safety seperti kunci tak dikenal',
+    parseMatters('engagement,brand_safety,BRAND_SAFETY,reach').join(',') === 'engagement,reach')
   check('parseMatters membuang kunci tak dikenal tanpa menggagalkan request',
     parseMatters('engagement,tidak_ada,reach').join(',') === 'engagement,reach')
   check('parseMatters membuang duplikat',

@@ -1,6 +1,6 @@
 /**
- * Verifikasi Brand Match hidup sepenuhnya di DB `kol`, dan empat bar UI-nya
- * melipat enam komponen dengan benar.
+ * Verifikasi Brand Match hidup sepenuhnya di DB `kol`, dan rinciannya
+ * merender kriteria yang dipilih Brand Profile dengan benar.
  *
  *   npm run verify:brand-profile-kol
  *
@@ -16,11 +16,17 @@
  *             Diperiksa di level SOURCE, karena satu-satunya cara menangkapnya
  *             sebelum produksi adalah membaca importnya.
  *
- *   LIPATAN   Dua dari empat bar menggabungkan sepasang komponen. Kalau
- *             lipatannya memakai rata-rata biasa alih-alih `weighted()`,
- *             komponen yang N/A akan tertarik menjadi 0 dan creator yang belum
- *             terukur terbaca sebagai creator yang buruk — persis kesalahan
- *             yang seluruh model ini dibangun untuk menghindarinya.
+ *   PEMBAGI   Kriteria yang belum terukur harus KELUAR dari pembagi. Kalau ia
+ *             ikut sebagai 0, creator yang belum diukur terbaca sebagai creator
+ *             yang buruk — persis kesalahan yang seluruh model ini dibangun
+ *             untuk menghindarinya.
+ *
+ * -- Ditulis ulang untuk SATU mesin Brand Match ----------------------------
+ * Bagian 2-5 dulu memeriksa scorer berbobot: empat bar `explain()`, konstanta
+ * `V.W_*`, dan lipatan pasangan komponen. Scorer itu sudah dihapus bersama
+ * `score.ts` dan `explain.ts`, jadi pemeriksaannya TIDAK dipertahankan - ia
+ * diganti kontrak yang berlaku sekarang: rincian Brand Match adalah satu baris
+ * per kriteria yang dipilih, dengan skor apa adanya dari What Matters.
  *
  * Pemeriksaan pertama membaca file; sisanya murni in-memory. Pemeriksaan
  * database bersifat read-only dan akan melewati dirinya sendiri dengan jujur
@@ -29,9 +35,16 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import kolDb from '@/lib/kolDb'
-import { explain, SIGNAL_LABELS } from '@/lib/discover/brandMatch/explain'
-import { V } from '@/lib/discover/brandMatch/model'
-import { NA, type ScoreResult, type Scored } from '@/lib/discover/brandMatch/score'
+import {
+  WHAT_MATTERS_CRITERION, WHAT_MATTERS_KEYS, WHAT_MATTERS_OPTIONS,
+  brandMatchFromScores, cleanWhatMatters,
+} from '@/lib/discover/whatMatters/brandMatch'
+import {
+  AUDIENCE_CRITERIA, AUDIENCE_CRITERIA_LABELS, selectedAudienceCriteria,
+} from '@/lib/discover/whatMatters/audienceMatch'
+import { CRITERIA_LABELS } from '@/lib/discover/whatMatters'
+import { emptyProfile, isScoreable } from '@/lib/discover/brandMatch/profile'
+import type { CriterionScores } from '@/lib/discover/whatMatters/score'
 
 let failures = 0
 let skipped = 0
@@ -50,32 +63,11 @@ function skip(label: string, why: string) {
   console.log(`  skip  ${label} — ${why}`)
 }
 
-/**
- * Satu `ScoreResult` dengan seluruh komponen bisa ditimpa.
- *
- * Nilai dasarnya N/A, bukan 0: default yang benar untuk roster ini adalah
- * "belum terukur", dan memakai 0 sebagai default akan membuat test lulus untuk
- * alasan yang salah.
- */
-function result(over: Partial<ScoreResult> = {}): ScoreResult {
-  const na: Scored = NA
-  return {
-    categoryMatch: na, keywordMatch: na, hashtagMatch: na, businessScore: na,
-    ageScore: na, genderScore: na, locationScore: na, interestScore: na, audienceScore: na,
-    contentCategoryMatch: na, subCategoryMatch: na, topicMatch: na, contentStyleMatch: na,
-    contentScore: na, personalityScore: na,
-    erScore: na, audienceQualityScore: na, consistencyScore: na, communityScore: na,
-    averageViewsScore: na, recentGrowthScore: na, performanceScore: na,
-    authenticityScore: na, followerQualityScore: na, verificationScore: na,
-    paidRatioScore: na, safetyScore: na,
-    availableWeight: 0, finalScore: na, level: 'Not Scored',
-    dataCompleteness: 0, confidence: 'Limited Data',
-    ...over,
-  }
+/** Skor enam kriteria What Matters, semuanya terisi. */
+const FULL: CriterionScores = {
+  engagement: 82, audience_quality: 90, consistency: 50,
+  community: 71, reach: 40, content_quality: 63,
 }
-
-const barOf = (s: ScoreResult, id: string) =>
-  explain(s).signals.find(x => x.id === id) ?? null
 
 async function main() {
   /* ── 1. Database boundary, dibaca dari source ─────────────────────────── */
@@ -103,74 +95,97 @@ async function main() {
   check('tidak ada query ke discover_brand_profiles',
     !/(FROM|INTO|UPDATE)\s+public\.discover_brand_profiles/.test(profileSrc))
 
-  /* ── 2. Empat bar, bukan lima atau enam ───────────────────────────────── */
+  // Scorer berbobot harus benar-benar hilang, bukan disembunyikan: satu file
+  // yang tertinggal adalah satu mesin kedua yang bisa dipanggil lagi.
+  const GONE = ['score.ts', 'explain.ts', 'index.ts']
+  const stillThere = GONE.filter(f => files.includes(f))
+  check('scorer berbobot (score/explain/index) sudah dihapus dari brandMatch/',
+    stillThere.length === 0, stillThere.join(', '))
+  // Komentar dibuang dulu, sama seperti pemeriksaan boundary di atas yang hanya
+  // menghitung baris import. Catatan yang MENJELASKAN kenapa bobot ini dihapus
+  // justru diinginkan — di situlah alasannya ditulis — dan sebuah larangan yang
+  // ikut menangkap penjelasannya sendiri akan mengajari orang menghapus
+  // penjelasannya, bukan memperbaiki kodenya.
+  const noComments = (src: string) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const withWeights = files.filter(f => /\bW_BS_/.test(noComments(readFileSync(join(dir, f), 'utf8'))))
+  check('tidak ada bobot W_BS_* yang tersisa di brandMatch/ (di luar komentar)',
+    withWeights.length === 0, withWeights.join(', '))
+  check('profile.ts tidak lagi mengekspor adapter scorer lama',
+    !/export function toScoringBrand|export function toEligibility/.test(profileSrc))
+  check('profile.ts membaca what_matters, company_website dan brand_values',
+    /what_matters/.test(profileSrc) && /company_website/.test(profileSrc)
+    && /brand_values/.test(profileSrc))
 
-  console.log('\nEmpat bar UI\n')
+  /* ── 2. Kosakata: enam What Matters + lima Target Audience ───────────── */
 
-  const ids = Object.keys(SIGNAL_LABELS)
-  check('tepat 4 bar', ids.length === 4, ids.join(','))
-  check('id-nya category · audience · values · performance',
-    ['category', 'audience', 'values', 'performance'].every(k => ids.includes(k)),
-    ids.join(','))
-  check('label sesuai brief',
-    SIGNAL_LABELS.category === 'Category Matching'
-    && SIGNAL_LABELS.audience === 'Audience Relevance'
-    && SIGNAL_LABELS.values === 'Values Alignment'
-    && SIGNAL_LABELS.performance === 'Past Performance',
-    JSON.stringify(SIGNAL_LABELS))
+  console.log('\nKosakata kriteria\n')
 
-  // Bobot yang dilipat harus berjumlah persis seperti brief: 40/30/10/20.
-  check('bobot lipatan = 40 / 30 / 10 / 20',
-    V.W_BRAND_BUSINESS + V.W_CONTENT_CATEGORY === 40
-    && V.W_TARGET_AUDIENCE === 30
-    && V.W_PERSONALITY === 10
-    && V.W_PERFORMANCE + V.W_SAFETY === 20,
-    `${V.W_BRAND_BUSINESS}+${V.W_CONTENT_CATEGORY} / ${V.W_TARGET_AUDIENCE} / ${V.W_PERSONALITY} / ${V.W_PERFORMANCE}+${V.W_SAFETY}`)
-
-  /* ── 3. Lipatan memakai weighted(), bukan rata-rata polos ─────────────── */
-
-  console.log('\nLipatan pasangan komponen\n')
-
-  // Bobot sama (20/20), jadi dua nilai ada harus jadi rata-ratanya.
-  check('Category Matching = mean(business, content) saat keduanya ada',
-    barOf(result({ businessScore: 80, contentScore: 60 }), 'category')?.pct === 70)
-  check('Past Performance = mean(performance, safety) saat keduanya ada',
-    barOf(result({ performanceScore: 90, safetyScore: 50 }), 'performance')?.pct === 70)
-
-  // Inti kontraknya: separuh yang N/A harus RENORMALISASI, bukan menarik ke 0.
-  const halfCat = barOf(result({ businessScore: 80, contentScore: NA }), 'category')
-  check('separuh N/A → bar = separuh yang ada (bukan 40, bukan 0)',
-    halfCat?.pct === 80, String(halfCat?.pct))
-  const halfPerf = barOf(result({ performanceScore: NA, safetyScore: 50 }), 'performance')
-  check('separuh N/A pada Past Performance juga renormalisasi',
-    halfPerf?.pct === 50, String(halfPerf?.pct))
-
-  // Dua-duanya N/A → bar unavailable, bukan 0.
-  const bothNa = barOf(result(), 'category')
-  check('dua-duanya N/A → pct null + alasan, bukan 0',
-    bothNa?.pct === null && !!bothNa?.unavailable, JSON.stringify(bothNa))
-
-  /* ── 4. Values Alignment — BLOCKED, dan harus terlihat begitu ─────────── */
-
-  console.log('\nValues Alignment\n')
-
-  const values = barOf(result(), 'values')
-  check('Values Alignment hadir sebagai bar', values !== null)
-  check('Values Alignment unavailable saat personality N/A',
-    values?.pct === null && !!values?.unavailable, JSON.stringify(values))
-  check('Values Alignment TIDAK pernah dikarang jadi angka',
-    barOf(result({ personalityScore: NA }), 'values')?.pct === null)
-
-  /* ── 5. Bar membawa skor 0–100, bukan kontribusi terbobot ─────────────── */
-
-  console.log('\nSkala bar\n')
-
-  // Audience 30% dengan skor 80 harus melaporkan 80, bukan 80 x 0,30 = 24.
-  check('bar melaporkan skor komponen, bukan kontribusi terbobot',
-    barOf(result({ audienceScore: 80 }), 'audience')?.pct === 80)
+  check('enam What Matters, tidak lebih',
+    WHAT_MATTERS_KEYS.length === 6, WHAT_MATTERS_KEYS.join(','))
+  check('brand_safety tidak bisa dipilih',
+    !(WHAT_MATTERS_KEYS as readonly string[]).includes('brand_safety')
+    && cleanWhatMatters(['brand_safety']).length === 0)
+  check('lima kriteria Target Audience, persis yang disepakati',
+    AUDIENCE_CRITERIA.join(',')
+      === 'audience_gender,audience_age,audience_country,audience_city,audience_interest',
+    AUDIENCE_CRITERIA.join(','))
+  check('label opsi = label What Matters (satu nama, bukan dua)',
+    WHAT_MATTERS_OPTIONS.every(o => o.label === CRITERIA_LABELS[WHAT_MATTERS_CRITERION[o.key]]))
   check('tidak ada bobot yang bocor ke label',
-    !Object.values(SIGNAL_LABELS).some(l => /\d|%/.test(l)),
-    JSON.stringify(SIGNAL_LABELS))
+    ![...Object.values(CRITERIA_LABELS), ...Object.values(AUDIENCE_CRITERIA_LABELS)]
+      .some(l => /\d|%/.test(l)))
+
+  /* ── 3. Match % = rata-rata kriteria yang dipilih ──────────────────── */
+
+  console.log('\nMatch % — rata-rata, bobot sama\n')
+
+  check('satu dipilih → skornya sendiri',
+    brandMatchFromScores(FULL, ['strong_engagement']).matchPct === 82)
+  check('dua dipilih → rata-ratanya',
+    brandMatchFromScores(FULL, ['strong_engagement', 'high_audience_quality']).matchPct === 86)
+  check('kriteria yang TIDAK dipilih tidak bisa menggerakkannya',
+    brandMatchFromScores(FULL, ['strong_engagement']).matchPct
+      === brandMatchFromScores({ ...FULL, reach: 0, community: 100 }, ['strong_engagement']).matchPct)
+
+  /* ── 4. Yang belum terukur keluar dari pembagi, bukan jadi nol ───────── */
+
+  console.log('\nKriteria yang belum terukur\n')
+
+  const half = brandMatchFromScores({ ...FULL, reach: null }, ['strong_engagement', 'high_reach'])
+  check('separuh null → Match % = separuh yang ada (bukan 41, bukan 0)',
+    half.matchPct === 82, String(half.matchPct))
+  check('…dan pembaginya ikut menyusut', half.contributing === 1 && half.selected === 2)
+  check('…dan rinciannya menandainya tidak dihitung',
+    half.breakdown.find(b => b.key === 'high_reach')?.counted === false
+    && half.breakdown.find(b => b.key === 'high_reach')?.score === null)
+  const allNull = brandMatchFromScores({ engagement: null }, ['strong_engagement'])
+  check('semua null → Match % null (no_scores), bukan 0',
+    allNull.matchPct === null && allNull.unavailable === 'no_scores')
+  const none = brandMatchFromScores(FULL, [])
+  check('tidak ada yang dipilih → Match % null (no_selection), rincian kosong',
+    none.matchPct === null && none.unavailable === 'no_selection' && none.breakdown.length === 0)
+  check('tidak ada band yang ikut terbawa di hasil',
+    !('level' in none) && !('confidence' in none) && !('coverage' in none))
+
+  /* ── 5. Scoreable = ada yang DIPILIH, bukan ada brand category ──────── */
+
+  console.log('\nScoreable\n')
+
+  const blank = emptyProfile('x')
+  check('profil kosong tidak scoreable', !isScoreable(blank))
+  check('brand category saja tidak menyalakan scoring',
+    !isScoreable({ ...blank, brandCategory: 'Beauty' }))
+  check('satu What Matters menyalakannya',
+    isScoreable({ ...blank, whatMatters: ['high_reach'] }))
+  check('satu field Target Audience juga menyalakannya',
+    isScoreable({ ...blank, targetCity: 'Jakarta' }))
+  check('field Target Audience yang kosong tidak memilih kriteria apa pun',
+    selectedAudienceCriteria(blank).length === 0)
+  check("gender 'Any' tidak memilih kriteria gender",
+    selectedAudienceCriteria({ ...blank, genderMajority: 'Any' }).length === 0
+    && selectedAudienceCriteria({ ...blank, genderMajority: 'Female' })
+      .join(',') === 'audience_gender')
 
   /* ── 6. Database — read-only, melewati diri sendiri kalau belum migrasi ─ */
 
@@ -198,6 +213,9 @@ async function main() {
       const need = [
         'organization_id', 'brand_category', 'gender_majority', 'target_country', 'target_city',
         'audience_interests', 'brand_personality',
+        // migrations/kol/007 and 008: the criteria Brand Match averages, and the
+        // two fields the form saves but nothing scores.
+        'what_matters', 'company_website', 'brand_values',
       ]
       check('kolom yang dibaca engine semuanya ada',
         need.every(c => have.has(c)), need.filter(c => !have.has(c)).join(', ') || 'lengkap')

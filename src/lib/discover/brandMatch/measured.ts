@@ -1,4 +1,4 @@
-import type { ScoringRecord } from './score'
+import type { ScoringRecord } from './records'
 
 /**
  * The creator signals that are actually MEASURED, and nothing else.

@@ -1,13 +1,12 @@
 /**
  * What Matters Most — constants, ordinal ladders, and the Content Quality
- * rubrics.
+ * weights and stability cut-offs.
  *
  * ── This is a PORT, and the port is checked ────────────────────────────────
- * Six of the seven criteria are copied from
- * `scripts/what-matters/what_matters_scoring.py`, vendored verbatim from the
- * scrapper repo at `0d6e571`. That file stays the reference implementation for
- * as long as both exist, and `scripts/verify-what-matters-port.ts` drives the
- * Python and asserts this TypeScript reproduces it value for value.
+ * All six criteria are copied from `scripts/what-matters/what_matters_scoring.py`,
+ * vendored verbatim from the scrapper repo at `5cf0578`. That file stays the reference implementation for as long as both exist, and
+ * `scripts/verify-what-matters-port.ts` drives the Python and asserts this
+ * TypeScript reproduces it value for value.
  *
  * It is ported rather than called because there is no transport: the scrapper
  * repo ships no HTTP server (`requirements.txt` is apify-client, psycopg2 and
@@ -17,26 +16,27 @@
  * `DATABASE_URL` — the warehouse — so routing a KOL feature through it would
  * break the database boundary this work exists to establish.
  *
- * ── The seventh criterion is NOT a port ────────────────────────────────────
- * `content_quality_score()` in the Python returns `None` unconditionally, with
- * a documented refusal: nothing in the database, the workbook or the prototype
- * states that Carousel beats Image or that one topic beats another, so scoring
- * them would be inventing a judgement.
+ * ── Content Quality is a port too, since 5cf0578 ──────────────────────────
+ * It used to be this file's one deliberate divergence: the Python returned
+ * `None`, and this port scored Engagement 40 + Format 30 + Topic 30 from two
+ * product rubrics. The reference now scores it itself — Engagement 50% +
+ * Views 30% + Consistency 20% over `l2_gold.post_metric` — and this port
+ * follows it. The format and topic rubrics are gone with that change, not kept
+ * alongside: two definitions of one criterion is how they drift.
  *
- * The product has since decided to score it anyway, at Engagement 40% + Format
- * 30% + Topic 30%. That decision is implemented here and the rubrics below are
- * the whole of it — written down, versioned, and auditable rather than buried
- * in an expression. The verifier therefore pins six criteria to the Python and
- * reports the seventh as a deliberate divergence.
+ * ── Brand Safety is not a criterion ────────────────────────────────────────
+ * Out of scope for What Matters and Brand Match since scrapper `50b6a16`. It is
+ * not a key here, so `parseMatters` and Brand Match's `cleanWhatMatters` drop
+ * `brand_safety` like any unknown key — no score, no proxy, no default.
  */
 
 export const SKALA_MIN = 0
 export const SKALA_MAX = 100
 
-/** The seven criteria, in UI order. Keys match the Python's exactly. */
+/** The six criteria, in UI order. Keys match the Python's exactly. */
 export const CRITERIA_ORDER = [
   'engagement', 'audience_quality', 'consistency',
-  'community', 'reach', 'content_quality', 'brand_safety',
+  'community', 'reach', 'content_quality',
 ] as const
 export type CriterionKey = (typeof CRITERIA_ORDER)[number]
 
@@ -55,7 +55,6 @@ export const CRITERIA_LABELS: Record<CriterionKey, string> = {
   community: 'Audiens Aktif & Asli',
   reach: 'High Reach',
   content_quality: 'Content Quality',
-  brand_safety: 'Brand Safety',
 }
 
 /* ── ordinal ladders ──────────────────────────────────────────────────────── */
@@ -72,77 +71,28 @@ export const CRITERIA_LABELS: Record<CriterionKey, string> = {
 export const TINGKAT_STABILITAS = ['Low Stability', 'Medium Stability', 'High Stability'] as const
 export const TINGKAT_RELIABILITAS = ['Low', 'Medium', 'High'] as const
 
-/* ── Content Quality rubrics ──────────────────────────────────────────────── */
-
-export const W_CQ_ENGAGEMENT = 40
-export const W_CQ_FORMAT = 30
-export const W_CQ_TOPIC = 30
+/* ── Content Quality ──────────────────────────────────────────────────────── */
 
 /**
- * Format rubric — `l2_gold.kol_profile_card.format_dominant`.
+ * Content Quality = Engagement 50% + Views 30% + Consistency 20%.
  *
- * The column holds exactly three values across the 49 rows that carry one:
- * Carousel 24, Video 20, Image 5.
- *
- * ── This is a stated PRODUCT DECISION, not a measurement ───────────────────
- * Say so plainly, because the distinction is the whole reason this table is
- * written out instead of inlined. No column, workbook or prototype ranks these
- * formats. The ordering below encodes production effort and how much room a
- * format gives a brand message:
- *
- *   Video     100  motion and sound; carries demonstration, and costs the most
- *                  to make
- *   Carousel   85  multiple frames; carries a sequence — steps, before/after
- *   Image      60  a single frame
- *
- * Deriving it from the roster instead was considered and rejected: median ER by
- * format over 24/20/5 rows is a sample too small to separate three groups, and
- * a rubric recomputed from live data would change every creator's score
- * whenever the roster moved. A fixed table can at least be argued with.
- *
- * Matched case-insensitively. An unrecognised value scores null, not zero — a
- * format nobody has classified is not a bad format.
+ * `BOBOT_CQ_*` in the reference, written as 50/30/20 like this file's other
+ * weights; `weighted()` renormalises, so the scale does not change a score.
  */
-export const FORMAT_RUBRIC: Record<string, number> = {
-  video: 100,
-  carousel: 85,
-  image: 60,
-}
+export const W_CQ_ENGAGEMENT = 50
+export const W_CQ_VIEWS = 30
+export const W_CQ_CONSISTENCY = 20
 
 /**
- * Topic rubric — `content_topic` and `content_topic_source`.
+ * The stability cut-offs of `metrics_thresholds.klasifikasi_stability`,
+ * applied by Content Quality to the standard deviation of per-post ER in
+ * percentage points. Copied, not re-decided: the reference reuses the
+ * thresholds that already label `performance_stability`, and so does this.
  *
- * ── It deliberately does NOT rank one topic above another ──────────────────
- * The column holds 13 values: religion, fitness, beauty, music, food,
- * parenting, travel, Fashion, Entertainment, photography, business, sports,
- * automotive. Nothing in this project states that food is worth more than
- * religion, and inventing that ordering would be both unfounded and, for some
- * of these values, plainly objectionable.
- *
- * What CAN be scored, from data already in the row, is how strong the evidence
- * behind the topic is. `content_topic_source` records exactly that:
- *
- *   content                   100  read from the creator's own captions
- *                                  (40 of the 42 rows that carry a topic)
- *   creator_category_fallback  50  inferred from the category the creator is
- *                                  tagged with, because no caption was
- *                                  available to read (2 rows)
- *
- * So the axis measures topical CLARITY — does this creator have an identifiable
- * subject, and did we read it or guess it — which is a quality of the content
- * signal rather than an opinion about the subject.
- *
- * A row with no topic at all scores null, not zero.
+ * Fewer than three posts with an ER is NOT "stable": two points always have a
+ * small deviation, and labelling that High would sell missing data as
+ * consistency. Below the minimum the component is null.
  */
-export const TOPIC_SOURCE_RUBRIC: Record<string, number> = {
-  content: 100,
-  creator_category_fallback: 50,
-}
-
-/**
- * What a topic scores when it is present but its source is unrecorded.
- *
- * Between the two rubric values rather than at either end: the topic exists, so
- * it is not the null case, but nothing says whether it was read or guessed.
- */
-export const TOPIC_SOURCE_UNKNOWN = 75
+export const STABILITY_HIGH_MAX = 1.0
+export const STABILITY_MEDIUM_MAX = 3.0
+export const STABILITY_MIN_SAMPLES = 3

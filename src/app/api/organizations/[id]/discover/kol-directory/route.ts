@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
-import { listKolDirectory, listKolFacets, MATCH_SORT, rankByMatch } from '@/lib/discover/kolDirectory'
-import { matchCreators, toEligibility } from '@/lib/discover/brandMatch'
+import { listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
+import { getBrandProfile } from '@/lib/discover/brandMatch/profile'
+import { scoringRecordsFor } from '@/lib/discover/brandMatch/records'
+import { measuredSignals } from '@/lib/discover/brandMatch/measured'
+import { brandMatchForDirectory } from '@/lib/discover/whatMatters/brandMatch'
+import { storedBrandMatchForDirectory } from '@/lib/discover/whatMatters/brandMatchStore'
 import {
   matchWhatMatters, parseMatters, CRITERIA_ORDER, CRITERIA_LABELS,
 } from '@/lib/discover/whatMatters'
@@ -114,53 +118,48 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (sp.get('facets') === '1') data.facets = await listKolFacets({ platform })
 
     /**
-     * Brand Match, for the creators on this page.
+     * The measured creator signals for this page — `?measured=1`.
      *
-     * Opt-in via `?match=1` rather than always, because it is six extra reads
-     * against the KOL server and not every caller shows a score. It costs
-     * nothing for an org with no saved profile: `matchCreators` returns before
-     * it queries anything.
+     * Creator facts only: authenticity, audience quality, growth, views,
+     * cadence. Nothing about a brand enters them, which is why they ride the
+     * list request while Brand Match is asked for separately. Opt-in because
+     * they cost extra reads against the KOL server and not every caller draws
+     * them.
+     */
+    if (sp.get('measured') === '1') {
+      const records = await scoringRecordsFor(data.rows.map(r => r.id))
+      data.measured = Object.fromEntries(
+        [...records].map(([id, record]) => [id, measuredSignals(record)]))
+    }
+
+    /**
+     * Brand Match, for the creators asked for — `?ids=…&match=1`.
      *
-     * Scored over `data.rows` — the page that was actually returned — so the
-     * number a creator wears is a function of that creator and the brand, and
-     * of nothing else on screen. Deliberately the ABSOLUTE Final Match Score:
-     * normalising against the page maximum would move every score when the user
-     * pressed Next, and the Match Status bands are defined against the absolute.
+     * ONE engine: `whatMatters/brandMatch`. Match % is the plain mean of this
+     * creator's What Matters scores on the criteria the workspace's Brand
+     * Profile chose, plus one score per Target Audience field it filled in
+     * (`whatMatters/audienceMatch`), read from the KOL server only. Equal
+     * weight per criterion, and a criterion this creator cannot be measured on
+     * leaves the DENOMINATOR — it is never scored as zero. With nothing chosen
+     * `brandMatch.unavailable` is `no_selection` and nobody is scored.
+     *
+     * The choice comes from the authorised agency's own Brand Profile
+     * (`public.agencies.id`), never from the query string: a caller cannot ask
+     * to be scored on criteria its workspace did not choose.
+     *
+     * Asked for by id and in its own request, so the list never depends on it:
+     * if Brand Match cannot be answered, the directory still loads.
      */
     if (sp.get('match') === '1') {
-      const { profile, scoreable, matches, measured } =
-        await matchCreators(orgId, data.rows.map(r => r.id))
-      data.match = {
-        scoreable,
-        brandName: profile.brandName,
-        brandCategory: profile.brandCategory,
-        updatedAt: profile.updatedAt,
-        // The Ideal Creator Profile, returned rather than applied. Silently
-        // narrowing the roster to a saved preference would make the result count
-        // disagree with the filters the user can see; the UI offers it as a
-        // one-press filter set instead.
-        eligibility: toEligibility(profile),
-        rows: Object.fromEntries(matches),
-        measured: Object.fromEntries(measured),
-      }
-
-      /**
-       * `sort=match` — re-rank THIS PAGE by the score just computed.
-       *
-       * Page-scoped, and deliberately so: see `MATCH_SORT` in `kolDirectory`.
-       * The page was selected and ordered by the follower ordering that
-       * `SORT_COLUMNS.match` aliases to, so which creators are on it does not
-       * depend on the score; only their order within it does. Paging, filters,
-       * `total` and `pageSize` are untouched.
-       *
-       * The ordering itself lives in `rankByMatch` — unscored last in both
-       * directions, nothing coerced into a number, stable on ties. It is a pure
-       * function there so `verify:match-sort` can check those three properties
-       * without a database or a running route.
-       */
-      if (sortKey === MATCH_SORT && scoreable) {
-        data.rows = rankByMatch(data.rows, r => matches.get(r.id)?.score ?? null, sortDir)
-      }
+      const profile = await getBrandProfile(access.orgId)
+      // Shadows the `?ids=` list on purpose: this is the page that was actually
+      // returned, which is that list whenever the caller sent one.
+      const ids = data.rows.map(r => r.id)
+      // The background result (`brand_match_result`) while it is still current
+      // for this profile and this state of the KOL data; otherwise on demand.
+      data.brandMatch =
+        await storedBrandMatchForDirectory(access.orgId, ids, profile.whatMatters, profile)
+        ?? await brandMatchForDirectory(ids, profile.whatMatters, profile)
     }
 
     /**

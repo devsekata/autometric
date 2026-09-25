@@ -2,12 +2,12 @@ import {
   CRITERIA_ORDER, CRITERIA_LABELS, type CriterionKey,
 } from './model'
 import {
-  audienceQualityScore, brandSafetyScore, communityStrengthScore,
+  audienceQualityScore, communityStrengthScore,
   consistencyScore, contentQualityScore, contributingCount, engagementScore,
   reachProxyScore, whatMattersScore, type CriterionScores,
 } from './score'
 import {
-  whatMattersPopulation, whatMattersRecordsFor,
+  NO_PLATFORM, whatMattersPopulation, whatMattersRecordsFor,
   type WhatMattersPopulation, type WhatMattersRecord,
 } from './records'
 
@@ -65,9 +65,7 @@ export function scoreRecord(
     community: communityStrengthScore(k.audienceQuality, k.engagementRate, pop.er),
     reach: reachProxyScore(k.medianViews, pop.medianViews),
     content_quality: contentQualityScore(
-      k.engagementRate, pop.er, k.formatDominant, k.contentTopic, k.contentTopicSource),
-    brand_safety: brandSafetyScore(
-      k.authenticity, k.followerQuality, k.isVerified, k.paidRatio),
+      k.cqErPct, pop.cqEr, k.cqMedianViews, pop.cqMedianViews, k.cqErSdPp, k.cqErPosts),
   }
 }
 
@@ -84,12 +82,16 @@ export async function matchWhatMatters(
   const out = new Map<string, WhatMattersResult>()
   if (!creatorIds.length) return out
 
-  const [records, pop] = await Promise.all([
+  const [records, pops] = await Promise.all([
     whatMattersRecordsFor(creatorIds),
     whatMattersPopulation(),
   ])
 
   for (const [id, record] of records) {
+    // ER ranks against its own platform only. A row whose platform has no
+    // Feature ER population (or no platform) gets NO_PLATFORM's: no ER to rank
+    // against, and the same mixed views as everyone else.
+    const pop = pops[record.platform ?? NO_PLATFORM] ?? pops[NO_PLATFORM]
     const scores = scoreRecord(record, pop)
     out.set(id, {
       scores,

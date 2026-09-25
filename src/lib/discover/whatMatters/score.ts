@@ -1,10 +1,9 @@
 /**
- * What Matters Most — the seven criterion scores, and the average over the ones
+ * What Matters Most — the six criterion scores, and the average over the ones
  * a user selected.
  *
- * A PORT of `scripts/what-matters/what_matters_scoring.py` for six of the
- * seven; see `./model` for why it is ported rather than called, and for the
- * Content Quality rubrics that are this file's one deliberate divergence.
+ * A PORT of `scripts/what-matters/what_matters_scoring.py`; see `./model` for
+ * why it is ported rather than called.
  *
  * ── NULL is not zero, and that is the whole point ──────────────────────────
  * Every function here returns `null` for "not measured" and never substitutes a
@@ -18,8 +17,8 @@
 
 import {
   SKALA_MAX, SKALA_MIN, TINGKAT_RELIABILITAS, TINGKAT_STABILITAS,
-  FORMAT_RUBRIC, TOPIC_SOURCE_RUBRIC, TOPIC_SOURCE_UNKNOWN,
-  W_CQ_ENGAGEMENT, W_CQ_FORMAT, W_CQ_TOPIC,
+  STABILITY_HIGH_MAX, STABILITY_MEDIUM_MAX, STABILITY_MIN_SAMPLES,
+  W_CQ_CONSISTENCY, W_CQ_ENGAGEMENT, W_CQ_VIEWS,
   type CriterionKey,
 } from './model'
 
@@ -100,7 +99,7 @@ function weighted(parts: [number | null, number][]): number | null {
   return den === 0 ? null : num / den
 }
 
-/* ── the seven criteria ───────────────────────────────────────────────────── */
+/* ── the six criteria ─────────────────────────────────────────────────────── */
 
 /** 1. Strong Engagement — REAL. Percentile rank of engagement rate. */
 export const engagementScore = (
@@ -193,81 +192,116 @@ export const reachProxyScore = (
 ): number | null => percentileScore(medianViews, populationViews)
 
 /**
- * 6. Content Quality — Engagement 40% + Format 30% + Topic 30%.
- *
- * The one criterion that is NOT a port: the Python returns null here by
- * design. See `./model` for the two rubrics and for why the topic axis scores
- * evidence strength rather than ranking one subject above another.
- *
- * Nullable-aware like everything else: a missing part renormalises the weights
- * of the parts that remain, and all three missing returns null rather than 0.
+ * `metrics_thresholds.klasifikasi_stability` — a standard deviation in
+ * percentage points, over `samples` measurements, to a stability label.
+ * Null below the minimum sample count or with no deviation.
  */
-export function contentQualityScore(
-  engagementRate: number | null,
-  populationEr: readonly (number | null)[],
-  formatDominant: string | null,
-  contentTopic: string | null,
-  contentTopicSource: string | null,
-): number | null {
-  const engagement = percentileScore(engagementRate, populationEr)
-
-  const format = formatDominant
-    ? FORMAT_RUBRIC[formatDominant.trim().toLowerCase()] ?? null
-    : null
-
-  // A topic must exist before its source means anything: the source column
-  // describes how the topic was arrived at, so without a topic there is
-  // nothing for it to describe.
-  const topic = contentTopic && contentTopic.trim()
-    ? (contentTopicSource
-        ? TOPIC_SOURCE_RUBRIC[contentTopicSource.trim().toLowerCase()] ?? TOPIC_SOURCE_UNKNOWN
-        : TOPIC_SOURCE_UNKNOWN)
-    : null
-
-  return weighted([
-    [engagement, W_CQ_ENGAGEMENT],
-    [format, W_CQ_FORMAT],
-    [topic, W_CQ_TOPIC],
-  ])
+export function stabilityLabel(
+  sdPp: number | null,
+  samples: number | null,
+): (typeof TINGKAT_STABILITAS)[number] | null {
+  if (!isNum(samples) || samples < STABILITY_MIN_SAMPLES) return null
+  if (!isNum(sdPp)) return null
+  if (sdPp <= STABILITY_HIGH_MAX) return 'High Stability'
+  if (sdPp <= STABILITY_MEDIUM_MAX) return 'Medium Stability'
+  return 'Low Stability'
 }
 
-export const W_BS_AUTHENTICITY = 40
-export const W_BS_FOLLOWER_QUALITY = 30
-export const W_BS_VERIFIED = 15
-export const W_BS_PAID = 15
+/** One `l2_gold.post_metric` row, as Content Quality reads it. */
+export interface PostQualityInput {
+  likes_hidden: boolean | null
+  is_collaboration: boolean | null
+  engagement_owned: number | null
+  followers_at_post_date: number | null
+  er_followers: number | null
+  views: number | null
+}
+
+/** The three raw numbers Content Quality scores, for one account. */
+export interface PostQualitySummary {
+  /** Additive ER, %, over posts with `er_followers`. */
+  erPct: number | null
+  /** Median `views` over sampled posts with `views > 0`. */
+  medianViews: number | null
+  /** Sample standard deviation of per-post ER, percentage points. */
+  erSdPp: number | null
+  /** Posts with an ER — what the stability minimum counts. */
+  erPosts: number
+}
+
+const median = (xs: number[]): number => {
+  const s = [...xs].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+/** Sample standard deviation (n - 1), as Python's `statistics.stdev`. */
+const stdev = (xs: number[]): number => {
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length
+  return Math.sqrt(xs.reduce((a, x) => a + (x - mean) ** 2, 0) / (xs.length - 1))
+}
 
 /**
- * 7. Brand Safety — Authenticity 40% + Follower Quality 30% + Verified 15% +
- * Paid 15%. The Brand Match formula, reused unchanged.
+ * `ringkas_post_content_quality` — one account's `post_metric` rows to the
+ * three raw numbers. `records.ts` computes the same three in SQL, with the same
+ * expressions as the reference's `SQL_CONTENT_QUALITY_CTE`; this pure form is
+ * what the port verifier and the unit checks drive.
  *
- * ── What this actually measures ────────────────────────────────────────────
- * Creator and ACCOUNT INTEGRITY. It does not measure content risk. There is no
- * toxicity reading, no sentiment, no topic-safety taxonomy and no comment
- * analysis anywhere in this database — `*_comments_analysis` holds zero rows —
- * so nothing here may be described as content safety, risky content, toxicity
- * or sentiment. The name is kept because the Brand Match model is locked.
- *
- * `verified` is a boolean, not a measurement: true scores 100, false scores 50
- * rather than 0, because unverified is an unanswered question and not evidence
- * of harm. Null stays null and renormalises away.
+ * `er_followers` is already null for a post outside the sample or with unknown
+ * followers, so it doubles as the ER sample rule. Views follow `median_views`:
+ * sampled posts only (not likes-hidden, not a collaboration) with `views > 0`
+ * — on Instagram a 0 means "not reported", not "nobody watched".
  */
-export function brandSafetyScore(
-  authenticity: number | null,
-  followerQuality: number | null,
-  verified: boolean | null,
-  paidRatio: number | null,
-  paidCeiling = 40,
+export function summarisePostQuality(posts: readonly PostQualityInput[]): PostQualitySummary {
+  const withEr = posts.filter(p => isNum(p.er_followers))
+  let numerator = 0
+  let denominator = 0
+  for (const p of withEr) {
+    if (isNum(p.engagement_owned)) numerator += p.engagement_owned
+    if (isNum(p.followers_at_post_date)) denominator += p.followers_at_post_date
+  }
+  const erPct = withEr.length && denominator > 0 ? (numerator / denominator) * 100 : null
+
+  const views = posts
+    .filter(p => p.likes_hidden !== true && p.is_collaboration !== true
+      && isNum(p.views) && p.views > 0)
+    .map(p => p.views as number)
+
+  const erPerPost = withEr.map(p => (p.er_followers as number) * 100)
+  return {
+    erPct,
+    medianViews: views.length ? median(views) : null,
+    erSdPp: erPerPost.length >= 2 ? stdev(erPerPost) : null,
+    erPosts: erPerPost.length,
+  }
+}
+
+/**
+ * 6. Content Quality — PROXY. Engagement 50% + Views 30% + Consistency 20%.
+ *
+ * A port of the reference's `content_quality_score()`:
+ *
+ *   engagement   additive ER from `l2_gold.post_metric`, percentile-ranked
+ *   views        median post views, percentile-ranked — views, not reach
+ *                (`post_metric.reach` is empty)
+ *   consistency  per-post ER deviation → `stabilityLabel` → 0 / 50 / 100
+ *
+ * No date window: every post, like the other post metrics. A part that cannot
+ * be measured leaves the numerator AND the denominator, and all three missing
+ * returns null — never 0. Format and topic are not read.
+ */
+export function contentQualityScore(
+  erPct: number | null,
+  populationEr: readonly (number | null)[],
+  medianViews: number | null,
+  populationViews: readonly (number | null)[],
+  erSdPp: number | null,
+  erPosts: number | null,
 ): number | null {
-  const verifiedScore = verified === null || verified === undefined
-    ? null : (verified ? 100 : 50)
-  const paid = isNum(paidRatio)
-    ? Math.max(0, 100 - (paidRatio / paidCeiling) * 100)
-    : null
   return weighted([
-    [clamp(authenticity), W_BS_AUTHENTICITY],
-    [clamp(followerQuality), W_BS_FOLLOWER_QUALITY],
-    [verifiedScore, W_BS_VERIFIED],
-    [paid, W_BS_PAID],
+    [percentileScore(erPct, populationEr), W_CQ_ENGAGEMENT],
+    [percentileScore(medianViews, populationViews), W_CQ_VIEWS],
+    [ordinalScore(stabilityLabel(erSdPp, erPosts), TINGKAT_STABILITAS), W_CQ_CONSISTENCY],
   ])
 }
 

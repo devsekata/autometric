@@ -1,5 +1,5 @@
 import kolDb from '@/lib/kolDb'
-import type { ScoringRecord } from './score'
+import { audienceGeoFor, type GeoDistribution } from '@/lib/discover/audienceGeo'
 import { tierOf } from './model'
 // The same classifier the roster snapshot and the distribution test ran. See
 // `./classifier.d.ts` for why this is imported rather than ported.
@@ -111,6 +111,77 @@ function groupBy<T extends { sid: string }>(rows: T[]): Map<string, T[]> {
 /* ── the builder ──────────────────────────────────────────────────────────── */
 
 /**
+ * The creator fields this module reads, and `./measured` reports.
+ *
+ * It used to live in `./score`, beside the weighted scorer that consumed it.
+ * That scorer is gone — Brand Match is now the mean of the What Matters a
+ * workspace chose (`@/lib/discover/whatMatters/brandMatch`) — but the record
+ * itself outlived it: `./measured` turns it into the measured-signal panels,
+ * which are creator facts and were never part of the score.
+ */
+export interface ScoringRecord {
+  handle: string | null
+  name: string | null
+  platform: string | null
+  followers: number | null
+  tier: string | null
+  /** 'Yes' | 'No' — the platform's verified flag, the one complete identity signal. */
+  verified: string | null
+
+  /** Canonical `kol_categories.taxonomy_key` the creator is TAGGED with. */
+  category: string | null
+  /** Canonical key classified from the creator's own captions, bio and hashtags. */
+  classifiedCategory: string | null
+  rawCategories: string | null
+  contentTopics: string | null
+  classificationEvidence: string | null
+  bio: string | null
+  captionDigest: string | null
+  hashtagDigest: string | null
+
+  agePrimaryShare: number | null
+  ageSecondaryShare: number | null
+  femalePct: number | null
+  malePct: number | null
+  audienceCountry: string | null
+  countryShare: number | null
+  cities: { key: string; pct: number | null }[]
+  cityKnownPct: number | null
+  /**
+   * Read by `completeness()` and by nothing else.
+   *
+   * It is `undefined` for every creator, here and upstream: `scoring.mjs`
+   * measures Data Completeness over a list containing `k.city1Share`, and its
+   * own `toScoringRecord` builds `cities` instead and never sets this. So the
+   * city slot of the 12 always counts as missing, and Data Completeness tops out
+   * at 92% — which is below `CONF_HIGH` (100), meaning **no creator can ever
+   * reach Confidence 'High'** through this path.
+   *
+   * Carried as a real optional field, and left unset by `./records`, because the
+   * port's job is to reproduce the model that was verified against the workbook
+   * — not to improve it. Populating it would raise the Confidence label on the
+   * 24 measured creators and silently disagree with every published figure.
+   * Fixing it is a change to the model, and belongs in `scripts/brand-match/`
+   * where the workbook can be rebuilt and re-verified alongside it.
+   */
+  city1Share?: number | null
+  interests: Record<string, number>
+  interestKnownPct: number | null
+
+  er: number | null
+  avgViews: number | null
+  vfr: number | null
+  postFrequencyMonthly: number | null
+  observationDays: number | null
+  followersGrowth: number | null
+  paidRatio: number | null
+
+  audienceQuality: number | null
+  authenticity: number | null
+  followerQuality: number | null
+}
+
+/**
  * One `ScoringRecord` per requested creator id, keyed by that id.
  *
  * A creator the roster does not have is simply absent from the map rather than
@@ -193,14 +264,10 @@ export async function scoringRecordsFor(ids: string[]): Promise<Map<string, Scor
          AND audience_date = (SELECT MAX(audience_date) FROM l2_gold.audience_interest_daily y
                                WHERE y.social_account_id = x.social_account_id)
        GROUP BY 1, 2`, [sids]),
-    db.query<{ sid: string; lvl: string; k: string; n: string }>(`
-      SELECT social_account_id AS sid, geo_level AS lvl, geo_key AS k,
-             SUM(audience_count)::numeric AS n
-        FROM l2_gold.audience_geo_daily x
-       WHERE social_account_id = ANY ($1::uuid[])
-         AND audience_date = (SELECT MAX(audience_date) FROM l2_gold.audience_geo_daily y
-                               WHERE y.social_account_id = x.social_account_id)
-       GROUP BY 1, 2, 3`, [sids]),
+    // Geo follows the shared rule (`audienceGeo.ts`): every inferred date,
+    // only the newest measured snapshot — the same audience the creator page
+    // and Brand Match read. Keyed by creator, summed over its accounts.
+    audienceGeoFor(dir.map(d => d.id), db),
     db.query<{ sid: string; k: string; n: string }>(`
       SELECT social_account_id AS sid, dimension_key AS k, SUM(audience_count)::numeric AS n
         FROM l2_gold.audience_demographics_daily x
@@ -213,10 +280,10 @@ export async function scoringRecordsFor(ids: string[]): Promise<Map<string, Scor
       SELECT social_account_id AS sid, caption, hashtags
         FROM l1_silver.unified_post WHERE social_account_id = ANY ($1::uuid[])
        ORDER BY COALESCE(posted_at, date::timestamptz) DESC NULLS LAST`, [sids]),
-  ]) : [empty, empty, empty, empty, empty, empty, empty]
+  ]) : [empty, empty, empty, empty, new Map<string, GeoDistribution>(), empty, empty]
 
   const audBy = groupBy(aud.rows); const engBy = groupBy(eng.rows); const cardBy = groupBy(card.rows)
-  const intBy = groupBy(interest.rows); const geoBy = groupBy(geo.rows)
+  const intBy = groupBy(interest.rows)
   const demoBy = groupBy(demo.rows); const postBy = groupBy(posts.rows)
 
   for (const d of dir) {
@@ -240,9 +307,9 @@ export async function scoringRecordsFor(ids: string[]): Promise<Map<string, Scor
     const classifiedKey = toCanonical(classified.category)
 
     const iShare = shares(pick(intBy).map(r => ({ k: r.k, n: r.n })))
-    const gRows = pick(geoBy)
-    const country = shares(gRows.filter(r => r.lvl === 'country').map(r => ({ k: r.k, n: r.n })))
-    const city = shares(gRows.filter(r => r.lvl === 'city').map(r => ({ k: r.k, n: r.n })))
+    const g = geo.get(d.id)
+    const country = shares(Object.entries(g?.country ?? {}).map(([k, n]) => ({ k, n })))
+    const city = shares(Object.entries(g?.city ?? {}).map(([k, n]) => ({ k, n })))
     const gender = shares(pick(demoBy).map(r => ({ k: r.k, n: r.n })))
 
     const idShare = country.rows.find(x => x.key === 'ID')?.pct ?? null

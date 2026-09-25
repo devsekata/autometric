@@ -1,134 +1,38 @@
 /**
- * The Brand Match model's constants and lookup tables.
+ * The Brand Match vocabularies: the closed lists both sides of a comparison
+ * speak, and the follower tiers.
  *
- * ── This is a PORT, and the port is checked ────────────────────────────────
- * Every value here is copied from `scripts/brand-match/`, which is where the
- * model was built and where the Excel workbook still reads it from:
+ * -- What used to be here, and why it is gone --------------------------------
+ * This file used to open with `V`: the weighted Brand Match scorer's component
+ * and sub-weights, its normalisation targets, its confidence cut-offs and its
+ * five score bands (`W_BRAND_BUSINESS`, `W_TARGET_AUDIENCE`, `W_BS_*`,
+ * `BAND_MODERATE`, ...). That scorer is gone, along with `score.ts` and
+ * `explain.ts`, and Brand Match is now the plain mean of the criteria a Brand
+ * Profile chose (`@/lib/discover/whatMatters/brandMatch`): equal weight each,
+ * no bands, and an unmeasured criterion left out of the denominator.
  *
- *   `ENGINE_CONSTS` in `build.mjs`       — component and sub-weights, targets, bands
- *   `EXTRA_CONSTS`  in `comparison.mjs`  — the roster-specific overrides
- *   `CATEGORY_RELATEDNESS`, `INTEREST_KEYS`, `CANONICAL_CATEGORIES`
- *                                        in `comparison-brands.mjs`
+ * The constants went with it rather than being left in place. A table of forty
+ * weights that nothing reads is not documentation, it is a second model sitting
+ * where someone can wire it back in — which is exactly what "one Brand Match
+ * engine" rules out. `scripts/verify-brand-profile-kol.ts` fails if `W_BS_*`
+ * reappears anywhere under this directory.
  *
- * It is copied rather than imported because `scoring.mjs` reaches its constants
- * through `build.mjs`, and `build.mjs` imports `exceljs` — a devDependency that
- * writes .xlsx files. Importing the chain would pull a spreadsheet writer into
- * the Next.js server bundle in order to read forty numbers out of it.
+ * -- What is left, and why it stays -----------------------------------------
+ * Vocabularies, not weights. None of these scores anything; they are the closed
+ * lists the brand side and the creator side have to share in order to be
+ * comparable at all:
  *
- * Copying two sets of numbers is how they drift, so they are not trusted to
- * stay equal: `scripts/verify-brand-match-port.mjs` asserts every constant and
- * every matrix cell in this file equals the one the scripts hold, and asserts
- * `score()` in `./score.ts` reproduces `score()` in `scoring.mjs` on the
- * published 24 x 5 comparison. That check is what makes this file safe.
+ *   `CANONICAL_CATEGORIES`  `public.kol_categories.taxonomy_key`, the nine keys
+ *   `INTEREST_KEYS`         the audience pipeline's own interest keys, read by
+ *                           `whatMatters/audienceMatch.ts` for Audience Interest
+ *   `CATEGORY_RELATEDNESS`  read by `@/lib/discover/brandFit`
+ *   `TIERS` / `tierOf`      the KOL platform's follower bands, read by
+ *                           `./records.ts`
  *
- * ── Nothing here is tunable by a user ──────────────────────────────────────
- * No weight in this file is exposed in any UI, and none should be. A brand
- * states what it wants; the system decides how much each signal is worth.
- * Weight sliders would let a user tune the answer until it agreed with them,
- * which is the opposite of a match score.
+ * Nothing here is tunable by a user, and none of it is exposed in any UI as a
+ * number to adjust. A brand states what it wants; the system decides what that
+ * is worth.
  */
-
-/** Component and sub-weights, normalisation targets, and the score bands. */
-export const V = {
-  /* component weights — total 100 */
-  W_BRAND_BUSINESS: 20,
-  W_TARGET_AUDIENCE: 30,
-  W_CONTENT_CATEGORY: 20,
-  W_PERSONALITY: 10,
-  W_PERFORMANCE: 10,
-  W_SAFETY: 10,
-
-  /**
-   * Brand & Business sub-weights.
-   *
-   * 60/25/15 rather than section 4's 40/30/30, per `EXTRA_CONSTS`: measured on
-   * the built workbook, Category Match takes 8 distinct values across the 120
-   * pairs while Keyword takes 3 and Hashtag 2, both mostly 0. Letting the two
-   * sparse signals carry 60% of the component would make Brand & Business
-   * Relevance mostly measure whether a creator writes marketing copy in their
-   * captions — which none of them does.
-   */
-  W_BB_CAT: 60,
-  W_BB_KW: 25,
-  W_BB_HASH: 15,
-
-  /* target audience sub-weights (base) */
-  W_TA_AGE: 25,
-  W_TA_GENDER: 15,
-  W_TA_LOCATION: 30,
-  W_TA_INTEREST: 30,
-
-  /* location sub-weights — Region has no column, so its 25 renormalises away */
-  W_LOC_COUNTRY: 50,
-  W_LOC_CITY: 25,
-
-  /* content & category sub-weights */
-  W_CC_CAT: 60,
-  W_CC_TOPICS: 40,
-  W_CC_SUBCATEGORY: 20,
-  W_CC_STYLE: 20,
-
-  /* personality sub-weights — every input is a column that does not exist */
-  W_BP_PERSONALITY: 35,
-  W_BP_TONE: 25,
-  W_BP_VALUES: 25,
-  W_BP_COMM: 15,
-
-  /* performance sub-weights */
-  W_PQ_ER: 35,
-  W_PQ_AUDIENCE: 20,
-  W_PQ_CONSISTENCY: 20,
-  W_PQ_COMMUNITY: 10,
-  W_PQ_VIEWS: 10,
-  W_PQ_GROWTH: 5,
-
-  /* brand safety screen sub-weights */
-  W_BS_AUTHENTICITY: 40,
-  W_BS_FOLLOWER_QUALITY: 30,
-  W_BS_VERIFICATION: 15,
-  W_BS_PAID: 15,
-
-  /* normalisation targets */
-  CAL_ER_TARGET: 6,
-  CAL_AGE_TARGET: 45,
-  CAL_GENDER_TARGET: 65,
-  CAL_GROWTH_TARGET: 8,
-  CAL_COUNTRY_TARGET: 60,
-  CAL_CITY_TARGET: 25,
-  CAL_INTEREST_TARGET: 45,
-  CAL_CONSISTENCY_TARGET: 12,
-  /**
-   * A `post_frequency_monthly` extrapolated from a one- or two-day window is
-   * arithmetic, not a cadence — the roster carries readings of 300/month off a
-   * single observed day. Below this many days, Consistency reports N/A.
-   */
-  CAL_MIN_OBS_DAYS: 21,
-  /**
-   * Replaces the engine's shared 0.5 for this roster. Every creator carrying a
-   * view-to-follower ratio is above 0.5, so the shared target scored all of them
-   * 100 and the sub-score carried no information at all.
-   */
-  CAL_VFR_TARGET_ROSTER: 1.5,
-  CAL_PAID_CEILING: 40,
-
-  /** What a comparison scores when the brand left the field blank. */
-  CAL_NEUTRAL: 50,
-  /** Bottom of the 100/80/60/40/20 relevance ladder — nothing is ever 0. */
-  CAL_UNRELATED: 20,
-  CAL_VERIFIED_YES: 100,
-  /** Not zero: unverified is an unanswered question, not evidence of harm. */
-  CAL_VERIFIED_NO: 50,
-
-  /* match level bands */
-  BAND_EXCELLENT: 90,
-  BAND_STRONG: 80,
-  BAND_GOOD: 70,
-  BAND_MODERATE: 60,
-
-  /* confidence bands, over the 12 tracked fields */
-  CONF_HIGH: 100,
-  CONF_MEDIUM: 84,
-} as const
 
 /**
  * The nine canonical categories, as `public.kol_categories.taxonomy_key` holds
@@ -203,6 +107,3 @@ export function tierOf(followers: number | null | undefined): string | null {
   for (let i = TIERS.length - 1; i >= 0; i--) if (followers >= TIERS[i].min) return TIERS[i].name
   return 'Nano'
 }
-
-export const erTargetFor = (tier: string | null): number =>
-  TIERS.find(t => t.name === tier)?.erTarget ?? V.CAL_ER_TARGET

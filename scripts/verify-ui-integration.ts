@@ -1,5 +1,5 @@
 /**
- * Verifikasi jalur UI -> API -> DB kol untuk Brand Profile, Brand Fit dan
+ * Verifikasi jalur UI -> API -> DB kol untuk Brand Profile, Brand Match dan
  * What Matters.
  *
  *   npm run verify:ui-integration
@@ -8,24 +8,33 @@
  * memakai mesin itu — dua kegagalan yang tidak akan ditangkap `tsc` maupun
  * `npm run build` karena keduanya sintaksis sah:
  *
- *   HITUNGAN KEDUA  Komponen yang mengalikan bobotnya sendiri, atau menambal
- *                   skor null dengan 0, akan merender angka yang MASUK AKAL
- *                   tapi berbeda dari yang dihitung backend. Kartu dan laporan
- *                   lalu berselisih soal creator yang sama.
+ *   HITUNGAN KEDUA  Komponen yang merata-rata sendiri, atau menambal skor null
+ *                   dengan 0, akan merender angka yang MASUK AKAL tapi berbeda
+ *                   dari yang dihitung backend. Kartu dan laporan lalu
+ *                   berselisih soal creator yang sama.
  *
  *   BOUNDARY        Satu import `@/lib/db` di komponen akan menarik UI ke TSDB.
  *                   Itu tidak error — `l1_silver`/`l2_gold`/`feature` ada di
  *                   KEDUA server dengan nama sama, jadi yang muncul cuma angka
  *                   yang berbeda diam-diam.
  *
+ * ── Ditulis ulang untuk SATU mesin Brand Match ────────────────────────────
+ * Versi sebelumnya memeriksa scorer berbobot: empat bar `explain()`, konstanta
+ * `W_*`, dan tujuh kriteria termasuk Brand Safety. Scorer itu sudah dihapus,
+ * jadi pemeriksaannya tidak dipertahankan — ia diganti kontrak yang berlaku
+ * sekarang: Match % adalah rata-rata kriteria yang DIPILIH Brand Profile, tanpa
+ * bobot, tanpa band, dan kriteria yang belum terukur keluar dari pembagi.
+ *
  * Bagian DB read-only; tidak menulis, tidak menghapus, tidak meninggalkan baris.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import kolDb from '@/lib/kolDb'
-import { explain, SIGNAL_LABELS } from '@/lib/discover/brandMatch/explain'
 import { emptyProfile, isScoreable } from '@/lib/discover/brandMatch/profile'
-import { NA, type ScoreResult, type Scored } from '@/lib/discover/brandMatch/score'
+import {
+  WHAT_MATTERS_KEYS, brandMatchFromScores, cleanWhatMatters,
+} from '@/lib/discover/whatMatters/brandMatch'
+import { AUDIENCE_CRITERIA } from '@/lib/discover/whatMatters/audienceMatch'
 import {
   CRITERIA_ORDER, CRITERIA_LABELS, matchWhatMatters, parseMatters,
 } from '@/lib/discover/whatMatters'
@@ -43,24 +52,8 @@ const read = (f: string) => readFileSync(join(UI, f), 'utf8')
 const FEATURE_UI = [
   'BrandProfileForm.tsx', 'MatchBadge.tsx', 'KolDirectoryPage.tsx',
   'KolCreatorSections.tsx', 'CreatorQuickInsight.tsx', 'DiscoverCompare.tsx',
-  'KolCreatorReport.tsx',
+  'KolCreatorReport.tsx', 'KolCreatorProfile.tsx', 'KolCreatorWorkspace.tsx',
 ]
-
-function naResult(over: Partial<ScoreResult> = {}): ScoreResult {
-  const na: Scored = NA
-  return {
-    categoryMatch: na, keywordMatch: na, hashtagMatch: na, businessScore: na,
-    ageScore: na, genderScore: na, locationScore: na, interestScore: na, audienceScore: na,
-    contentCategoryMatch: na, subCategoryMatch: na, topicMatch: na, contentStyleMatch: na,
-    contentScore: na, personalityScore: na,
-    erScore: na, audienceQualityScore: na, consistencyScore: na, communityScore: na,
-    averageViewsScore: na, recentGrowthScore: na, performanceScore: na,
-    authenticityScore: na, followerQualityScore: na, verificationScore: na,
-    paidRatioScore: na, safetyScore: na,
-    availableWeight: 0, finalScore: na, level: 'Not Scored',
-    dataCompleteness: 0, confidence: 'Limited Data', ...over,
-  }
-}
 
 async function main() {
   /* ── 1. Boundary di lapisan UI ────────────────────────────────────────── */
@@ -103,66 +96,114 @@ async function main() {
   // dibuang diam-diam oleh `saveBrandProfile` dan user mengira tersimpan.
   const backendFields = Object.keys(emptyProfile('x'))
   const uiFields = [...new Set(
-    (form.match(/\b(brand|target|audience|caption|preferred|content|min|require|verified|gender)[A-Z][a-zA-Z]*/g) ?? []),
-  )].filter(f => f !== 'brandMatch' && f !== 'genderMajorities')
+    (form.match(/\bdraft\.([a-z][a-zA-Z]*)/g) ?? []).map(m => m.slice('draft.'.length)),
+  )]
   const unknown = uiFields.filter(f => !backendFields.includes(f))
   check('setiap field yang dipakai UI dikenal backend', unknown.length === 0,
     unknown.join(', '))
+
+  // Sembilan kolom yang dijatuhkan `migrations/kol/009` tidak boleh muncul lagi
+  // sebagai input: field yang bisa diketik tapi tidak punya kolom adalah
+  // preferensi yang user yakin tersimpan padahal tidak.
+  const DROPPED = [
+    'brandKeywords', 'brandHashtags', 'captionTerms', 'brandTone',
+    'performanceTargets', 'minFollowers', 'minErPct', 'requireCategory', 'verifiedOnly',
+  ]
+  const revived = DROPPED.filter(f => backendFields.includes(f) || uiFields.includes(f))
+  check('kolom yang dijatuhkan migrations/kol/009 tidak hidup lagi di form/tipe',
+    revived.length === 0, revived.join(', '))
+
   check('profil kosong tidak scoreable (UI menampilkan prompt, bukan skor)',
     !isScoreable(emptyProfile('x')))
+  check('profil yang memilih satu What Matters menjadi scoreable',
+    isScoreable({ ...emptyProfile('x'), whatMatters: ['high_reach'] }))
+  check('profil yang hanya mengisi Target Audience juga scoreable',
+    isScoreable({ ...emptyProfile('x'), targetCity: 'Jakarta' }))
+  // Brand category bukan lagi syarat: scorer yang membutuhkannya sudah hilang.
+  check('brand category saja TIDAK menyalakan scoring',
+    !isScoreable({ ...emptyProfile('x'), brandCategory: 'Beauty' }))
 
-  /* ── 3. Brand Fit: empat bar, dan UI tidak menghitung ulang ───────────── */
+  /* ── 3. Brand Match: satu mesin, tanpa band, tanpa hitungan kedua ─────── */
 
-  console.log('\nBrand Fit — empat bar dari backend\n')
+  console.log('\nBrand Match — satu mesin, dirender apa adanya\n')
 
-  const bars = explain(naResult({
-    businessScore: 80, contentScore: 60, audienceScore: 70,
-    performanceScore: 90, safetyScore: 50, finalScore: 72, level: 'Good Match',
-  })).signals
-
-  check('tepat 4 bar sampai ke UI', bars.length === 4, String(bars.length))
-  check('id bar sesuai urutan produk',
-    bars.map(b => b.id).join(',') === 'category,audience,values,performance',
-    bars.map(b => b.id).join(','))
-  check('label bar sesuai brief',
-    bars.map(b => b.label).join(' | ')
-      === 'Category Matching | Audience Relevance | Values Alignment | Past Performance',
-    bars.map(b => b.label).join(' | '))
-  check('bar membawa skor 0–100, bukan kontribusi terbobot',
-    bars.find(b => b.id === 'audience')?.pct === 70)
-  check('Values Alignment tampil unavailable, bukan 0',
-    bars.find(b => b.id === 'values')?.pct === null
-    && !!bars.find(b => b.id === 'values')?.unavailable)
-
-  // MatchBadge harus MERENDER, bukan menghitung.
   const badge = read('MatchBadge.tsx')
-  check('MatchBadge memakai pct apa adanya dari backend',
-    /\$\{s\.pct\}%/.test(badge) && /\{s\.pct\}/.test(badge))
-  check('MatchBadge menggambar null sebagai "Not measured", bukan 0',
-    /Not measured/.test(badge) && /s\.pct === null|pct === null/.test(badge))
+  check('MatchBadge merender matchPct dari backend', /m\.matchPct/.test(badge))
+  check('MatchBadge tidak merata-rata sendiri',
+    !/\.reduce\(/.test(badge) && !/\/\s*m\.(selected|contributing)/.test(badge))
+  check('matchPct null digambar sebagai "Match —", bukan 0', /'Match —'/.test(badge))
+  check('rincian kriteria null digambar "belum terukur", bukan 0',
+    /belum terukur/.test(badge) && /score === null/.test(badge))
+
+  // Tidak ada band di mana pun: bukan cuma di badge, tapi di seluruh UI fitur.
+  const BANDS = /\b(Excellent|Strong|Good|Moderate|Low)\s+Match\b|LEVEL_TONE|MatchLevel/
+  const banded = FEATURE_UI.filter(f => BANDS.test(read(f)))
+  check('nol komponen menampilkan band Excellent/Strong/Good/Moderate/Low',
+    banded.length === 0, banded.join(', '))
+
   // Sengaja disempitkan ke SINYAL MATCH. Pola `?? 0` yang lebih longgar juga
   // menangkap hal yang tidak berbahaya dan tidak berhubungan — mis. donut
   // audience-interest di KolCreatorSections yang menjaga `slices[0]` saat
   // arraynya kosong. Yang dijaga di sini hanya skor match, tempat 0 berarti
   // "cocokannya buruk" padahal null berarti "belum diukur".
   const badCoerce = FEATURE_UI.filter(f =>
-    /\b(s|signal|sig|match|m)\.(pct|score)\s*\?\?\s*0\b/.test(read(f)))
+    /\b(s|signal|sig|match|m|b)\.(pct|score|matchPct)\s*\?\?\s*0\b/.test(read(f)))
   check('nol komponen menambal skor match null dengan 0', badCoerce.length === 0,
     badCoerce.join(', '))
+
+  // Bobot scorer lama tidak boleh kembali — tidak sebagai lapisan kompatibilitas
+  // dan tidak sebagai salinan di UI.
   const reWeights = FEATURE_UI.filter(f =>
     /\bW_(BB|TA|CC|BP|PQ|BS|BRAND|CONTENT|TARGET|PERSONALITY|PERFORMANCE|SAFETY)/.test(read(f)))
   check('nol komponen mengimpor bobot engine (tidak ada hitungan kedua)',
     reWeights.length === 0, reWeights.join(', '))
+  const oldEngine = FEATURE_UI.filter(f =>
+    /brandMatch\/(score|explain)'|from '@\/lib\/discover\/brandMatch'/.test(read(f)))
+  check('nol komponen mengimpor scorer berbobot yang sudah dihapus',
+    oldEngine.length === 0, oldEngine.join(', '))
 
-  /* ── 4. What Matters: tujuh kriteria, lewat API ───────────────────────── */
+  // Aritmetikanya sendiri, di luar DB: null keluar dari pembagi, bukan nol.
+  const withNull = brandMatchFromScores(
+    { engagement: 80, reach: null }, ['strong_engagement', 'high_reach'])
+  check('kriteria null keluar dari pembagi (80, bukan 40)',
+    withNull.matchPct === 80 && withNull.contributing === 1 && withNull.selected === 2,
+    String(withNull.matchPct))
+  check('semua kriteria null → Match % null, bukan 0',
+    brandMatchFromScores({ engagement: null }, ['strong_engagement']).matchPct === null)
+  check('tidak ada yang dipilih → no_selection',
+    brandMatchFromScores({ engagement: 80 }, []).unavailable === 'no_selection')
+  check('brand_safety tidak bisa dipilih', cleanWhatMatters(['brand_safety']).length === 0)
 
-  console.log('\nWhat Matters — tujuh kriteria dari backend\n')
+  /* ── 4. Kriteria yang tidak tersedia: tidak bisa dipilih di UI ────────── */
 
-  check('7 kriteria terdaftar', CRITERIA_ORDER.length === 7, CRITERIA_ORDER.join(','))
+  console.log('\nKriteria yang tidak tersedia — disabled, bukan nol\n')
+
+  check('form hanya menawarkan vocabulary What Matters dari API',
+    /data\.vocabulary\.whatMatters\.map/.test(form))
+  check('form tidak menuliskan daftar kriterianya sendiri',
+    !/strong_engagement/.test(form))
+  check('kriteria Target Audience yang kosong dirender disabled',
+    /PickChip/.test(form) && /disabled=\{!on\}/.test(form))
+  check('form menjelaskan null tidak dihitung nol',
+    /bukan dihitung nol|not scored zero|leaves the denominator|tidak dihitung sebagai nol/i.test(form))
+  check('enam What Matters + lima Target Audience, dan tidak ada brand_safety',
+    WHAT_MATTERS_KEYS.length === 6 && AUDIENCE_CRITERIA.length === 5
+    && !(WHAT_MATTERS_KEYS as readonly string[]).includes('brand_safety'),
+    `${WHAT_MATTERS_KEYS.length}/${AUDIENCE_CRITERIA.length}`)
+  check('kriteria Target Audience persis yang disepakati',
+    AUDIENCE_CRITERIA.join(',')
+      === 'audience_gender,audience_age,audience_country,audience_city,audience_interest',
+    AUDIENCE_CRITERIA.join(','))
+
+  /* ── 5. What Matters: enam kriteria, lewat API ────────────────────────── */
+
+  console.log('\nWhat Matters — enam kriteria dari backend\n')
+
+  check('6 kriteria terdaftar', CRITERIA_ORDER.length === 6, CRITERIA_ORDER.join(','))
   check('label sesuai yang disepakati',
     CRITERIA_ORDER.map(k => CRITERIA_LABELS[k]).join(' | ')
       === 'Strong Engagement | High Audience Quality | Consistent Performance | '
-        + 'Audiens Aktif & Asli | High Reach | Content Quality | Brand Safety',
+        + 'Audiens Aktif & Asli | High Reach | Content Quality',
     CRITERIA_ORDER.map(k => CRITERIA_LABELS[k]).join(' | '))
 
   const route = readFileSync(join(process.cwd(), 'src', 'app', 'api',
@@ -174,8 +215,10 @@ async function main() {
     /criteria: CRITERIA_ORDER\.map/.test(route))
   check('parseMatters membuang kunci tak dikenal',
     parseMatters('engagement,ngawur,reach').join(',') === 'engagement,reach')
+  check('route membaca pilihan dari Brand Profile agency, bukan query string',
+    /getBrandProfile\(access\.orgId\)/.test(route) && !/sp\.get\('brandMatch'\)/.test(route))
 
-  /* ── 5. Live: null tetap null sampai ke payload ───────────────────────── */
+  /* ── 6. Live: null tetap null sampai ke payload ───────────────────────── */
 
   console.log('\nLive terhadap DB kol (read-only)\n')
 
@@ -194,14 +237,24 @@ async function main() {
     const anyNull = all.some(r => Object.values(r.scores).some(v => v === null))
     check('kriteria yang belum terukur sampai ke payload sebagai null',
       anyNull, 'tidak ada null sama sekali — curiga ada yang menambal')
-    check('null TIDAK pernah muncul sebagai 0',
-      all.every(r => Object.entries(r.scores)
-        .every(([, v]) => v === null || (typeof v === 'number' && v > 0) || v === 0
-          ? true : false)))
     check('contributing tidak pernah melebihi selected',
       all.every(r => r.contributing <= r.selected))
     check('skor null saat tidak ada kriteria yang menyumbang',
       all.every(r => r.contributing > 0 ? r.score !== null : r.score === null))
+
+    // Brand Match harus memakai ANGKA YANG SAMA dengan What Matters — satu
+    // mesin, bukan dua jalur yang kebetulan mirip.
+    const choice = ['strong_engagement', 'high_reach']
+    let same = 0
+    for (const [, r] of scored) {
+      const vals = [r.scores.engagement, r.scores.reach]
+        .filter((v): v is number => typeof v === 'number')
+      const expected = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+      const bm = brandMatchFromScores(r.scores, choice).matchPct
+      if (bm === null ? expected === null : Math.abs(bm - (expected ?? 0)) < 1e-9) same++
+    }
+    check(`Brand Match = rata-rata skor What Matters creator itu sendiri (${same}/${scored.size})`,
+      scored.size > 0 && same === scored.size)
 
     const sample = all[0]
     console.log(`        contoh — contributing ${sample.contributing}/${sample.selected}, `

@@ -37,7 +37,7 @@ import { ConfidenceBadge } from './credibility'
 import { creatorBadges, creatorSignals, cpmOf } from '@/lib/discover/creatorMatch'
 import type { KolDirectoryRow } from '@/lib/discover/kolDirectory'
 import { MatchBadge, MatchExplanationPanel } from './MatchBadge'
-import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+import type { BrandMatchResult } from '@/lib/discover/whatMatters/brandMatch'
 import type { MeasuredSignals } from '@/lib/discover/brandMatch/measured'
 import type { TrackingStatus } from '@/lib/discover/types'
 
@@ -88,7 +88,7 @@ export default function CreatorQuickInsight({
    * The Brand Match Engine's verdict on this creator against the workspace's
    * saved Brand Profile, or null when no profile has been saved.
    */
-  match: MatchExplanation | null
+  match: BrandMatchResult | null
   /**
    * What the medallion tables actually measured for this creator, from the same
    * server read the match score was computed from. Null while loading, or when
@@ -202,7 +202,7 @@ export default function CreatorQuickInsight({
               apart. One number, stated once, explained once. */}
           {match && (
             <div className="mt-3">
-              <MatchBadge match={match} />
+              <MatchBadge m={match} />
             </div>
           )}
         </div>
@@ -349,7 +349,7 @@ export default function CreatorQuickInsight({
               it and an honest "not measured" for the ones the database cannot
               answer. No weights are shown; see `./MatchBadge`. */}
           <Section title="Brand match">
-            <MatchExplanationPanel match={match} />
+            <MatchExplanationPanel m={match} />
           </Section>
 
         </div>

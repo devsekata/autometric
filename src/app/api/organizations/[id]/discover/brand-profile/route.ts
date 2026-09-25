@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
+import { CANONICAL_CATEGORIES, INTEREST_KEYS } from '@/lib/discover/brandMatch/model'
 import {
-  BrandProfileError, CANONICAL_CATEGORIES, GENDER_MAJORITIES, INTEREST_KEYS,
+  BrandProfileError, GENDER_MAJORITIES,
   getBrandProfile, isScoreable, saveBrandProfile, type BrandProfileInput,
-} from '@/lib/discover/brandMatch'
+} from '@/lib/discover/brandMatch/profile'
+import { WHAT_MATTERS_OPTIONS } from '@/lib/discover/whatMatters/brandMatch'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -27,6 +29,13 @@ const VOCABULARY = {
   categories: CANONICAL_CATEGORIES,
   interests: INTEREST_KEYS,
   genderMajorities: GENDER_MAJORITIES,
+  /**
+   * The six What Matters a profile can choose, with the labels What Matters
+   * itself uses. Served with the profile so the form keeps no second copy of
+   * the vocabulary — and so a criterion Brand Match cannot score, `brand_safety`
+   * above all, is not offerable rather than offered and silently dropped.
+   */
+  whatMatters: WHAT_MATTERS_OPTIONS,
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -37,13 +46,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
     }
 
-    const profile = await getBrandProfile(orgId)
+    const profile = await getBrandProfile(access.orgId)
     return NextResponse.json({
       profile,
-      // Whether the engine can produce a score at all. The directory reads this
-      // to decide between showing match status and showing the set-up prompt,
-      // rather than inferring it from a null score — an unscoreable profile and
-      // an unmeasurable creator are different problems with different fixes.
+      // Whether the engine can produce a Match % at all: whether this profile
+      // has SELECTED anything (What Matters, or a Target Audience field). The
+      // directory reads this to choose between a score and the set-up prompt,
+      // rather than inferring it from a null score — a profile that has chosen
+      // nothing and a creator nobody has measured are different problems with
+      // different fixes.
       scoreable: isScoreable(profile),
       canEdit: access.role === 'ADMIN',
       vocabulary: VOCABULARY,
@@ -76,7 +87,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     // Partial by construction: `saveBrandProfile` keeps the stored value for
     // every key the caller did not send, so a form that edits one section
     // cannot blank the others.
-    const profile = await saveBrandProfile(orgId, body as BrandProfileInput, access.userId)
+    const profile = await saveBrandProfile(access.orgId, body as BrandProfileInput, access.userId)
 
     return NextResponse.json({
       profile,

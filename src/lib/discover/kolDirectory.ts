@@ -184,38 +184,19 @@ export interface KolDirectoryFacets {
 }
 
 /**
- * Brand Match for the creators on one page, when `?match=1` asked for it.
+ * The MEASURED signals for the creators on one page, when `?measured=1` asked.
  *
- * Attached by the route rather than produced here, because matching needs the
- * workspace's Brand Profile out of the warehouse and this module only ever
- * talks to the KOL pool. Keeping the fetch and the scoring in separate modules
- * is what stops a directory query from quietly acquiring a second database.
+ * Creator facts, not a match: authenticity, audience quality, growth, average
+ * views, posting cadence — read straight out of the medallion tables on the KOL
+ * server. Nothing here depends on a brand, which is why it rides the list
+ * request while Brand Match (`?ids=…&match=1`) is asked for separately.
+ *
+ * Every field is nullable and null means NOT MEASURED, never zero. It is what
+ * the cards and the quick-look panel read instead of the figures
+ * `@/lib/discover/kolSample` used to generate for the same slots.
  */
-export interface KolDirectoryMatch {
-  /**
-   * False when the workspace has not saved a scoreable Brand Profile. `rows` is
-   * then empty — not full of zeros. A creator nobody has stated a preference
-   * about has no match score, and printing one would be the fake precision the
-   * engine exists to remove.
-   */
-  scoreable: boolean
-  brandName: string | null
-  brandCategory: string | null
-  updatedAt: string | null
-  eligibility: import('./brandMatch/profile').EligibilityRules
-  /** Creator id → the score and the reason for it. Absent id means unscored. */
-  rows: Record<string, import('./brandMatch/explain').MatchExplanation>
-  /**
-   * Creator id → the MEASURED signals for that creator: authenticity, audience
-   * quality, growth, average views, posting cadence.
-   *
-   * Present even when `scoreable` is false, because none of it depends on a
-   * brand. It is what the cards and the quick-look panel read instead of the
-   * figures `@/lib/discover/kolSample` used to generate for the same slots —
-   * every field nullable, and null meaning not measured rather than zero.
-   */
-  measured: Record<string, import('./brandMatch/measured').MeasuredSignals>
-}
+export type KolDirectoryMeasured =
+  Record<string, import('./brandMatch/measured').MeasuredSignals>
 
 /**
  * What Matters Most for the creators on this page, when `?matters=` asked.
@@ -245,7 +226,16 @@ export interface KolDirectoryPayload {
   page: number
   pageSize: number
   facets?: KolDirectoryFacets
-  match?: KolDirectoryMatch
+  measured?: KolDirectoryMeasured
+  /**
+   * Brand Match for exactly the ids asked for, when `?ids=…&match=1` did.
+   *
+   * Produced by the one Brand Match engine
+   * (`@/lib/discover/whatMatters/brandMatch`) and attached by the route, not by
+   * this module: the score is the mean of the criteria the workspace's Brand
+   * Profile chose, and this module only ever reads the roster.
+   */
+  brandMatch?: import('./whatMatters/brandMatch').DirectoryBrandMatch
   whatMatters?: KolDirectoryWhatMatters
 }
 
@@ -382,8 +372,8 @@ const SORT_COLUMNS: Record<string, string> = {
    * A match score is a function of (creator, brand profile) computed in Node
    * after the page is read; there is nothing in `kol_directory` to ORDER BY.
    * So this resolves to the follower ordering, which becomes the STABLE BASE
-   * the page is selected and tie-broken by, and the route re-ranks that page
-   * by score afterwards — see `MATCH_SORT` below.
+   * the page is selected and tie-broken by, and that page is re-ranked by
+   * Match % afterwards — see `MATCH_SORT` below.
    *
    * Mapped explicitly rather than left to `orderBy`'s unknown-key fallback:
    * the fallback lands on the same column, but silently, and a reader would
@@ -393,51 +383,16 @@ const SORT_COLUMNS: Record<string, string> = {
 }
 
 /**
- * The sort key whose ordering is applied AFTER the query, over the page only.
+ * `MATCH_SORT` and `rankByMatch` live in `./matchSort` — a module that imports
+ * nothing — and are re-exported here so every existing importer keeps reaching
+ * ONE implementation.
  *
- * Page-scoped by construction, not by omission: scoring the whole roster would
- * mean computing ~7.4k scores per request per brand profile, and with category
- * absent for 3.430 creators most of them would tie at the same neutral value
- * anyway. The UI says "halaman ini" for exactly this reason.
+ * They moved because the client applies the ordering now: importing a value
+ * from this module pulls `@/lib/kolDb`, and with it `pg`, into the browser
+ * bundle. See `./matchSort` for the whole reason.
  */
-export const MATCH_SORT = 'match'
+export { MATCH_SORT, rankByMatch } from './matchSort'
 
-/**
- * Re-ranks ONE PAGE by Brand Match score. Pure, so it can be verified without a
- * database or a running route.
- *
- * Three properties it has to keep, and the reason each one is not negotiable:
- *
- *   unscored last   A creator with no score is not a creator who scored 0.
- *                   `null` sorts to the bottom in BOTH directions, so "lowest
- *                   match first" never means "unmeasured first" — the same rule
- *                   the SQL ordering applies with NULLS LAST.
- *   no fabrication  Nothing substitutes a number for a missing score. The
- *                   comparator reads `null` and orders around it; it never
- *                   coerces to 0, to 50, or to -1.
- *   deterministic   `Array.prototype.sort` has been required to be stable since
- *                   ES2019, so equal scores keep the incoming order — which is
- *                   the SQL ordering (followers DESC, then username ASC).
- *                   Thousands of creators tie at the neutral 50 on this roster,
- *                   so this is the common case, not the edge case.
- *
- * Returns a new array; the input is not mutated.
- */
-export function rankByMatch<T>(
-  rows: readonly T[],
-  scoreOf: (row: T) => number | null,
-  dir: string | null | undefined,
-): T[] {
-  const asc = dir === 'asc'
-  return [...rows].sort((a, b) => {
-    const x = scoreOf(a)
-    const y = scoreOf(b)
-    if (x === null && y === null) return 0
-    if (x === null) return 1
-    if (y === null) return -1
-    return asc ? x - y : y - x
-  })
-}
 export const KOL_SORT_KEYS = Object.keys(SORT_COLUMNS)
 
 /**

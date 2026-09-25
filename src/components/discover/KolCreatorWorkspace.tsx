@@ -46,7 +46,7 @@ import { useDiscoverFavorites } from './useDiscoverFavorites'
 import { creatorIntel, measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
 import { tabHref } from '@/lib/discover/tabs'
 import type { KolCreatorPayload, KolDirectoryPayload } from '@/lib/discover/kolDirectory'
-import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+import type { BrandMatchResult } from '@/lib/discover/whatMatters/brandMatch'
 import type { KolMeasuredRate } from '@/lib/discover/kolMeasured'
 import type { CreatorLink, TrackingStatus } from '@/lib/discover/types'
 
@@ -85,14 +85,15 @@ export default function KolCreatorWorkspace({
    * the profile decides to make one.
    */
   /**
-   * The Brand Match Engine's verdict on this creator, for the Brand Fit view.
+   * Brand Match for this creator, for the Brand Fit view.
    *
    * Fetched through the directory endpoint with an explicit `ids=` — the same
    * route, the same engine and therefore the same number the Creator Database
    * card showed, rather than a second scoring path that could drift from it.
-   * `null` means the workspace has no saved Brand Profile; the section says so.
+   * `null` means the workspace has chosen no criteria, or this creator was not
+   * in the scored set; the section says which.
    */
-  const [match, setMatch] = useState<MatchExplanation | null>(null)
+  const [match, setMatch] = useState<BrandMatchResult | null>(null)
   const [matchScoreable, setMatchScoreable] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -101,8 +102,12 @@ export default function KolCreatorWorkspace({
       .then(r => (r.ok ? r.json() : null))
       .then((d: KolDirectoryPayload | null) => {
         if (cancelled || !d) return
-        setMatch(d.match?.rows[kolId] ?? null)
-        setMatchScoreable(d.match?.scoreable ?? false)
+        // `unavailable` is the profile's state, not this creator's: with
+        // nothing chosen there is no Match % for anyone, which is what the
+        // section's set-up prompt is for.
+        const on = !!d.brandMatch && !d.brandMatch.unavailable
+        setMatch(on ? d.brandMatch?.rows[kolId] ?? null : null)
+        setMatchScoreable(on)
       })
       .catch(() => { if (!cancelled) setMatchScoreable(false) })
     return () => { cancelled = true }
@@ -285,7 +290,7 @@ function Loaded({
   data: KolCreatorPayload
   intel: CreatorIntel
   /** The Brand Match Engine's verdict; see the state that fetches it above. */
-  match: MatchExplanation | null
+  match: BrandMatchResult | null
   matchScoreable: boolean | null
   orgSlug: string
   view: NavId

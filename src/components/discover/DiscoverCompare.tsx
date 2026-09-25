@@ -42,9 +42,9 @@ import {
 import { idsOf, selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import type { DirectoryAccount, DirectoryPayload } from '@/lib/discover/types'
 import type {
-  KolDirectoryMatch, KolDirectoryPayload, KolDirectoryRow,
+  KolDirectoryPayload, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
-import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+import type { BrandMatchResult, DirectoryBrandMatch } from '@/lib/discover/whatMatters/brandMatch'
 
 /* ── the two populations, in one shape ────────────────────────────────────── */
 
@@ -72,16 +72,23 @@ interface Contender {
   connected: boolean | null
   category: string | null
   /**
-   * The Brand Match Engine's Final Match Score against the workspace's saved
-   * Brand Profile, and its band.
+   * Brand Match: the mean of the criteria this workspace's Brand Profile chose,
+   * as the one engine computed it.
    *
-   * Roster creators only, and null when no profile is saved. A tracked account
-   * is not in `public.kol_directory` and the engine reads nothing else, so
-   * scoring one would mean a second, differently-sourced match number in the
+   * Roster creators only, and null when the profile has chosen nothing or when
+   * none of the chosen criteria could be measured for this creator. A tracked
+   * account is not in `public.kol_directory` and the engine reads nothing else,
+   * so scoring one would mean a second, differently-sourced match number in the
    * same column — which is the thing this screen most carefully avoids.
+   *
+   * There is no band beside it. `matchLevel` used to carry one; the model it
+   * came from is gone, and a tier invented here would be exactly the second
+   * opinion this column exists to prevent.
    */
   matchScore: number | null
-  matchLevel: string | null
+  /** How many chosen criteria this creator could be measured on, out of how many. */
+  matchContributing: number | null
+  matchSelected: number | null
   city: string | null
 }
 
@@ -103,12 +110,13 @@ const fromAccount = (a: DirectoryAccount): Contender => ({
   category: null,
   city: null,
   // A tracked account is not a row in `public.kol_directory`, and the Brand
-  // Match Engine reads nothing else. Null, and the row says why.
+  // Match engine reads nothing else. Null, and the row says why.
   matchScore: null,
-  matchLevel: null,
+  matchContributing: null,
+  matchSelected: null,
 })
 
-const fromRoster = (r: KolDirectoryRow, match?: MatchExplanation | null): Contender => ({
+const fromRoster = (r: KolDirectoryRow, match?: BrandMatchResult | null): Contender => ({
   key: selectionKey('roster', r.id),
   id: r.id,
   source: 'roster',
@@ -125,8 +133,9 @@ const fromRoster = (r: KolDirectoryRow, match?: MatchExplanation | null): Conten
   connected: r.connected,
   category: r.categories[0] ?? null,
   city: r.city,
-  matchScore: match?.score ?? null,
-  matchLevel: match?.level ?? null,
+  matchScore: match?.matchPct ?? null,
+  matchContributing: match?.contributing ?? null,
+  matchSelected: match?.selected ?? null,
 })
 
 /* ── the rows ─────────────────────────────────────────────────────────────── */
@@ -214,24 +223,28 @@ const GROUPS: MetricGroup[] = [
      * Brand Match — the one row on this screen that is about the pair rather
      * than about the creator.
      *
-     * It is the absolute Final Match Score, not the normalised one. `normalise`
-     * exists for exactly this shape of population and was the obvious thing to
-     * reach for here, but it would rescale every score the moment a creator was
-     * added to or removed from the comparison: a creator you were told was an
-     * 80 becomes a 100 because you dropped the person above them. The ★ already
+     * It is the creator's own Match %, not a normalised one. `normalise` exists
+     * for exactly this shape of population and was the obvious thing to reach
+     * for here, but it would rescale every score the moment a creator was added
+     * to or removed from the comparison: a creator you were told was an 80
+     * becomes a 100 because you dropped the person above them. The ★ already
      * marks the leader of the comparison; the number stays the creator's own.
      */
     title: 'Brand Match',
-    note: 'Skor terhadap Brand Profile workspace, dari Brand Match Engine. '
-      + 'Hanya untuk creator roster — akun yang kamu track sendiri tidak ada di database KOL.',
+    note: 'Rata-rata kriteria yang dipilih workspace di Brand Profile (What Matters + Target '
+      + 'Audience), dari satu Brand Match engine. Kriteria yang belum terukur keluar dari '
+      + 'pembagi, bukan dihitung nol. Hanya untuk creator roster — akun yang kamu track '
+      + 'sendiri tidak ada di database KOL.',
     rows: [
       {
-        label: 'Match score',
+        label: 'Match %',
         get: c => c.matchScore,
-        fmt: c => (c.matchScore === null ? '—' : `${c.matchScore}`),
+        fmt: c => (c.matchScore === null
+          ? '—'
+          : `${c.matchScore.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%`),
         higherIsBetter: true,
         missing: c => (c.source === 'roster'
-          ? 'Belum ada Brand Profile tersimpan, atau creator ini tidak bisa diskor dari data yang ada.'
+          ? 'Workspace belum memilih kriteria apa pun, atau tidak satu pun kriteria yang dipilih terukur untuk creator ini.'
           : notRoster),
       },
     ],
@@ -244,7 +257,10 @@ const FACTS: { label: string; get: (c: Contender) => string | null }[] = [
   { label: 'Kategori', get: c => c.category },
   { label: 'Kota', get: c => c.city },
   { label: 'Connected', get: c => (c.connected === null ? null : c.connected ? 'Ya' : 'Tidak') },
-  { label: 'Match status', get: c => c.matchLevel },
+  // How much of the chosen selection this creator could actually be measured
+  // on — the honest caveat on a mean, and not a band.
+  { label: 'Kriteria terukur', get: c => (c.matchSelected === null
+    ? null : `${c.matchContributing} dari ${c.matchSelected}`) },
 ]
 
 export default function DiscoverCompare({
@@ -267,7 +283,7 @@ export default function DiscoverCompare({
    * and the same route the Creator Database used — so a creator carried into
    * Compare keeps the score they were picked on.
    */
-  const [match, setMatch] = useState<KolDirectoryMatch | null>(null)
+  const [match, setMatch] = useState<DirectoryBrandMatch | null>(null)
   const [rosterError, setRosterError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   /**
@@ -316,7 +332,7 @@ export default function DiscoverCompare({
       .then((d: KolDirectoryPayload) => {
         if (cancelled) return
         setRoster(d.rows)
-        setMatch(d.match ?? null)
+        setMatch(d.brandMatch ?? null)
         setRosterError(null)
       })
       // The roster lives on another server. Losing it drops those columns and
@@ -329,7 +345,8 @@ export default function DiscoverCompare({
     const accounts = (data?.accounts ?? [])
       .filter(a => compare.ids.has(selectionKey('account', a.id)))
       .map(fromAccount)
-    return [...accounts, ...roster.map(r => fromRoster(r, match?.rows[r.id] ?? null))]
+    const on = !!match && !match.unavailable
+    return [...accounts, ...roster.map(r => fromRoster(r, on ? match?.rows[r.id] ?? null : null))]
   }, [data, roster, match, compare.ids])
 
   const available = useMemo(() => {

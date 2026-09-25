@@ -1,6 +1,7 @@
 import kolDb, { kolDbWrite } from '@/lib/kolDb'
 import { CANONICAL_CATEGORIES, INTEREST_KEYS } from './model'
-import type { ScoringBrand } from './score'
+import { cleanWhatMatters, type WhatMattersKey } from '@/lib/discover/whatMatters/brandMatch'
+import { selectedAudienceCriteria } from '@/lib/discover/whatMatters/audienceMatch'
 
 /**
  * The Brand Profile: read, validated, written, and turned into the shape the
@@ -21,67 +22,77 @@ import type { ScoringBrand } from './score'
  * The warehouse table is deliberately left in place rather than dropped;
  * whoever owns that database decides its fate.
  *
- * ── Three shapes, on purpose ───────────────────────────────────────────────
- *   `BrandProfile`     what the form edits and the API returns
- *   `ScoringBrand`     the eight fields `score()` reads (in `./score`)
- *   `EligibilityRules` the Ideal Creator Profile, as directory filters
- *
- * They are separate because they answer different questions and change for
- * different reasons. The middle one follows `public.brand`'s column names
- * because the workbook scored against exactly those, and renaming them in the
- * port would make the two impossible to diff.
+ * ── One shape, since the engine swap ───────────────────────────────────────
+ * There used to be three: `BrandProfile` for the form, `ScoringBrand` for the
+ * weighted scorer's eight fields, and `EligibilityRules` for the Ideal Creator
+ * Profile as directory filters. Both adapters are gone with the scorer they
+ * fed. Brand Match now reads this profile directly — `whatMatters` for the
+ * criteria it averages, and the Target Audience fields for the audience
+ * criteria (`@/lib/discover/whatMatters/audienceMatch`) — so a second shape in
+ * between would only be a place for the two to drift.
  */
 
 /* ── the profile ──────────────────────────────────────────────────────────── */
 
-/*
- * `brandKeywords`, `brandHashtags`, `captionTerms`, `brandTone`,
- * `performanceTargets`, `minFollowers`, `minErPct`, `requireCategory` and
- * `verifiedOnly` have had no column since `migrations/kol/009` dropped them.
- * They stay on the type so the form and the adapters still compile, always
- * read as their `emptyProfile()` value, and are never written.
- */
 export interface BrandProfile {
   organizationId: string
+  /**
+   * `public.agencies.id` on the KOL server — the workspace this profile belongs
+   * to, and the `organization_id` the table is UNIQUE on. One agency, one
+   * profile. It is the id `requireOrgMemberById` authorised, never one a
+   * request body chose.
+   */
   brandId: string | null
 
-  /* Brand Identity. Brand Values is deliberately absent — see the migration. */
+  /*
+   * Exactly the fields of the Brand Profile form, plus `organizationId`,
+   * `brandId` and `updatedAt`. Nine legacy fields with no form input and no
+   * reader — keywords, hashtags, caption terms, tone, performance targets, the
+   * follower/ER minimums and the two eligibility toggles — were dropped by
+   * `migrations/kol/009`, together with the weighted scorer that read them.
+   */
+
+  /* Company Profile + Brand Identity */
   brandName: string | null
   brandDescription: string | null
+  /** Company website, free text; optional. Stored only (migrations/kol/008). */
+  companyWebsite: string | null
   /** One of `CANONICAL_CATEGORIES`, or null while the profile is incomplete. */
   brandCategory: string | null
   brandPersonality: string[]
+  /**
+   * Brand Values (migrations/kol/008). Stored and shown only: no Brand Match,
+   * What Matters or Brand Fit code reads it.
+   */
+  brandValues: string[]
 
-  /* Engine inputs */
-  brandKeywords: string[]
-  brandHashtags: string[]
-  captionTerms: string[]
+  /* Target Audience — each filled-in field selects one Brand Match criterion.
+   * See `@/lib/discover/whatMatters/audienceMatch`: an empty field is not
+   * selected and never reaches the denominator. */
   genderMajority: GenderMajority
+  /**
+   * TODO(BLOCKED — decision needed): the stored format. The audience data keys
+   * countries by ISO-2 (`ID`) and Brand Fit reads ISO-2, while the literal
+   * 'Indonesia' is what has been stored so far. One value cannot satisfy both,
+   * so this stays free text and `audienceCountryScore` canonicalises on read.
+   */
   targetCountry: string | null
+  /** A city name as `l2_gold.audience_geo_daily.geo_key` spells it, e.g. 'Jakarta'. */
   targetCity: string | null
   audienceInterests: string[]
 
-  /* Brand Fit inputs — added by `migrations/kol/002_brand-fit-inputs.sql`.
-   *
-   * Stored here and NOT in a second table, because this is already the brand
-   * side of the same server. Brand Match ignores all four: `toScoringBrand()`
-   * does not read them and no Match Score component changes because they exist.
-   * `feature.brand_fit_analysis` is the only thing downstream of them. */
-  brandTone: string[]
+  /** Age Range — added by `migrations/kol/002_brand-fit-inputs.sql`. */
   targetAgeMin: number | null
   targetAgeMax: number | null
-  /** Metric -> target value. Brand Fit decides which keys it recognises. */
-  performanceTargets: Record<string, number>
 
-  /* Ideal Creator Profile — eligibility, not score */
+  /* Ideal Creator Profile */
   preferredCategories: string[]
   preferredPlatforms: string[]
   preferredTiers: string[]
   contentStyles: string[]
-  minFollowers: number | null
-  minErPct: number | null
-  requireCategory: boolean
-  verifiedOnly: boolean
+
+  /* What Matters — the criteria Brand Match averages (migrations/kol/007) */
+  whatMatters: WhatMattersKey[]
 
   updatedAt: string | null
 }
@@ -103,44 +114,41 @@ export function emptyProfile(organizationId: string): BrandProfile {
     brandId: null,
     brandName: null,
     brandDescription: null,
+    companyWebsite: null,
     brandCategory: null,
     brandPersonality: [],
-    brandKeywords: [],
-    brandHashtags: [],
-    captionTerms: [],
+    brandValues: [],
     genderMajority: 'Any',
     targetCountry: null,
     targetCity: null,
     audienceInterests: [],
-    brandTone: [],
     targetAgeMin: null,
     targetAgeMax: null,
-    performanceTargets: {},
     preferredCategories: [],
     preferredPlatforms: [],
     preferredTiers: [],
     contentStyles: [],
-    minFollowers: null,
-    minErPct: null,
-    requireCategory: false,
-    verifiedOnly: false,
+    whatMatters: [],
     updatedAt: null,
   }
 }
 
 /**
- * Whether this profile can produce a match score.
+ * Whether this profile can produce a Match %.
  *
- * The brand category is the one required field, and it is required because it
- * is the only input that reaches the whole roster: Category Match is scored for
- * every creator (a creator with no category scores the neutral 50 rather than
- * N/A), while keywords, hashtags, interests and geography are all N/A for the
- * large majority. A profile with a description and no category would produce a
- * score in which almost every component renormalised away — a number with
- * nothing behind it.
+ * It is a question about the SELECTION, not about the brand's identity. Brand
+ * Match is the mean of the criteria this profile chose — the What Matters keys
+ * (`whatMatters`) and the Target Audience fields that are filled in — so a
+ * profile that has chosen none of them has nothing to average, and the engine
+ * answers `unavailable: 'no_selection'` rather than a number.
+ *
+ * This used to require `brandCategory`, because the weighted scorer's Category
+ * Match was the one component that reached the whole roster. That scorer is
+ * gone, and with it the reason: a brand category now changes no Match %, so
+ * gating the score on it would refuse to answer a question it does not affect.
  */
 export function isScoreable(p: BrandProfile): boolean {
-  return !!p.brandCategory && (CANONICAL_CATEGORIES as readonly string[]).includes(p.brandCategory)
+  return p.whatMatters.length > 0 || selectedAudienceCriteria(p).length > 0
 }
 
 /* ── read ─────────────────────────────────────────────────────────────────── */
@@ -150,8 +158,10 @@ interface Row {
   brand_id: string | null
   brand_name: string | null
   brand_description: string | null
+  company_website: string | null
   brand_category: string | null
   brand_personality: string[]
+  brand_values: string[] | null
   gender_majority: string
   target_country: string | null
   target_city: string | null
@@ -162,6 +172,7 @@ interface Row {
   preferred_platforms: string[]
   preferred_tiers: string[]
   content_styles: string[]
+  what_matters: string[] | null
   updated_at: Date | null
 }
 
@@ -169,39 +180,34 @@ const COLUMNS = `
   organization_id, brand_id, brand_name, brand_description, brand_category,
   brand_personality, gender_majority, target_country, target_city, audience_interests,
   target_age_min, target_age_max,
-  preferred_categories, preferred_platforms, preferred_tiers, content_styles, updated_at`
+  preferred_categories, preferred_platforms, preferred_tiers, content_styles,
+  what_matters, updated_at, company_website, brand_values`
 
 function fromRow(r: Row): BrandProfile {
-  // Nine fields have no column since `migrations/kol/009`; they read as the same
-  // empty values a workspace with no profile gets, so every consumer still types.
-  const gone = emptyProfile(r.organization_id)
   return {
     organizationId: r.organization_id,
     brandId: r.brand_id,
     brandName: r.brand_name,
     brandDescription: r.brand_description,
+    companyWebsite: r.company_website,
     brandCategory: r.brand_category,
     brandPersonality: r.brand_personality ?? [],
-    brandKeywords: gone.brandKeywords,
-    brandHashtags: gone.brandHashtags,
-    captionTerms: gone.captionTerms,
+    brandValues: r.brand_values ?? [],
     genderMajority: (GENDER_MAJORITIES as readonly string[]).includes(r.gender_majority)
       ? r.gender_majority as GenderMajority : 'Any',
     targetCountry: r.target_country,
     targetCity: r.target_city,
     audienceInterests: r.audience_interests ?? [],
-    brandTone: gone.brandTone,
     targetAgeMin: r.target_age_min === null ? null : Number(r.target_age_min),
     targetAgeMax: r.target_age_max === null ? null : Number(r.target_age_max),
-    performanceTargets: gone.performanceTargets,
     preferredCategories: r.preferred_categories ?? [],
     preferredPlatforms: r.preferred_platforms ?? [],
     preferredTiers: r.preferred_tiers ?? [],
     contentStyles: r.content_styles ?? [],
-    minFollowers: gone.minFollowers,
-    minErPct: gone.minErPct,
-    requireCategory: gone.requireCategory,
-    verifiedOnly: gone.verifiedOnly,
+    // Unknown keys — `brand_safety`, a typo — are dropped on READ as well as on
+    // write, so a row written before the vocabulary settled cannot select a
+    // criterion that no longer exists.
+    whatMatters: cleanWhatMatters(r.what_matters ?? []),
     updatedAt: r.updated_at ? r.updated_at.toISOString() : null,
   }
 }
@@ -235,6 +241,8 @@ const str = (v: unknown): string | null => {
  * zero for everyone.
  */
 const LIST_CAP = 25
+/** Company Website is stored, never fetched; the cap is only to bound the row. */
+const WEBSITE_MAX = 500
 function cleanList(v: unknown, cap = LIST_CAP): string[] {
   if (!Array.isArray(v)) return []
   const seen = new Set<string>()
@@ -293,6 +301,7 @@ export class BrandProfileError extends Error {}
  * 404 from the Brand Fit route much later, far from the cause.
  */
 async function resolveBrandLink(
+  agencyId: string,
   input: BrandProfileInput,
   current: BrandProfile,
   name: string | null,
@@ -301,10 +310,12 @@ async function resolveBrandLink(
   if ('brandId' in input) {
     const wanted = str(input.brandId)
     if (!wanted) return null
+    // Only one of this agency's own brands can be linked. Another agency's
+    // brand id answers exactly like an unknown one, so ids cannot be probed.
     const { rows } = await kolDb().query<{ id: string }>(
-      'SELECT id FROM public.brand WHERE id = $1', [wanted])
+      'SELECT id FROM public.brand WHERE id = $1 AND agency_id = $2', [wanted, agencyId])
     if (!rows[0]) {
-      throw new BrandProfileError(`No brand with id ${wanted} exists on the KOL server.`)
+      throw new BrandProfileError('No such brand in this agency.')
     }
     return rows[0].id
   }
@@ -312,14 +323,14 @@ async function resolveBrandLink(
   if (current.brandId) return current.brandId
   if (!name) return null
 
-  // First save that names a brand. Two workspaces naming the same brand get a
-  // row each, which is correct: they are different workspaces' brands, and
-  // `public.brand` is keyed by agency, not by name.
+  // First save that names a brand. Two agencies naming the same brand get a
+  // row each, which is correct: `public.brand` is keyed by agency, and the
+  // row carries its owner so Brand Fit can check it.
   const { rows } = await kolDbWrite().query<{ id: string }>(
-    `INSERT INTO public.brand (name, category, is_active, created_at, updated_at)
-     VALUES ($1, $2, TRUE, NOW(), NOW())
+    `INSERT INTO public.brand (agency_id, name, category, is_active, created_at, updated_at)
+     VALUES ($1, $2, $3, TRUE, NOW(), NOW())
      RETURNING id`,
-    [name, category])
+    [agencyId, name, category])
   return rows[0].id
 }
 
@@ -356,7 +367,7 @@ export async function saveBrandProfile(
   const name = has('brandName') ? str(input.brandName) : current.brandName
 
   // Resolved BEFORE the upsert so a bad brandId fails without writing anything.
-  const brandId = await resolveBrandLink(input, current, name, category)
+  const brandId = await resolveBrandLink(organizationId, input, current, name, category)
 
   const ageMin = has('targetAgeMin') ? age(input.targetAgeMin) : current.targetAgeMin
   const ageMax = has('targetAgeMax') ? age(input.targetAgeMax) : current.targetAgeMax
@@ -364,12 +375,20 @@ export async function saveBrandProfile(
     throw new BrandProfileError('targetAgeMin cannot be greater than targetAgeMax')
   }
 
+  const website = has('companyWebsite') ? str(input.companyWebsite) : current.companyWebsite
+  if (website !== null && website.length > WEBSITE_MAX) {
+    throw new BrandProfileError(`companyWebsite must be at most ${WEBSITE_MAX} characters`)
+  }
+
   const next = {
     brandId,
     brandName: name,
     brandDescription: has('brandDescription') ? str(input.brandDescription) : current.brandDescription,
+    companyWebsite: website,
     brandCategory: category,
     brandPersonality: has('brandPersonality') ? cleanList(input.brandPersonality) : current.brandPersonality,
+    // Prototype vocabulary plus custom values, cleaned like the other free lists.
+    brandValues: has('brandValues') ? cleanList(input.brandValues) : current.brandValues,
     genderMajority: gender,
     targetCountry: has('targetCountry') ? str(input.targetCountry) : current.targetCountry,
     targetCity: has('targetCity') ? str(input.targetCity) : current.targetCity,
@@ -383,6 +402,9 @@ export async function saveBrandProfile(
       ? cleanList(input.preferredPlatforms, 8).map(p => p.toLowerCase()) : current.preferredPlatforms,
     preferredTiers: has('preferredTiers') ? cleanList(input.preferredTiers, 8) : current.preferredTiers,
     contentStyles: has('contentStyles') ? cleanList(input.contentStyles, 12) : current.contentStyles,
+    // Closed vocabulary of six; anything else (`brand_safety` included) is
+    // dropped, the same way audienceInterests treats an unknown interest key.
+    whatMatters: has('whatMatters') ? cleanWhatMatters(input.whatMatters) : current.whatMatters,
   }
 
   // `kolDbWrite()`, not `kolDb()`: this is the one place Brand Match writes to
@@ -394,8 +416,8 @@ export async function saveBrandProfile(
       brand_personality, gender_majority, target_country, target_city, audience_interests,
       target_age_min, target_age_max,
       preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-      updated_by, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
+      what_matters, updated_by, company_website, brand_values, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
     ON CONFLICT (organization_id) DO UPDATE SET
       brand_id = EXCLUDED.brand_id,
       brand_name = EXCLUDED.brand_name,
@@ -412,7 +434,10 @@ export async function saveBrandProfile(
       preferred_platforms = EXCLUDED.preferred_platforms,
       preferred_tiers = EXCLUDED.preferred_tiers,
       content_styles = EXCLUDED.content_styles,
+      what_matters = EXCLUDED.what_matters,
       updated_by = EXCLUDED.updated_by,
+      company_website = EXCLUDED.company_website,
+      brand_values = EXCLUDED.brand_values,
       updated_at = NOW()
     RETURNING ${COLUMNS}`,
   [
@@ -420,65 +445,8 @@ export async function saveBrandProfile(
     next.brandPersonality, next.genderMajority, next.targetCountry, next.targetCity,
     next.audienceInterests, next.targetAgeMin, next.targetAgeMax,
     next.preferredCategories, next.preferredPlatforms, next.preferredTiers, next.contentStyles,
-    updatedBy,
+    next.whatMatters, updatedBy, next.companyWebsite, next.brandValues,
   ])
 
   return fromRow(rows[0])
-}
-
-/* ── adapters ─────────────────────────────────────────────────────────────── */
-
-/**
- * The profile as the engine reads it.
- *
- * `caption_terms` falls back to the keyword list when the brand has not written
- * a separate one. That is not a stand-in for missing data — it is the same
- * brand's own words used for a second question, and it is what
- * `comparison-brands.mjs` does for the sample brands. An empty term list scores
- * `CAL_NEUTRAL` rather than 0, so leaving it blank is also safe.
- */
-export function toScoringBrand(p: BrandProfile): ScoringBrand {
-  return {
-    category: p.brandCategory ?? '',
-    brand_keywords: p.brandKeywords,
-    brand_hashtags: p.brandHashtags.map(h => `#${h}`),
-    gender_majority: p.genderMajority,
-    target_country: p.targetCountry,
-    target_city: p.targetCity,
-    interests: p.audienceInterests,
-    caption_terms: p.captionTerms.length ? p.captionTerms : p.brandKeywords,
-  }
-}
-
-/**
- * The Ideal Creator Profile as directory filters.
- *
- * Every field here maps to a `KolDirectoryQuery` key that already runs
- * server-side against a column that is actually filled — platform (97.1%
- * coverage), followers (97.1%), category (54.1%), engagement rate (22.6%).
- * `contentStyles` is absent on purpose: its column is NULL in every row, so a
- * gate on it would not select a population, it would empty one.
- *
- * These NARROW the roster; they never contribute to the score. Mixing the two
- * would mean a creator who fails a preference both disappears and scores lower,
- * which is the same penalty twice.
- */
-export interface EligibilityRules {
-  categories: string[]
-  platforms: string[]
-  tiers: string[]
-  minFollowers: number | null
-  minErPct: number | null
-  requireCategory: boolean
-}
-
-export function toEligibility(p: BrandProfile): EligibilityRules {
-  return {
-    categories: p.preferredCategories,
-    platforms: p.preferredPlatforms,
-    tiers: p.preferredTiers,
-    minFollowers: p.minFollowers,
-    minErPct: p.minErPct,
-    requireCategory: p.requireCategory,
-  }
 }

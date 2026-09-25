@@ -15,7 +15,7 @@ import { exportCsv, exportExcel, type ExportColumn } from './exportData'
 import { Overlay, Row } from './kolViz'
 import { platformLabel } from './KolCreatorSections'
 import type { CreatorIntel } from '@/lib/discover/kolIntel'
-import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
+import type { BrandMatchResult } from '@/lib/discover/whatMatters/brandMatch'
 import type {
   KolCreatorPlatformRow, KolCreatorRank, KolDirectoryRow,
 } from '@/lib/discover/kolDirectory'
@@ -50,7 +50,7 @@ export default function KolCreatorReport({
    * has saved no Brand Profile. When null, the match columns are left out of the
    * file entirely rather than exported blank.
    */
-  match: MatchExplanation | null
+  match: BrandMatchResult | null
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set(REPORT_SECTIONS))
   const [format, setFormat] = useState<'PDF' | 'Excel' | 'CSV'>('CSV')
@@ -95,18 +95,21 @@ export default function KolCreatorReport({
       ? m.rates.map(r => `${r.label}: Rp${r.fee.toLocaleString('id-ID')}`).join(' · ')
       : '',
     /**
-     * The Brand Match Engine's verdict, and how much of the model it rests on.
+     * Brand Match, and how much of the chosen selection it rests on.
      *
      * This is the one figure on the sheet that is about a pair rather than a
-     * creator, so it travels with its coverage: a 71 computed from three of six
-     * components is a different number from a 71 computed from all six, and a
-     * spreadsheet strips every caveat the screen puts around it. Blank when no
-     * Brand Profile is saved.
+     * creator, so it travels with its coverage: a 71 averaged over three of six
+     * chosen criteria is a different number from a 71 averaged over all six,
+     * and a spreadsheet strips every caveat the screen puts around it. There is
+     * no band column beside it — the model that assigned bands is gone, and a
+     * tier invented for the export would say more than the mean does. Blank
+     * when the workspace has chosen no criteria.
      */
-    matchScore: match?.score ?? '',
-    matchLevel: match?.level ?? '',
-    matchCoverage: match ? `${match.coverage}%` : '',
-    matchConfidence: match?.confidence ?? '',
+    matchScore: match?.matchPct ?? '',
+    matchCriteria: match ? `${match.contributing} dari ${match.selected}` : '',
+    matchBreakdown: match
+      ? match.breakdown.map(b => `${b.label}: ${b.score === null ? 'belum terukur' : b.score}`).join(' · ')
+      : '',
   }], [creator, rank, m, match])
 
   const cols: ExportColumn<(typeof rows)[number]>[] = [
@@ -147,10 +150,9 @@ export default function KolCreatorReport({
   // this creator and found nothing", which is not what an absent profile means.
   if (match) {
     cols.push(
-      { key: 'matchScore', header: 'Brand match score', value: r => r.matchScore },
-      { key: 'matchLevel', header: 'Match status', value: r => r.matchLevel },
-      { key: 'matchCoverage', header: 'Model coverage', value: r => r.matchCoverage },
-      { key: 'matchConfidence', header: 'Data confidence', value: r => r.matchConfidence },
+      { key: 'matchScore', header: 'Brand match %', value: r => r.matchScore },
+      { key: 'matchCriteria', header: 'Kriteria terukur', value: r => r.matchCriteria },
+      { key: 'matchBreakdown', header: 'Rincian kriteria', value: r => r.matchBreakdown },
     )
   }
 
@@ -172,7 +174,7 @@ export default function KolCreatorReport({
     // Brand Match is real whenever a score exists: it is computed by the engine
     // from database columns, not modelled from the creator's own follower count
     // the way the old Brand Fit section was.
-    ...(match?.score !== null && match !== null ? ['Brand Match' as const] : []),
+    ...(match !== null && match.matchPct !== null ? ['Brand Match' as const] : []),
   ] as string[]
   const included = [...picked].filter(s => realSections.includes(s))
   const sampled = [...picked].filter(s => !realSections.includes(s))
