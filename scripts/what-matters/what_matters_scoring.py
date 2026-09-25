@@ -1,4 +1,8 @@
-"""What Matters Most — 7 kriteria ranking, SATU definisi, dua bentuk.
+# VENDORED verbatim from the scrapper repo @5cf0578 ("feat: implement content
+# quality for what matters"), which includes the Brand Safety removal of 50b6a16:
+# six criteria, no brand_safety. Needs metrics_thresholds.py beside it (vendored
+# verbatim from 5cf0578).
+"""What Matters Most — 6 kriteria ranking, SATU definisi, dua bentuk.
 
 ============================================================================
 APA INI
@@ -30,41 +34,49 @@ angka yang bukan yang mereka kira.
 `SIFAT` di bawah merekamnya per kriteria, dan API wajib meneruskannya.
 
 ============================================================================
-DUA KRITERIA SENGAJA MENGEMBALIKAN NULL
+CONTENT QUALITY  --  PROXY dari metric post, rumus yang disepakati
 ============================================================================
 
-`content_quality` dan `brand_safety` TIDAK dihitung. Bukan karena lupa.
+Dulu selalu NULL. Usulan awal (engagement 40% + content format 30% + content
+topic 30%) ditolak karena tidak ada sumber yang menyatakan Carousel lebih
+berkualitas daripada Image, atau topik `food` daripada `religion`. Alasan itu
+masih berlaku: format dan topik TIDAK dipakai.
 
-CONTENT QUALITY. Bobot yang diusulkan: engagement 40%, content format 30%,
-content topic 30%. Audit atas data nyata:
+Rumus yang disepakati sekarang memakai performa post itu sendiri, dari
+`l2_gold.post_metric`:
 
-    format_dominant   Carousel 24 . Video 20 . Image 5
-    content_topic     11 topik dari caption + 2 dari fallback kategori
+    Content Quality = 50% Engagement + 30% Views + 20% Consistency
 
-Tidak ada satu pun sumber -- di DB, Excel, maupun prototype -- yang menyatakan
-Carousel lebih berkualitas daripada Image, atau topik `food` lebih berkualitas
-daripada `religion`. Memberi keduanya skor berarti mengarang penilaian, dan
-memberi skor hanya karena kolomnya terisi persis yang dilarang.
+    Engagement   ER akun ADITIF atas post yang punya `er_followers`:
+                 sum(engagement_owned) / sum(followers_at_post_date) x 100.
+                 Pola yang sama dengan `_ER_AKUN` di feature_engagement.py.
+                 Dinormalisasi dengan `persentil_ke_skor`.
+    Views        median `views` atas post lolos sampel (bukan likes_hidden,
+                 bukan kolaborasi) yang `views > 0` -- definisi yang sama
+                 dengan `median_views` di migration 036. `reach` 0/522 terisi
+                 (butuh Insights), jadi views dipakai; ia BUKAN reach.
+                 Dinormalisasi dengan `persentil_ke_skor`.
+    Consistency  simpangan baku ER per post (poin persen) ->
+                 `metrics_thresholds.klasifikasi_stability` (ambang dan
+                 minimum 3 sampel yang sudah ditetapkan) -> 0 / 50 / 100.
 
-Yang tersisa cuma engagement 40% -- dan itu sudah menjadi kriteria #1. Memakai
-ulang sinyal yang sama dengan nama lain akan membuatnya dihitung dua kali di
-rata-rata What Matters. Jadi NULL, bukan angka setengah jadi.
+Tanpa jendela tanggal: seluruh post yang ada, sama seperti metric post
+lainnya (`median_views`, ER, stability) -- datanya ~10 post per akun yang
+tersebar ratusan hari, jadi jendela pendek akan mengosongkan hampir semuanya.
 
-BRAND SAFETY. Bobot yang diusulkan: authenticity 50%, topic safety 30%, data
-quality 20%. Audit:
+Komponen yang tidak terukur keluar dari pembilang DAN penyebut, bobot sisanya
+direnormalisasi -- pola yang sama dengan `community_strength_score`. Semua
+komponen NULL -> NULL.
 
-    authenticity     ADA -- feature.*_audience_analysis.authenticity_score
-    topic safety     TIDAK ADA -- tidak ada taksonomi aman/tidak aman untuk
-                     ke-11 topik; `*_comments_analysis` (toxicity, sentiment)
-                     0 baris
-    data quality     TIDAK ADA definisinya sebagai komponen brand safety
+Sifatnya PROXY: ini performa konten, bukan penilaian kualitas kreatif. Dan
+ia sengaja beririsan dengan Strong Engagement dan High Reach (sumbernya
+berbeda: post_metric vs kol_directory / kol_profile_card). Memilih ketiganya
+sekaligus memberi sinyal engagement dan views bobot lebih di rata-rata.
 
-Setengah bobotnya tanpa sumber. Kalau sisanya dinormalisasi, hasilnya persis
-sama dengan `authenticity_score` -- satu angka, dua nama, dan yang kedua
-menjanjikan jaminan keamanan merek yang tidak diberikannya.
-
-Keduanya tetap terdaftar di `KRITERIA` supaya UI bisa menampilkannya
-NONAKTIF beserta alasannya, bukan menyembunyikannya.
+BRAND SAFETY DIHAPUS DARI SCOPE. Keputusan terbaru: Brand Safety tidak lagi
+menjadi bagian Brand Match maupun What Matters. Kriterianya tidak terdaftar
+di `KRITERIA`, jadi `?matters=brand_safety` diabaikan `parse_matters` seperti
+kunci tak dikenal lainnya -- tidak ada skor, proxy, atau default pengganti.
 
 ============================================================================
 KENAPA TIDAK ADA KOLOM, TABEL, ATAU VIEW BARU
@@ -99,7 +111,7 @@ SKALA_MAX = 100.0
 # 1. KRITERIA  --  kunci API, nama, sumber, sifat
 # ===========================================================================
 #
-# `kunci` adalah yang dikirim UI:  ?matters=engagement,consistency,brand_safety
+# `kunci` adalah yang dikirim UI:  ?matters=engagement,consistency,reach
 
 KRITERIA: dict[str, dict] = {
     "engagement": {
@@ -146,25 +158,20 @@ KRITERIA: dict[str, dict] = {
     "content_quality": {
         "nama": "Content Quality",
         "skor": "content_quality_score",
-        "sifat": TIDAK_TERSEDIA,
-        "sumber": (),
-        "catatan": "Selalu NULL. format_dominant dan content_topic tidak "
-                   "punya urutan kualitas yang bisa dipertanggungjawabkan.",
-    },
-    "brand_safety": {
-        "nama": "Brand Safety",
-        "skor": "brand_safety_score",
-        "sifat": TIDAK_TERSEDIA,
-        "sumber": (),
-        "catatan": "Selalu NULL. Topic safety dan data quality tidak punya "
-                   "sumber; authenticity sendirian hanya menduplikasi "
-                   "kriteria audience_quality dengan nama yang menyesatkan.",
+        "sifat": PROXY,
+        "sumber": ("l2_gold.post_metric.engagement_owned",
+                   "l2_gold.post_metric.followers_at_post_date",
+                   "l2_gold.post_metric.er_followers",
+                   "l2_gold.post_metric.views"),
+        "catatan": "PROXY performa konten: Engagement 50% + Views 30% + "
+                   "Consistency 20%, dari post_metric. Views bukan reach. "
+                   "Format dan topik TIDAK dipakai.",
     },
 }
 
 #: Urutan tampil di UI.
 URUTAN_KRITERIA = ("engagement", "audience_quality", "consistency",
-                   "community", "reach", "content_quality", "brand_safety")
+                   "community", "reach", "content_quality")
 
 #: Kriteria yang benar-benar mengembalikan angka hari ini.
 KRITERIA_AKTIF = tuple(k for k in URUTAN_KRITERIA
@@ -344,14 +351,90 @@ def reach_proxy_score(median_views: float | None,
     return persentil_ke_skor(median_views, populasi_views)
 
 
-def content_quality_score(*_args, **_kwargs) -> None:
-    """Kriteria 6 -- TIDAK TERSEDIA. Selalu None. Lihat docstring modul."""
-    return None
+# --- Content Quality: bobot yang disepakati ----------------------------------
+BOBOT_CQ_ENGAGEMENT = 0.50
+BOBOT_CQ_VIEWS = 0.30
+BOBOT_CQ_KONSISTENSI = 0.20
 
 
-def brand_safety_score(*_args, **_kwargs) -> None:
-    """Kriteria 7 -- TIDAK TERSEDIA. Selalu None. Lihat docstring modul."""
-    return None
+def _rata_rata_berbobot(*pasangan: tuple[float | None, float]) -> float | None:
+    """Rata-rata berbobot atas komponen yang ADA; bobotnya direnormalisasi.
+
+    Komponen None keluar dari pembilang dan penyebut, persis seperti
+    `community_strength_score`. Semua None -> None.
+    """
+    ada = [(nilai, bobot) for nilai, bobot in pasangan if nilai is not None]
+    if not ada:
+        return None
+    total = sum(bobot for _, bobot in ada)
+    return sum(float(nilai) * bobot for nilai, bobot in ada) / total
+
+
+def ringkas_post_content_quality(posts) -> dict:
+    """Satu akun: daftar baris `l2_gold.post_metric` -> tiga angka mentah.
+
+    Bentuk Python dari CTE `SQL_CONTENT_QUALITY_CTE`; keduanya diuji
+    berpasangan. Setiap post adalah mapping dengan kolom post_metric:
+    `likes_hidden`, `is_collaboration`, `engagement_owned`,
+    `followers_at_post_date`, `er_followers`, `views`.
+
+        er_pct        ER aditif (%) atas post ber-`er_followers`; None kalau
+                      tidak ada satu pun.
+        median_views  median `views` post lolos sampel dengan `views > 0`.
+        er_sd_pp      simpangan baku sampel ER per post, poin persen; None
+                      kalau kurang dari dua post ber-ER.
+        er_posts      jumlah post ber-ER -- penentu minimum 3 di stability.
+
+    `er_followers` sudah NULL untuk post yang tidak lolos sampel atau yang
+    followers-nya tidak diketahui (gold_post.py butir 4), jadi ia sekaligus
+    menjadi syarat sampel untuk ER.
+    """
+    import statistics
+
+    ber_er = [p for p in posts if p.get("er_followers") is not None]
+    pembilang = sum(float(p["engagement_owned"]) for p in ber_er
+                    if p.get("engagement_owned") is not None)
+    penyebut = sum(float(p["followers_at_post_date"]) for p in ber_er
+                   if p.get("followers_at_post_date") is not None)
+    er_pct = pembilang / penyebut * 100 if ber_er and penyebut > 0 else None
+
+    views = [float(p["views"]) for p in posts
+             if p.get("likes_hidden") is not True
+             and p.get("is_collaboration") is not True
+             and p.get("views") is not None and float(p["views"]) > 0]
+    median_views = statistics.median(views) if views else None
+
+    er_per_post = [float(p["er_followers"]) * 100 for p in ber_er]
+    er_sd_pp = statistics.stdev(er_per_post) if len(er_per_post) >= 2 else None
+
+    return {"er_pct": er_pct, "median_views": median_views,
+            "er_sd_pp": er_sd_pp, "er_posts": len(er_per_post)}
+
+
+def content_quality_score(er_pct: float | None,
+                          populasi_er: list[float] | tuple[float, ...],
+                          median_views: float | None,
+                          populasi_views: list[float] | tuple[float, ...],
+                          er_sd_pp: float | None,
+                          er_posts: int | None) -> float | None:
+    """Kriteria 6 -- PROXY.  Engagement 50% + Views 30% + Consistency 20%.
+
+    Tiap komponen 0..100 dengan helper yang sudah ada -- persentil untuk
+    engagement dan views, label stability ordinal untuk consistency -- lalu
+    dirata-rata berbobot atas komponen yang terukur saja. Lihat docstring
+    modul untuk sumber dan alasannya.
+    """
+    import metrics_thresholds as mt
+
+    engagement = persentil_ke_skor(er_pct, populasi_er)
+    views = persentil_ke_skor(median_views, populasi_views)
+    konsistensi = _ordinal_ke_skor(
+        mt.klasifikasi_stability(er_sd_pp, er_posts), TINGKAT_STABILITAS)
+    return _rata_rata_berbobot(
+        (engagement, BOBOT_CQ_ENGAGEMENT),
+        (views, BOBOT_CQ_VIEWS),
+        (konsistensi, BOBOT_CQ_KONSISTENSI),
+    )
 
 
 # ===========================================================================
@@ -379,7 +462,7 @@ def what_matters_score(skor: dict[str, float | None],
 
 
 def parse_matters(param: str | None) -> list[str]:
-    """`"engagement,consistency,brand_safety"` -> daftar kunci yang sah.
+    """`"engagement,consistency,reach"` -> daftar kunci yang sah.
 
     Kunci tak dikenal diabaikan, bukan membuat request gagal: UI yang lebih
     baru boleh mengirim kriteria yang backend ini belum kenal.
@@ -456,6 +539,26 @@ SQL_ORDER_BY = "ORDER BY what_matters_score DESC NULLS LAST"
 # supaya rumusnya tetap hidup di satu tempat -- sama seperti fungsi Python di
 # atas, dan diuji sepasang dengannya.
 
+#: CTE Content Quality: tiga angka mentah per akun dari `l2_gold.post_metric`.
+#: Bentuk SQL dari `ringkas_post_content_quality`. Di-JOIN ke jalur baca
+#: sebagai alias `cq` (lihat `db._query_what_matters`).
+SQL_CONTENT_QUALITY_CTE = """
+    post_quality AS (
+        SELECT social_account_id,
+               sum(engagement_owned) FILTER (WHERE er_followers IS NOT NULL)::numeric
+                 / NULLIF(sum(followers_at_post_date)
+                            FILTER (WHERE er_followers IS NOT NULL), 0)
+                 * 100                                          AS er_pct,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY views)
+                 FILTER (WHERE likes_hidden IS NOT TRUE
+                           AND is_collaboration IS NOT TRUE
+                           AND views > 0)                       AS median_views,
+               stddev_samp(er_followers * 100)                  AS er_sd_pp,
+               count(er_followers)                              AS er_posts
+          FROM l2_gold.post_metric
+         GROUP BY social_account_id
+    )"""
+
 #: Kolom sumber default, sesuai alias di `_SEARCH_QUERY`.
 KOLOM_SUMBER_DEFAULT = {
     "engagement_rate": "k.engagement_rate",
@@ -464,7 +567,20 @@ KOLOM_SUMBER_DEFAULT = {
     "performance_stability": "pc.performance_stability",
     "post_frequency_reliability": "pc.post_frequency_reliability",
     "median_views": "pc.median_views",
+    "cq_er_pct": "cq.er_pct",
+    "cq_median_views": "cq.median_views",
+    "cq_er_sd_pp": "cq.er_sd_pp",
+    "cq_er_posts": "cq.er_posts",
 }
+
+
+def sql_rata_rata_berbobot(*pasangan: tuple[str, float]) -> str:
+    """Bentuk SQL `_rata_rata_berbobot`: NULL keluar dari pembilang dan
+    penyebut, bobot sisanya direnormalisasi; semua NULL -> NULL."""
+    pembilang = " + ".join(f"COALESCE(({e}), 0) * {b}" for e, b in pasangan)
+    penyebut = " + ".join(f"(CASE WHEN ({e}) IS NULL THEN 0 ELSE {b} END)"
+                          for e, b in pasangan)
+    return f"(({pembilang}) / NULLIF({penyebut}, 0))"
 
 
 def sql_ekspresi_skor(kolom: dict[str, str] | None = None) -> dict[str, str]:
@@ -475,10 +591,11 @@ def sql_ekspresi_skor(kolom: dict[str, str] | None = None) -> dict[str, str]:
     LIMIT. Menghitung persentil atas satu halaman akan memberi peringkat yang
     artinya berubah-ubah tiap kali orang menggeser halaman.
 
-    Kriteria `content_quality` dan `brand_safety` sengaja `NULL::numeric`:
-    keduanya belum punya sumber, dan itu bukan sesuatu yang boleh ditambal di
-    jalur baca.
+    `content_quality` membaca alias `cq` dari `SQL_CONTENT_QUALITY_CTE`, jadi
+    query pemakainya wajib menyertakan CTE dan JOIN itu.
     """
+    import metrics_thresholds as mt
+
     c = {**KOLOM_SUMBER_DEFAULT, **(kolom or {})}
     er = sql_persentil(c["engagement_rate"])
     aq = sql_rata_rata_tersedia(c["audience_quality_score"],
@@ -500,8 +617,13 @@ def sql_ekspresi_skor(kolom: dict[str, str] | None = None) -> dict[str, str]:
             f" + (CASE WHEN ({er}) IS NULL THEN 0 ELSE {BOBOT_COMMUNITY_ER} END), 0))"
         ),
         "reach": sql_persentil(c["median_views"]),
-        "content_quality": "NULL::numeric",
-        "brand_safety": "NULL::numeric",
+        "content_quality": sql_rata_rata_berbobot(
+            (sql_persentil(c["cq_er_pct"]), BOBOT_CQ_ENGAGEMENT),
+            (sql_persentil(c["cq_median_views"]), BOBOT_CQ_VIEWS),
+            (sql_ordinal("(" + mt.sql_stability(c["cq_er_sd_pp"],
+                                                c["cq_er_posts"]) + ")",
+                         TINGKAT_STABILITAS), BOBOT_CQ_KONSISTENSI),
+        ),
     }
 
 

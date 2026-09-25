@@ -9,16 +9,22 @@
  * diam; satu-satunya penangkalnya adalah menjalankan keduanya atas input yang
  * sama dan membandingkan hasilnya.
  *
- * Referensinya di-vendor di `scripts/what-matters/what_matters_scoring.py`,
- * disalin apa adanya dari repo scrapper pada commit 0d6e571.
+ * Referensinya di-vendor di `scripts/what-matters/what_matters_scoring.py`:
+ * salinan persis repo scrapper pada commit 5cf0578 (beserta
+ * `metrics_thresholds.py` yang ia pakai).
  *
- * ── Satu kriteria SENGAJA berbeda ──────────────────────────────────────────
- * `content_quality_score()` di Python selalu mengembalikan None. Produk
- * memutuskan untuk tetap menghitungnya (Engagement 40 + Format 30 + Topic 30),
- * jadi kriteria ke-6 TIDAK dibandingkan — skrip ini menegaskan Python memang
- * masih None di sana, supaya divergensinya tetap disengaja dan bukan hasil
- * port yang keliru. `brand_safety` juga None di Python dan memakai formula
- * Brand Match yang sudah locked, jadi diperlakukan sama.
+ * ── Content Quality kini DIBANDINGKAN ──────────────────────────────────────
+ * Dulu Python selalu None di sini dan skrip ini menegaskan divergensinya.
+ * Sejak 5cf0578 referensinya menghitung sendiri (Engagement 50 + Views 30 +
+ * Consistency 20 atas `l2_gold.post_metric`), jadi kontrak lamanya usang dan
+ * diganti paritas: ringkasan post, label stability, dan skor akhirnya
+ * dibandingkan nilai per nilai.
+ *
+ * ── Enam kriteria, di kedua sisi ───────────────────────────────────────────
+ * Brand Safety dihapus dari scope (scrapper 50b6a16), di Python maupun di port.
+ * Tidak ada lagi divergensi yang disengaja: skrip ini menegaskan urutan
+ * kriteria kedua sisi identik dan `brand_safety` dibuang oleh keduanya seperti
+ * kunci tak dikenal lainnya.
  *
  * Butuh `python` di PATH. Read-only: tidak menyentuh database sama sekali.
  */
@@ -28,12 +34,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   audienceQualityScore, communityStrengthScore, consistencyScore,
-  engagementScore, meanAvailable, ordinalScore, percentileScore,
-  reachProxyScore, whatMattersScore,
+  contentQualityScore, engagementScore, meanAvailable, ordinalScore,
+  percentileScore, reachProxyScore, stabilityLabel, summarisePostQuality,
+  whatMattersScore, type PostQualityInput,
 } from '@/lib/discover/whatMatters/score'
 import {
-  TINGKAT_RELIABILITAS, TINGKAT_STABILITAS, type CriterionKey,
+  CRITERIA_ORDER, TINGKAT_RELIABILITAS, TINGKAT_STABILITAS, type CriterionKey,
 } from '@/lib/discover/whatMatters/model'
+import { parseMatters } from '@/lib/discover/whatMatters'
 
 let failures = 0
 let compared = 0
@@ -61,6 +69,33 @@ const VIEW_CASES = [null, 1200, 100_000, 136_000_000, 999_999_999]
 const AQ_CASES = [null, 0, 42.5, 100, 130, -5]
 const LABELS = [null, 'Low', 'Medium', 'High', 'Low Stability',
   'Medium Stability', 'High Stability', 'Tidak Dikenal']
+
+/* Content Quality: grid komponen mentah, plus kumpulan post yang menekan
+ * aturan sampel (likes_hidden, kolaborasi, views 0/NULL, ER/followers NULL). */
+const CQ_ER = [null, 0.5, 3.4, 500.0]
+const CQ_VIEWS = [null, 1200, 999_999_999]
+const CQ_SD = [null, 0.5, 1.0, 2.0, 3.0, 7.5]
+const CQ_N = [null, 0, 2, 3, 10]
+const p = (
+  eng: number | null, foll: number | null, er: number | null, views: number | null,
+  hidden: boolean | null = false, kolab: boolean | null = false,
+): PostQualityInput => ({
+  engagement_owned: eng, followers_at_post_date: foll, er_followers: er,
+  views, likes_hidden: hidden, is_collaboration: kolab,
+})
+const CQ_POSTS: PostQualityInput[][] = [
+  [],
+  [p(20, 1000, 0.02, 5000)],
+  [p(20, 1000, 0.02, 5000), p(21, 1000, 0.021, 6000),
+    p(19, 1000, 0.019, 5500), p(20, 1000, 0.02, 5200)],
+  [p(5, 1000, 0.005, 5000), p(80, 1000, 0.08, 6000),
+    p(10, 1000, 0.01, 5500), p(120, 1000, 0.12, 5200)],
+  [p(null, null, null, 5000), p(null, null, null, 999_999, true),
+    p(null, null, null, 999_999, false, true), p(null, null, null, 0),
+    p(null, null, null, null)],
+  [p(33, 12_000, 0.00275, null), p(40, null, null, 700), p(7, 900, 0.0077778, 1500),
+    p(null, 5000, null, 2500, null, null), p(64, 2000, 0.032, 480_000)],
+]
 
 function pythonResults(): Record<string, (number | null)[]> {
   const dir = mkdtempSync(join(tmpdir(), 'wm-port-'))
@@ -94,14 +129,31 @@ out["mean_available"] = [wm._rata_rata_tersedia(a, b) for a in AQ for b in AQ]
 out["ordinal_stab"] = [wm._ordinal_ke_skor(l, wm.TINGKAT_STABILITAS) for l in LABELS]
 out["ordinal_rel"] = [wm._ordinal_ke_skor(l, wm.TINGKAT_RELIABILITAS) for l in LABELS]
 
-# Kriteria yang sengaja belum dihitung di Python.
-out["content_quality_is_none"] = [wm.content_quality_score()]
-out["brand_safety_is_none"] = [wm.brand_safety_score()]
+# Content Quality (sejak scrapper 5cf0578).
+import metrics_thresholds as mt
+CQ_ER = json.loads(${JSON.stringify(JSON.stringify(CQ_ER))})
+CQ_VIEWS = json.loads(${JSON.stringify(JSON.stringify(CQ_VIEWS))})
+CQ_SD = json.loads(${JSON.stringify(JSON.stringify(CQ_SD))})
+CQ_N = json.loads(${JSON.stringify(JSON.stringify(CQ_N))})
+CQ_POSTS = json.loads(${JSON.stringify(JSON.stringify(CQ_POSTS))})
+out["cq_stability"] = [wm._ordinal_ke_skor(mt.klasifikasi_stability(sd, n), wm.TINGKAT_STABILITAS)
+                       for sd in CQ_SD for n in CQ_N]
+out["content_quality"] = [wm.content_quality_score(e, POP_ER, v, POP_VIEWS, sd, n)
+                          for e in CQ_ER for v in CQ_VIEWS for sd in CQ_SD for n in CQ_N]
+ringkas = [wm.ringkas_post_content_quality(ps) for ps in CQ_POSTS]
+out["cq_summary"] = [x for r in ringkas
+                     for x in (r["er_pct"], r["median_views"], r["er_sd_pp"], r["er_posts"])]
+out["cq_from_posts"] = [wm.content_quality_score(r["er_pct"], POP_ER, r["median_views"],
+                                                 POP_VIEWS, r["er_sd_pp"], r["er_posts"])
+                        for r in ringkas]
+
+# Daftar kriteria, dan brand_safety sebagai kunci tak dikenal.
+out["urutan_kriteria"] = list(wm.URUTAN_KRITERIA)
+out["parse_brand_safety"] = wm.parse_matters("engagement,brand_safety,reach")
 
 # Agregat: subset kriteria terpilih, sebagian NULL.
 skor = {"engagement": 80.0, "audience_quality": None, "consistency": 40.0,
-        "community": None, "reach": 10.0, "content_quality": None,
-        "brand_safety": None}
+        "community": None, "reach": 10.0, "content_quality": None}
 out["aggregate"] = [
     wm.what_matters_score(skor, ["engagement"]),
     wm.what_matters_score(skor, ["engagement", "audience_quality"]),
@@ -140,10 +192,23 @@ function main() {
     mean_available: AQ_CASES.flatMap(a => AQ_CASES.map(b => meanAvailable(a, b))),
     ordinal_stab: LABELS.map(l => ordinalScore(l, TINGKAT_STABILITAS)),
     ordinal_rel: LABELS.map(l => ordinalScore(l, TINGKAT_RELIABILITAS)),
+    cq_stability: CQ_SD.flatMap(sd => CQ_N.map(n =>
+      ordinalScore(stabilityLabel(sd, n), TINGKAT_STABILITAS))),
+    content_quality: CQ_ER.flatMap(e => CQ_VIEWS.flatMap(v => CQ_SD.flatMap(sd =>
+      CQ_N.map(n => contentQualityScore(e, POP_ER, v, POP_VIEWS, sd, n)))))
+    ,
+    cq_summary: CQ_POSTS.flatMap(ps => {
+      const r = summarisePostQuality(ps)
+      return [r.erPct, r.medianViews, r.erSdPp, r.erPosts]
+    }),
+    cq_from_posts: CQ_POSTS.map(ps => {
+      const r = summarisePostQuality(ps)
+      return contentQualityScore(r.erPct, POP_ER, r.medianViews, POP_VIEWS, r.erSdPp, r.erPosts)
+    }),
     aggregate: (() => {
       const s = {
         engagement: 80, audience_quality: null, consistency: 40,
-        community: null, reach: 10, content_quality: null, brand_safety: null,
+        community: null, reach: 10, content_quality: null,
       }
       const sel = (...k: string[]) => whatMattersScore(s, k as CriterionKey[])
       return [
@@ -177,11 +242,20 @@ function main() {
     }
   }
 
-  // Divergensi yang disengaja, ditegaskan bukan ditebak.
-  check('content_quality masih None di Python (divergensi disengaja)',
-    py.content_quality_is_none?.[0] === null)
-  check('brand_safety masih None di Python (divergensi disengaja)',
-    py.brand_safety_is_none?.[0] === null)
+  // Daftar kriteria: enam, sama persis dan sama urutannya di kedua sisi.
+  const pyOrder = (py.urutan_kriteria ?? []) as unknown as string[]
+  const sameOrder = pyOrder.join(',') === CRITERIA_ORDER.join(',') && CRITERIA_ORDER.length === 6
+  check('urutan kriteria Python = TypeScript (enam)', sameOrder,
+    `python ${pyOrder.join(',')} vs ts ${CRITERIA_ORDER.join(',')}`)
+  if (sameOrder) console.log(`  ok    ${'urutan_kriteria'.padEnd(22)} ${CRITERIA_ORDER.join(',')}`)
+
+  // brand_safety adalah kunci tak dikenal di kedua sisi.
+  const pyParsed = ((py.parse_brand_safety ?? []) as unknown as string[]).join(',')
+  const tsParsed = parseMatters('engagement,brand_safety,reach').join(',')
+  const dropped = pyParsed === 'engagement,reach' && tsParsed === 'engagement,reach'
+  check('brand_safety dibuang parse_matters Python dan parseMatters TS', dropped,
+    `python ${pyParsed} vs ts ${tsParsed}`)
+  if (dropped) console.log(`  ok    ${'brand_safety_dibuang'.padEnd(22)} python dan ts`)
 
   console.log(
     failures === 0
