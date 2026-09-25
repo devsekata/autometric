@@ -270,6 +270,12 @@ export default function DiscoverCompare({
   const [match, setMatch] = useState<KolDirectoryMatch | null>(null)
   const [rosterError, setRosterError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Tracked accounts are switched off on the KOL-only product: `/discover/directory`
+   * answers 503 `feature_unavailable`. That is not a Compare failure — the roster
+   * half (the KOL database) still compares — so it only empties the account side.
+   */
+  const [trackedUnavailable, setTrackedUnavailable] = useState(false)
   const [q, setQ] = useState('')
   const [view, setView] = useState<'grid' | 'table'>('grid')
   const compare = useDiscoverSelection(orgId, 'compare')
@@ -277,7 +283,15 @@ export default function DiscoverCompare({
   useEffect(() => {
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/directory`)
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(async r => {
+        if (r.ok) return r.json()
+        if (r.status === 503) {
+          // No tracked accounts to offer — an empty list, never invented ones.
+          if (!cancelled) setTrackedUnavailable(true)
+          return { accounts: [], platforms: [] } satisfies DirectoryPayload
+        }
+        throw new Error(`HTTP ${r.status}`)
+      })
       .then((d: DirectoryPayload) => { if (!cancelled) setData(d) })
       .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
     return () => { cancelled = true }
@@ -501,7 +515,9 @@ export default function DiscoverCompare({
         </div>
         <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
           <span style={PJ} className="text-[10.5px] font-bold text-[#9ca3af]">Tambah:</span>
-          {available.length === 0 ? (
+          {trackedUnavailable ? (
+            <span className="text-[11px] text-[#9ca3af]">Akun tracked belum tersedia di database KOL.</span>
+          ) : available.length === 0 ? (
             <span className="text-[11px] text-[#9ca3af]">Semua akun sudah dipilih atau tidak ada yang cocok.</span>
           ) : available.slice(0, 8).map(a => (
             <button key={a.id} type="button" onClick={() => compare.toggle(selectionKey('account', a.id))} style={PJ}
