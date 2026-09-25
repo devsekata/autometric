@@ -108,6 +108,15 @@ export function useSavedLists<F = unknown>(orgId: string, scope: SavedListScope)
             })
           : await fetch(`${base}?scope=${scope}`)
 
+        // 503 = Saved Lists have no home on the KOL database yet (the
+        // warehouse table is gone). Said as such, and the local copy is kept.
+        if (res.status === 503) {
+          if (!cancelled && mine === generation.current) {
+            setLists([])
+            setError('Saved Lists belum tersedia di database KOL.')
+          }
+          return
+        }
         if (!res.ok) throw new Error(String(res.status))
         const data: { lists?: SavedListRecord<F>[] } = await res.json()
         if (cancelled || mine !== generation.current) return

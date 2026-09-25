@@ -159,7 +159,7 @@ export default function OrgSettingsPage({ org }: Props) {
                 <span className="material-symbols-outlined text-[16px] text-[#d97706] mt-px">warning</span>
                 <p className="text-[12.5px] text-[#92400e]">
                   This organization still has <span className="font-semibold">{org.brand_count} brand{org.brand_count !== 1 ? 's' : ''}</span>.
-                  Delete them first from each brand&apos;s Settings tab, then come back here.
+                  Remove them first, then come back here. Brand management is temporarily unavailable in this app.
                 </p>
               </div>
             )}
