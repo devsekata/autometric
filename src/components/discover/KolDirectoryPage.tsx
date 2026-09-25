@@ -39,7 +39,7 @@ import {
 } from '@/lib/discover/creatorMatch'
 import { selectionKey, useDiscoverSelection } from './useDiscoverSelection'
 import { useDiscoverFavorites } from './useDiscoverFavorites'
-import { useSavedLists } from './useSavedLists'
+import { useSavedFilters } from './useSavedFilters'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryMatch, KolDirectoryPayload, KolDirectoryRow,
@@ -422,12 +422,6 @@ export default function KolDirectoryPage({
   const [deliverables, setDeliverables] = useState<Deliverable[]>([])
   /** The creator whose price is being set, when the rate dialog is open. */
   const [pricing, setPricing] = useState<KolDirectoryRow | null>(null)
-  /**
-   * Saved lists live in the database now — see `useSavedLists`. They were kept
-   * in `localStorage` under `autometric.kolDirectory.lists.<org>`; the hook
-   * adopts anything still stored there on first load, then drops it.
-   */
-  const savedLists = useSavedLists<KolFilters>(orgId, 'database')
   const [toast, setToast] = useState<string | null>(null)
   /** The Add New KOL dialog — this page's own intake flow into `kol_directory`. */
   const [addOpen, setAddOpen] = useState(false)
@@ -436,6 +430,14 @@ export default function KolDirectoryPage({
     setToast(msg)
     window.setTimeout(() => setToast(null), 2200)
   }, [])
+
+  /**
+   * Saved Lists on this page are named filter sets, kept per user per agency on
+   * the KOL server (`/discover/saved-filters` → `agency_kol_saved_filters`).
+   * They were kept in `localStorage` under `autometric.kolDirectory.lists.<org>`;
+   * the hook adopts anything still stored there on first load, then drops it.
+   */
+  const savedLists = useSavedFilters<KolFilters>(orgId, flash)
 
   /**
    * Compare selection, shared with the Compare tab through localStorage.
@@ -1091,7 +1093,7 @@ export default function KolDirectoryPage({
 
           <div className="relative">
             <Pill icon="bookmark" onClick={() => setListsOpen(o => !o)}
-              title="Save the current search & filters, or reapply a saved list">
+              title="Save the current filters (not the search text or sort), or reapply a saved set">
               Saved Lists{savedLists.lists.length > 0 && <Count n={savedLists.lists.length} />}
             </Pill>
             {listsOpen && (
@@ -1104,9 +1106,9 @@ export default function KolDirectoryPage({
                     and empty, loaded with lists. Before this they all rendered
                     as "No saved lists yet", so a failed request looked like an
                     empty account. */}
-                {savedLists.error ? (
+                {savedLists.loadError ? (
                   <div className="px-1 pb-1">
-                    <div className="text-[11.5px]" style={{ color: '#b45252' }}>{savedLists.error}</div>
+                    <div className="text-[11.5px]" style={{ color: '#b45252' }}>{savedLists.loadError}</div>
                     <Btn kind="ghost" icon="refresh" full onClick={savedLists.retry}>Coba lagi</Btn>
                   </div>
                 ) : !savedLists.ready ? (
@@ -1124,21 +1126,14 @@ export default function KolDirectoryPage({
                     }}>
                     <span className="material-symbols-outlined text-[16px]" style={{ color: T.primary }}>bookmark</span>
                     <span style={{ ...PJ, color: T.t1 }} className="flex-1 text-[12px] font-bold truncate">{l.name}</span>
-                    <span className="material-symbols-outlined text-[15px] hover:opacity-70" style={{ color: T.t4 }}
-                      title="Rename"
-                      onClick={async e => {
-                        e.stopPropagation()
-                        const name = window.prompt('Rename this list:', l.name)
-                        if (!name || name.trim() === l.name) return
-                        if (await savedLists.rename(l.id, name.trim())) flash(`Renamed to "${name.trim()}"`)
-                      }}>
-                      edit
-                    </span>
+                    {/* No rename: `/discover/saved-filters` has no endpoint for
+                        it. Overwriting is a save under the same name, which the
+                        server updates in place rather than duplicating. */}
                     <span className="material-symbols-outlined text-[15px] hover:opacity-70" style={{ color: T.t4 }}
                       title="Overwrite with the filters on screen now"
                       onClick={async e => {
                         e.stopPropagation()
-                        if (await savedLists.update(l.id, filters)) flash(`Updated "${l.name}"`)
+                        if (await savedLists.save(l.name, filters)) flash(`Updated "${l.name}"`)
                       }}>
                       save
                     </span>
