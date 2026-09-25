@@ -58,7 +58,7 @@ import KolDirectoryPage from './KolDirectoryPage'
 import DiscoverHub from './DiscoverHub'
 import MyCreatorsView from './MyCreatorsView'
 import CreatorProfilingScreen from './CreatorProfilingScreen'
-import AddCreatorModal from './AddCreatorModal'
+import AddKolDirectoryModal from './AddKolDirectoryModal'
 import CreatorDetail from './CreatorDetail'
 import SmartDiscovery from './SmartDiscovery'
 import DiscoverCart from './DiscoverCart'
@@ -229,25 +229,6 @@ export default function DiscoverWorkspace({
     () => go('directory', view ?? 'database', { add: '1' }),
     [go, view],
   )
-
-  /**
-   * Re-run profiling on a creator that already exists, then follow the run.
-   *
-   * The intake modal offers this when the handle you typed is already in the
-   * database: the creator is not new, but the data may be stale. The roster has
-   * its own copy of this because it also has a list to reload afterwards; here
-   * there is nothing to reload, because following the run is a navigation.
-   */
-  const refreshExisting = useCallback(async (creatorId: string) => {
-    try {
-      await fetch(`/api/organizations/${orgId}/discover/creators/${creatorId}/refresh`, { method: 'POST' })
-    } catch (err) {
-      // The progress screen is where a failed run is reported, and it is where
-      // this is going either way — so a failed kick-off needs no second notice.
-      console.error('[discover] refresh could not be started:', err)
-    }
-    goCreator('profiling', creatorId)
-  }, [orgId, goCreator])
 
   const kolName = activeKol.ready ? activeKol.kol?.username : undefined
   const creatorSection = tab === 'directory' && view ? PER_KOL_SECTIONS[view] : undefined
@@ -620,20 +601,20 @@ export default function DiscoverWorkspace({
         )}
       </div>
 
-      {/* Add KOL — platform, handle, the five checks, then one of six outcomes.
-          One dialog for the whole module rather than one per screen: every
-          outcome ends in a navigation, so there is never a list left behind
-          that needs reloading in place. */}
+      {/* Add KOL — every `?add=1` entry point (the header button, My Creators)
+          opens the same KOL-database intake the Creator Database uses, so there
+          is one Add KOL flow. The old warehouse intake (`AddCreatorModal`,
+          `/discover/creators*`) is switched off on the KOL-only product. */}
       {addHere && openAddCreator && (
-        <AddCreatorModal
+        <AddKolDirectoryModal
           orgId={orgId}
           initialInput={addInput}
           // Closing drops `?add=1` and `?url=` and leaves you exactly where you
           // were, rather than on a URL that reopens the dialog on reload.
           onClose={() => go('directory', view ?? 'database')}
-          onProfilingStarted={creator => goCreator('profiling', creator.id)}
-          onViewExisting={id => goCreator('creator', id)}
-          onRefreshExisting={refreshExisting}
+          // The route already linked the creator to this agency; once the
+          // scrape has landed, open the creator's page.
+          onKolAdded={id => router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
         />
       )}
     </div>
