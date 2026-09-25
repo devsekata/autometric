@@ -93,6 +93,12 @@ export async function GET(req: NextRequest, { params }: Params) {
       // rather than through the 0-means-any convention the other numbers use.
       minGrowth: num('growthMin'),
       maxGrowth: num('growthMax'),
+      // Audience filters — same parameter names as the reconcile branch.
+      minFemalePct: num('femaleMin'),
+      minMalePct: num('maleMin'),
+      audienceQualityTier: list('audQuality'),
+      audienceGeoKey: sp.get('geoKey'),
+      audienceGeoLevel: sp.get('geoLevel'),
       connectedOnly: sp.get('connected') === '1',
       createdAfter,
       refreshedAfter,

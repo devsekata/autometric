@@ -89,6 +89,17 @@ export interface KolFilters {
    * "exactly flat" apart without a nullable slider.
    */
   growth: GrowthKey
+  /**
+   * Audience gender floors, in percent of the followers whose gender the
+   * pipeline could infer (`kol_profile_card.female_pct` / `male_pct`). 0 means
+   * no bound. Setting one leaves out every creator with no measured split.
+   */
+  femaleMin: number
+  maleMin: number
+  /** `kol_profile_card.audience_quality_tier` values; empty means no bound. */
+  audQuality: string[]
+  /** An audience city exactly as the pipeline wrote it at geo_level 'city'. */
+  audCity: string
 }
 
 /**
@@ -109,6 +120,7 @@ export type GrowthKey = (typeof GROWTH_PRESETS)[number]['key']
 export const KOL_FILTERS_DEFAULT: KolFilters = {
   categories: [], platform: '', tiers: [], follMin: 0, follMax: 0, erMin: 0,
   maxRate: 0, connectedOnly: false, growth: '',
+  femaleMin: 0, maleMin: 0, audQuality: [], audCity: '',
 }
 
 /**
@@ -171,6 +183,10 @@ export function normalizeKolFilters(raw: unknown): KolFilters {
     // failure a user can see and correct.
     connectedOnly: f.connectedOnly === true,
     growth: GROWTH_PRESETS.some(g => g.key === f.growth) ? (f.growth as GrowthKey) : '',
+    femaleMin: Math.min(Math.max(num(f.femaleMin, 0), 0), 100),
+    maleMin: Math.min(Math.max(num(f.maleMin, 0), 0), 100),
+    audQuality: many(f.audQuality),
+    audCity: typeof f.audCity === 'string' ? f.audCity : '',
   }
 }
 
@@ -211,6 +227,7 @@ export function activeFilterCount(f: KolFilters): number {
   return [
     f.platform !== '', f.tiers.length > 0, f.follMin > 0, f.follMax > 0,
     f.erMin > 0, f.connectedOnly, f.growth !== '', RATE_CARD_AVAILABLE && f.maxRate > 0,
+    f.femaleMin > 0, f.maleMin > 0, f.audQuality.length > 0, f.audCity !== '',
   ].filter(Boolean).length
 }
 
@@ -233,6 +250,11 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
     if (g?.min != null) p.growthMin = String(g.min)
     if (g?.max != null) p.growthMax = String(g.max)
   }
+  // Same parameter names the route (and the reconcile branch) reads.
+  if (f.femaleMin > 0) p.femaleMin = String(f.femaleMin)
+  if (f.maleMin > 0) p.maleMin = String(f.maleMin)
+  if (f.audQuality.length) p.audQuality = f.audQuality.join(',')
+  if (f.audCity) { p.geoKey = f.audCity; p.geoLevel = 'city' }
   return p
 }
 
@@ -275,9 +297,11 @@ const AGE_BANDS = ['All', '13–17', '18–24', '25–34', '35–44', '45–54',
  * the reason, shown under the section so the greyed-out controls explain
  * themselves instead of looking broken:
  *
- *   audience  no demographic columns exist at all — not age, not gender split,
- *             not audience location
- *   location  `creator_city` exists but is empty for all 7.718 active rows
+ *   audience  age only: the pipeline writes an age row per follower batch, but
+ *             almost every follower's age is `unknown` (3 creators have any
+ *             known age), so there is no "top audience group" to filter on.
+ *             Gender split, quality tier and audience city ARE filterable.
+ *   location  creator location only: `creator_city` is empty for every active row
  *   other     authenticity, brand fit and paid ratio have no columns; campaigns
  *             run would come from `campaign_kols`, which has no rows yet
  */
@@ -426,6 +450,8 @@ export function KolFilterPanel({
   const rateIdx = Math.max(0, RATE_STEPS.indexOf(filters.maxRate))
   const reachActive = [filters.follMin > 0, filters.follMax > 0, filters.erMin > 0,
     filters.growth !== '']
+    .filter(Boolean).length
+  const audienceActive = [filters.femaleMin > 0, filters.maleMin > 0, filters.audQuality.length > 0]
     .filter(Boolean).length
 
   return (
@@ -622,21 +648,49 @@ export function KolFilterPanel({
         </Section>
 
         <Section id="audience" icon="groups" label="Audience" open={open.has('audience')} onToggle={onToggleSection}
-          badge={UNAVAILABLE}>
+          onReset={audienceActive
+            ? () => onChange({ femaleMin: 0, maleMin: 0, audQuality: [] })
+            : undefined}
+          badge={audienceActive ? `${audienceActive} aktif` : null}>
+          <Range label="Major Female (%)" min={0} max={100} step={5} value={filters.femaleMin}
+            display={filters.femaleMin > 0 ? `≥ ${filters.femaleMin}%` : 'Any'}
+            onChange={v => onChange({ femaleMin: v })} />
+          <Range label="Major Male (%)" min={0} max={100} step={5} value={filters.maleMin}
+            display={filters.maleMin > 0 ? `≥ ${filters.maleMin}%` : 'Any'}
+            onChange={v => onChange({ maleMin: v })} />
+          <p className="text-[9.5px] leading-[1.4] mb-2" style={{ color: T.t4 }}>
+            Persen dari follower yang gendernya berhasil ditebak pipeline — yang
+            tidak diketahui tidak dihitung.
+            {facets && <> Terukur untuk {fmtNum(facets.audienceGenderMeasured)} dari {fmtNum(facets.rosterTotal)} creator,</>}
+            {' '}sebagian besar berkeandalan rendah (sampel follower kecil); memasang batas
+            menyembunyikan sisanya.
+          </p>
+
+          <div className="text-[10.5px] font-semibold mb-1.5" style={{ color: T.t3 }}>
+            Audience quality
+          </div>
+          <div className="flex flex-wrap gap-[7px]">
+            {(facets?.audienceQualityTiers ?? []).map(t => (
+              <Chip key={t.name} label={t.name} count={t.count}
+                on={filters.audQuality.includes(t.name)}
+                onClick={() => onChange({ audQuality: toggle(filters.audQuality, t.name) })} />
+            ))}
+          </div>
+          <p className="text-[9.5px] leading-[1.4] mt-1 mb-2" style={{ color: T.t4 }}>
+            Tier dari pipeline (`audience_quality_tier`). Hanya creator yang sudah
+            dianalisis audiensnya yang punya tier.
+          </p>
+
           <div className="text-[10.5px] font-semibold mb-1.5" style={{ color: T.t3 }}>
             Age (top audience group)
           </div>
           <div className="flex flex-wrap gap-[7px]">
             {AGE_BANDS.map(a => <Chip key={a} label={a} on={false} disabled onClick={() => {}} />)}
           </div>
-          <div className="h-2" />
-          <Range label="Major Female (%)" min={0} max={100} step={5} value={0} display="≥ 0%" disabled
-            onChange={() => {}} />
-          <Range label="Major Male (%)" min={0} max={100} step={5} value={0} display="≥ 0%" disabled
-            onChange={() => {}} />
           <Unavailable>
-            Roster KOL tidak menyimpan data audiens — umur, gender maupun lokasi
-            pengikut. Semua kontrol di sini menunggu sumber datanya.
+            Umur audiens hanya diketahui bila follower menyebutkannya di bio —
+            hampir semua follower tercatat &quot;unknown&quot;, jadi belum ada kelompok umur
+            teratas yang bisa difilter.
           </Unavailable>
         </Section>
 
@@ -667,22 +721,37 @@ export function KolFilterPanel({
         </Section>
 
         <Section id="location" icon="location_on" label="Location" open={open.has('location')} onToggle={onToggleSection}
-          badge={UNAVAILABLE}>
-          {['Creator location', 'Audience location'].map(label => (
-            <div key={label} className="mb-2">
-              <div className="text-[10.5px] mb-1" style={{ color: T.t3 }}>{label}</div>
-              <select disabled defaultValue="all"
-                className="w-full h-8 rounded-[10px] border px-2 text-[11.5px] cursor-not-allowed"
-                style={{ background: '#f5f6f7', borderColor: T.outlineSoft, color: T.t4 }}>
-                <option value="all">All cities</option>
-              </select>
-            </div>
-          ))}
-          <Unavailable>
-            Kolom kota creator sudah ada di roster, tapi belum terisi untuk satu
-            pun creator aktif — jadi tidak ada kota yang bisa dipilih. Lokasi
-            audiens tidak punya kolom sama sekali.
-          </Unavailable>
+          onReset={filters.audCity ? () => onChange({ audCity: '' }) : undefined}
+          badge={filters.audCity || null}>
+          <div className="mb-2">
+            <div className="text-[10.5px] mb-1" style={{ color: T.t3 }}>Creator location</div>
+            <select disabled defaultValue="all"
+              className="w-full h-8 rounded-[10px] border px-2 text-[11.5px] cursor-not-allowed"
+              style={{ background: '#f5f6f7', borderColor: T.outlineSoft, color: T.t4 }}>
+              <option value="all">{UNAVAILABLE}</option>
+            </select>
+            <Unavailable>
+              Kolom kota creator sudah ada di roster, tapi belum terisi untuk satu
+              pun creator aktif — jadi tidak ada kota yang bisa dipilih.
+            </Unavailable>
+          </div>
+          <div className="mb-2">
+            <div className="text-[10.5px] mb-1" style={{ color: T.t3 }}>Audience location</div>
+            <select value={filters.audCity} aria-label="Audience location"
+              onChange={e => onChange({ audCity: e.target.value })}
+              className="w-full h-8 rounded-[10px] border px-2 text-[11.5px]"
+              style={{ background: '#fff', borderColor: T.outlineSoft, color: T.t2 }}>
+              <option value="">All cities</option>
+              {(facets?.audienceCities ?? []).map(c => (
+                <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+              ))}
+            </select>
+            <p className="text-[9.5px] leading-[1.4] mt-1" style={{ color: T.t4 }}>
+              Kota audiens yang ditebak pipeline dari nama dan bio follower. Hanya creator
+              yang sudah dianalisis audiensnya yang punya kota; memilih kota
+              menampilkan creator yang punya follower di kota itu.
+            </p>
+          </div>
         </Section>
 
         <Section id="other" icon="tune" label="Other Filters" open={open.has('other')} onToggle={onToggleSection}
@@ -815,6 +884,22 @@ export function appliedFilters(f: KolFilters): AppliedFilter[] {
   }
   if (f.connectedOnly) {
     out.push({ key: 'connectedOnly', label: 'Connected only', clear: { connectedOnly: false } })
+  }
+  if (f.femaleMin > 0) {
+    out.push({ key: 'femaleMin', label: `Audiens wanita ≥ ${f.femaleMin}%`, clear: { femaleMin: 0 } })
+  }
+  if (f.maleMin > 0) {
+    out.push({ key: 'maleMin', label: `Audiens pria ≥ ${f.maleMin}%`, clear: { maleMin: 0 } })
+  }
+  for (const t of f.audQuality) {
+    out.push({
+      key: `audQuality:${t}`,
+      label: `Audience quality: ${t}`,
+      clear: { audQuality: f.audQuality.filter(x => x !== t) },
+    })
+  }
+  if (f.audCity) {
+    out.push({ key: 'audCity', label: `Kota audiens: ${f.audCity}`, clear: { audCity: '' } })
   }
   return out
 }

@@ -172,6 +172,15 @@ export interface KolDirectoryFacets {
   untiered: number
   /** The whole active roster, for the "X of Y creators" line. */
   rosterTotal: number
+  /**
+   * What the audience filters can actually answer, read from the data rather
+   * than from a fixed list: every audience city the pipeline inferred (with the
+   * active creators that have it), the quality tiers present, and how many
+   * active creators carry an audience gender split at all.
+   */
+  audienceCities: { name: string; count: number }[]
+  audienceQualityTiers: { name: string; count: number }[]
+  audienceGenderMeasured: number
 }
 
 /**
@@ -304,6 +313,26 @@ export interface KolDirectoryQuery {
    */
   minGrowth?: number | null
   maxGrowth?: number | null
+  /**
+   * Audience filters, read from the pipeline's own columns on
+   * `l2_gold.kol_profile_card` and `l2_gold.audience_geo_daily`.
+   *
+   *   minFemalePct / minMalePct  `female_pct` / `male_pct`: share of the
+   *                              followers whose gender was inferred, so
+   *                              `unknown` is already left out of both
+   *   audienceQualityTier        `audience_quality_tier` (High / Medium / Low)
+   *   audienceGeoKey / Level     an audience location key, matched at its own
+   *                              level so a city never matches a province row
+   *
+   * Each drops creators whose value is NULL while it is set — an unmeasured
+   * audience cannot satisfy "at least 60% female" — and brings them back the
+   * moment it is cleared. The same names and rules as the reconcile branch.
+   */
+  minFemalePct?: number | null
+  minMalePct?: number | null
+  audienceQualityTier?: string[] | null
+  audienceGeoKey?: string | null
+  audienceGeoLevel?: string | null
   connectedOnly?: boolean
   /**
    * Lower bounds on the two roster timestamps, for the Section Tabs (BE-04).
@@ -580,6 +609,9 @@ const BASE = `
            ELSE 'Estimated'
          END                                       AS status,
          g.followers_growth::float                 AS growth_pct,
+         g.female_pct::float                       AS female_pct,
+         g.male_pct::float                         AS male_pct,
+         g.audience_quality_tier,
          kd.last_refreshed_at,
          -- Not mapped onto the row; carried so the list can be ordered by when
          -- a creator was added, which is what the Discovery landing's "Recently
@@ -613,7 +645,7 @@ const BASE = `
     -- followers_growth is read here: followers and tier stay on kol_directory,
     -- which is the agreed source of truth for both.
     LEFT JOIN LATERAL (
-      SELECT c.followers_growth
+      SELECT c.followers_growth, c.female_pct, c.male_pct, c.audience_quality_tier
         FROM public.kol_social_account ksa
         JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
        WHERE ksa.kol_id = kd.id
@@ -805,6 +837,22 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
                  JOIN l1_silver.unified_rate_card u
                    ON u.social_account_id = ksa.social_account_id
                 WHERE ksa.kol_id = b.id AND u.fee IS NOT NULL AND u.fee <= $11))
+         -- Audience. A NULL value compares to nothing, so while one of these is
+         -- set an unmeasured creator is left out rather than counted as passing.
+         AND ($20::float8 IS NULL OR b.female_pct >= $20)
+         AND ($21::float8 IS NULL OR b.male_pct   >= $21)
+         AND ($22::text[] IS NULL OR b.audience_quality_tier = ANY ($22))
+         -- Audience location. EXISTS against the daily table rather than a card
+         -- column: a creator has many locations. The level is matched too, so a
+         -- city never collides with a province of the same spelling.
+         AND ($23::text IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.kol_social_account ksa
+                 JOIN l2_gold.audience_geo_daily gd
+                   ON gd.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id
+                  AND gd.geo_key = $23
+                  AND ($24::text IS NULL OR gd.geo_level = $24)))
     )
     SELECT *, COUNT(*) OVER()::int AS total_count
       FROM filtered
@@ -835,6 +883,13 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.minGrowth ?? null,
       query.maxGrowth ?? null,
       query.agencyId || null,
+      // 0% is not a bound anyone asks for, so 0 means "no bound" as it does for
+      // the other percentage minimums.
+      query.minFemalePct ? query.minFemalePct : null,
+      query.minMalePct ? query.minMalePct : null,
+      query.audienceQualityTier?.length ? query.audienceQualityTier : null,
+      query.audienceGeoKey?.trim() || null,
+      query.audienceGeoKey?.trim() ? (query.audienceGeoLevel?.trim() || null) : null,
     ],
     q !== null,
   )
@@ -898,7 +953,7 @@ export async function listKolFacets(
    */
   const platform = opts.platform || null
 
-  const [categories, uncategorized, platforms, tiers, untiered, roster] = await Promise.all([
+  const [categories, uncategorized, platforms, tiers, untiered, roster, audCities, audTiers, audGender] = await Promise.all([
     kolDb().query<{ name: string; count: number }>(`
       SELECT kc.name, COUNT(*)::int AS count
         FROM public.kol_directory kd
@@ -950,6 +1005,30 @@ export async function listKolFacets(
                SELECT pl.id FROM public.platforms pl WHERE pl.key = $1))`, [platform]),
     kolDb().query<{ count: number }>(`
       SELECT COUNT(*)::int AS count FROM public.kol_directory kd WHERE ${ACTIVE}`),
+    // Audience cities as the pipeline wrote them at geo_level 'city' — provinces
+    // and islands have their own levels and are not offered here.
+    kolDb().query<{ name: string; count: number }>(`
+      SELECT gd.geo_key AS name, COUNT(DISTINCT kd.id)::int AS count
+        FROM public.kol_directory kd
+        JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+        JOIN l2_gold.audience_geo_daily gd ON gd.social_account_id = ksa.social_account_id
+       WHERE ${ACTIVE} AND gd.geo_level = 'city' AND gd.geo_key <> 'unknown'
+       GROUP BY gd.geo_key
+       ORDER BY count DESC, gd.geo_key`),
+    kolDb().query<{ name: string; count: number }>(`
+      SELECT c.audience_quality_tier AS name, COUNT(DISTINCT kd.id)::int AS count
+        FROM public.kol_directory kd
+        JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+        JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
+       WHERE ${ACTIVE} AND c.audience_quality_tier IS NOT NULL
+       GROUP BY c.audience_quality_tier
+       ORDER BY count DESC`),
+    kolDb().query<{ count: number }>(`
+      SELECT COUNT(DISTINCT kd.id)::int AS count
+        FROM public.kol_directory kd
+        JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+        JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
+       WHERE ${ACTIVE} AND c.female_pct IS NOT NULL`),
   ])
 
   return {
@@ -959,6 +1038,9 @@ export async function listKolFacets(
     tiers: tiers.rows,
     untiered: untiered.rows[0]?.count ?? 0,
     rosterTotal: roster.rows[0]?.count ?? 0,
+    audienceCities: audCities.rows,
+    audienceQualityTiers: audTiers.rows,
+    audienceGenderMeasured: audGender.rows[0]?.count ?? 0,
   }
 }
 
