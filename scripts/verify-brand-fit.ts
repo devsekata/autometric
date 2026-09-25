@@ -66,7 +66,9 @@ function brand(over: Partial<BrandFitBrand> = {}): BrandFitBrand {
     brandId: 'b0000000-0000-0000-0000-000000000001',
     brandName: 'Fixture Brand',
     category: 'Fashion',
-    attributes: ['Modern', 'Authentic', 'Warm', 'Educational'],
+    // Brand words, mapped by ./personalityMap to Entertaining, Premium,
+    // Creative, Educational — the creator side below speaks creator labels.
+    attributes: ['Playful', 'Premium', 'Bold', 'Educational'],
     audience: {
       gender: 'Female', ageMin: 18, ageMax: 34,
       country: 'ID', city: 'Jakarta', interests: ['beauty'],
@@ -82,7 +84,7 @@ function creator(over: Partial<BrandFitCreator> = {}): BrandFitCreator {
     platformId: 'p0000000-0000-0000-0000-000000000001',
     username: 'fixture',
     categories: ['Fashion'],
-    attributes: ['Modern', 'Authentic'],
+    attributes: ['Entertaining', 'Premium'],
     hasAttributeMapping: true,
     audience: {
       femalePct: 80, malePct: 20, genderKnownPct: 60,
@@ -242,12 +244,12 @@ console.log('\nC. Values alignment')
 
   const all = analyseBrandFit({
     brand: brand(),
-    creator: creator({ attributes: ['Modern', 'Authentic', 'Warm', 'Educational'] }),
+    creator: creator({ attributes: ['Entertaining', 'Premium', 'Creative', 'Educational'] }),
   })
   check('semua atribut cocok → 100', all.sub_scores.values_alignment.score === 100)
 
   const none = analyseBrandFit({
-    brand: brand(), creator: creator({ attributes: ['Sporty', 'Bold'] }),
+    brand: brand(), creator: creator({ attributes: ['Reviewer', 'Humorous'] }),
   })
   check('creator ter-mapping tapi tidak ada yang cocok → 0, BUKAN null',
     none.sub_scores.values_alignment.score === 0)
@@ -267,18 +269,34 @@ console.log('\nC. Values alignment')
     noBrandAttrs.sub_scores.values_alignment.score === null)
 
   const cased = analyseBrandFit({
-    brand: brand({ attributes: ['MODERN', 'authentic'] }),
-    creator: creator({ attributes: ['Modern', 'Authentic'] }),
+    brand: brand({ attributes: ['PLAYFUL', 'premium'] }),
+    creator: creator({ attributes: ['entertaining', 'Premium'] }),
   })
   check('pencocokan atribut case-insensitive', cased.sub_scores.values_alignment.score === 100)
 
   const duped = analyseBrandFit({
-    brand: brand({ attributes: ['Warm', 'warm', 'Modern'] }),
-    creator: creator({ attributes: ['Modern'] }),
+    brand: brand({ attributes: ['Playful', 'playful', 'Premium'] }),
+    creator: creator({ attributes: ['Entertaining'] }),
   })
   check('atribut brand di-dedup sebelum jadi pembagi',
     duped.sub_scores.values_alignment.score === 50,
     String(duped.sub_scores.values_alignment.score))
+
+  const withUnmapped = analyseBrandFit({
+    brand: brand({ attributes: ['Playful', 'Warm'] }),
+    creator: creator({ attributes: ['Entertaining'] }),
+  })
+  check('personality brand tanpa padanan creator tidak jadi pembagi',
+    withUnmapped.sub_scores.values_alignment.score === 100
+      && withUnmapped.meta.notes.some(n => n.includes('Warm')),
+    String(withUnmapped.sub_scores.values_alignment.score))
+
+  const onlyUnmapped = analyseBrandFit({
+    brand: brand({ attributes: ['Warm', 'Youthful'] }),
+    creator: creator({ attributes: ['Entertaining'] }),
+  })
+  check('semua personality brand tanpa padanan → NULL, bukan 0',
+    onlyUnmapped.sub_scores.values_alignment.score === null)
 }
 
 /* ── D. Past performance ──────────────────────────────────────────────────── */
@@ -537,13 +555,12 @@ async function integrationChecks(): Promise<void> {
       `SELECT column_name FROM information_schema.columns
         WHERE table_schema='public' AND table_name='brand_profile'`)
     const bpNames = bp.map(c => c.column_name)
-    const added = ['brand_tone', 'target_age_min', 'target_age_max', 'performance_targets']
-    const notApplied = added.filter(c => !bpNames.includes(c))
-    if (notApplied.length) {
-      skip('kolom brand-side migration 002', `belum diterapkan: ${notApplied.join(', ')} — jalankan npm run migrate:kol`)
-    } else {
-      check('migration 002 terpasang: brand_tone, target_age_*, performance_targets', true)
-    }
+    // migrations/kol/009 dropped brand_tone and performance_targets; the
+    // reader must not select them (that was a live 42703 until 2026-09-24).
+    check('schema pasca-009: target_age_min/max ada',
+      ['target_age_min', 'target_age_max'].every(c => bpNames.includes(c)))
+    check('schema pasca-009: brand_tone dan performance_targets sudah tidak ada',
+      !bpNames.includes('brand_tone') && !bpNames.includes('performance_targets'))
 
     // Menjalankan SQL-nya sungguhan. Ini satu-satunya cara menangkap kolom
     // salah nama atau join yang keliru: keduanya lolos tsc dan hanya meledak
@@ -577,8 +594,30 @@ async function integrationChecks(): Promise<void> {
         || analysis.sub_scores.values_alignment.score === null)
     }
 
+    // Runs loadBrand's real SQL against the live schema: a dropped column
+    // would throw 42703 here, and the catch below counts that as a FAILURE.
     const absent = await loadBrand('00000000-0000-0000-0000-000000000000')
-    check('loadBrand() untuk brand yang tidak ada → null, bukan error', absent === null)
+    check('loadBrand() untuk brand yang tidak ada → null, bukan error (SQL cocok dengan schema)', absent === null)
+
+    // Tenant: with an agency id, only that agency's active links are loaded.
+    const { rows: [ag] } = await db.query<{ agency_id: string; n: string }>(
+      `SELECT agency_id::text, count(*) AS n FROM public.agency_kol_accounts
+        WHERE is_active IS TRUE AND agency_id IS NOT NULL
+        GROUP BY agency_id ORDER BY count(*) ASC LIMIT 1`)
+    if (!ag) {
+      skip('loadCreators() per agency', 'tidak ada agency dengan link aktif')
+    } else {
+      const scoped = await loadCreators(undefined, db, ag.agency_id)
+      check('loadCreators(agency) hanya memuat link aktif agency itu',
+        scoped.length === Number(ag.n), `${scoped.length} vs ${ag.n}`)
+      const { rows: foreign } = await db.query<{ id: string }>(
+        `SELECT id::text FROM public.agency_kol_accounts
+          WHERE agency_id IS DISTINCT FROM $1 LIMIT 1`, [ag.agency_id])
+      if (foreign[0]) {
+        const leaked = await loadCreators([foreign[0].id], db, ag.agency_id)
+        check('id link agency lain dari body tidak ikut dimuat', leaked.length === 0, `${leaked.length}`)
+      }
+    }
 
     const { rows: brandCount } = await db.query<{ n: string }>(
       'SELECT count(*) AS n FROM public.brand')
@@ -588,9 +627,13 @@ async function integrationChecks(): Promise<void> {
       check('public.brand punya baris untuk dipasangkan', true)
     }
 
-    await endToEndInTransaction()
+    // Writes (inside a transaction that is rolled back). Opt-in only.
+    if (process.argv.includes('--write-rollback')) await endToEndInTransaction()
+    else skip('end-to-end dalam transaksi', 'opt-in: --write-rollback (menulis lalu ROLLBACK)')
   } catch (err) {
-    skip('integrasi DB kol', (err as Error).message.slice(0, 90))
+    // A database error is a failure, not a skip: turning it into a skip is how
+    // a 42703 from a dropped column stayed invisible.
+    check('integrasi DB kol tanpa error', false, (err as Error).message.slice(0, 160))
   }
 }
 
@@ -609,6 +652,10 @@ async function integrationChecks(): Promise<void> {
 async function endToEndInTransaction(): Promise<void> {
   const client = await kolDbWrite().connect()
   try {
+    const { rows: [before] } = await client.query<{ bfa: string; brand: string; bp: string }>(
+      `SELECT (SELECT count(*) FROM feature.brand_fit_analysis) AS bfa,
+              (SELECT count(*) FROM public.brand) AS brand,
+              (SELECT count(*) FROM public.brand_profile) AS bp`)
     await client.query('BEGIN')
 
     const { rows: [inserted] } = await client.query<{ id: string }>(
@@ -619,23 +666,21 @@ async function endToEndInTransaction(): Promise<void> {
     await client.query(
       `INSERT INTO public.brand_profile
          (organization_id, brand_id, brand_name, brand_category, brand_personality,
-          brand_tone, gender_majority, target_age_min, target_age_max,
-          target_country, target_city, audience_interests, performance_targets)
+          gender_majority, target_age_min, target_age_max,
+          target_country, target_city, audience_interests)
        VALUES (gen_random_uuid(), $1, '__verify_brand_fit__', 'Fashion',
-               ARRAY['Modern','Authentic'], ARRAY['Warm'], 'Female', 18, 34,
-               'ID', 'Jakarta', ARRAY['beauty'],
-               '{"engagement_rate": 4, "median_views": 10000}'::jsonb)`,
+               ARRAY['Modern','Authentic'], 'Female', 18, 34,
+               'ID', 'Jakarta', ARRAY['beauty'])`,
       [brandId])
 
     const loaded = await loadBrand(brandId, client)
     check('loadBrand() menemukan brand + profile yang baru dihubungkan', loaded !== null)
-    check('brand_tone ikut terbaca dan digabung ke atribut brand',
-      loaded!.attributes.join(',') === 'Modern,Authentic,Warm', loaded!.attributes.join(','))
+    check('brand_personality terbaca sebagai atribut brand',
+      loaded!.attributes.join(',') === 'Modern,Authentic', loaded!.attributes.join(','))
     check('target_age_min/max terbaca',
       loaded!.audience.ageMin === 18 && loaded!.audience.ageMax === 34)
-    check('performance_targets terbaca dan difilter ke metrik yang dikenal',
-      loaded!.performanceTargets.engagement_rate === 4
-      && loaded!.performanceTargets.median_views === 10_000)
+    check('tanpa kolom target (dihapus 009) → performanceTargets kosong, bukan angka karangan',
+      Object.keys(loaded!.performanceTargets).length === 0)
 
     const { rows: sample } = await client.query<{ id: string }>(
       'SELECT id FROM public.agency_kol_accounts ORDER BY id LIMIT 5')
@@ -700,9 +745,9 @@ async function endToEndInTransaction(): Promise<void> {
       `SELECT (SELECT count(*) FROM feature.brand_fit_analysis) AS bfa,
               (SELECT count(*) FROM public.brand) AS brand,
               (SELECT count(*) FROM public.brand_profile) AS bp`)
-    check('ROLLBACK bersih — tidak ada data test yang tertinggal',
-      after[0].bfa === '0' && after[0].brand === '0' && after[0].bp === '0',
-      `bfa=${after[0].bfa} brand=${after[0].brand} brand_profile=${after[0].bp}`)
+    check('ROLLBACK bersih — jumlah baris sama dengan sebelum test',
+      after[0].bfa === before.bfa && after[0].brand === before.brand && after[0].bp === before.bp,
+      `bfa=${after[0].bfa}/${before.bfa} brand=${after[0].brand}/${before.brand} brand_profile=${after[0].bp}/${before.bp}`)
   } catch (err) {
     skip('integrasi DB kol', (err as Error).message.slice(0, 90))
   }
