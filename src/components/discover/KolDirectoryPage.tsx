@@ -963,14 +963,14 @@ export default function KolDirectoryPage({
         )}
 
         {/* ── page head ── */}
-        <div className="flex items-end justify-between gap-4 flex-wrap mb-1.5">
-          <div>
+        <div className="flex items-center justify-between gap-x-4 gap-y-2 flex-wrap mb-3">
+          <div className="min-w-0">
             {!embedded && (
               <h2 style={{ ...PJ, color: T.t1 }} className="text-[21px] font-extrabold tracking-[-0.03em]">
                 KOL Directory
               </h2>
             )}
-            <p className="text-[12.5px] mt-[5px]" style={{ color: T.t3 }}>
+            <p className={`text-[12.5px] ${embedded ? '' : 'mt-[5px]'}`} style={{ color: T.t3 }}>
               {loading && !rows.length ? 'Memuat direktori…' : (
                 <>
                   {total.toLocaleString('id-ID')} of {rosterTotal.toLocaleString('id-ID')} creators
@@ -1000,7 +1000,7 @@ export default function KolDirectoryPage({
               )}
             </p>
           </div>
-          <div className="flex gap-[9px]">
+          <div className="flex items-center gap-[9px] ml-auto flex-shrink-0">
             <Btn kind="ghost" icon="compare" onClick={() => router.push(tabHref(orgSlug, 'compare'))}
               title="Bandingkan creator yang dipilih berdampingan">
               Compare{compare.ids.size > 0 && <Count n={compare.ids.size} />}
@@ -1020,7 +1020,7 @@ export default function KolDirectoryPage({
             assemble by hand. Each sets real filters *and* a ranking; the note
             under an active one says which is which, because the difference
             decides whether the result count can be trusted. */}
-        <div className="mt-3.5">
+        <div className="mb-2.5">
           <div className="flex items-center gap-1.5 flex-wrap">
             {CREATOR_PRESETS.map(p => {
               const on = preset === p.id
@@ -1039,7 +1039,7 @@ export default function KolDirectoryPage({
                     borderColor: off ? T.outlineSoft : on ? T.primary : T.outline,
                     cursor: off ? 'not-allowed' : 'pointer',
                   }}
-                  className="inline-flex items-center gap-1 rounded-full border px-2.5 h-[28px] text-[11px] font-bold transition-colors"
+                  className="inline-flex items-center gap-1 rounded-full border px-3 h-[30px] text-[11px] font-bold transition-colors"
                 >
                   <span className="material-symbols-outlined text-[13px]">{p.icon}</span>
                   {p.label}
@@ -1114,9 +1114,14 @@ export default function KolDirectoryPage({
           </span>
         </div>
 
-        {/* ── toolbar ── */}
-        <div className="flex items-center gap-2.5 flex-wrap my-4">
-          <div className="relative flex items-center">
+        {/* ── toolbar ──
+            Two groups on one baseline: what narrows the list on the left, how
+            the list is shown on the right. When the row runs out of width the
+            right group wraps as a whole and stays right-aligned, so Sort and
+            the view toggle never separate. */}
+        <div className="flex items-center justify-between gap-x-4 gap-y-2.5 flex-wrap mt-3.5 mb-4">
+          <div className="flex items-center gap-[7px] flex-wrap min-w-0">
+          <div className="relative flex items-center w-full sm:w-auto">
             <span className="material-symbols-outlined absolute left-[11px] text-[17px]" style={{ color: '#b4c3d0' }}>
               search
             </span>
@@ -1124,7 +1129,7 @@ export default function KolDirectoryPage({
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search creators by username…"
-              className="h-[38px] w-[280px] pl-[34px] pr-9 rounded-xl border text-[13px] bg-white outline-none"
+              className="h-9 w-full sm:w-[260px] pl-[34px] pr-9 rounded-xl border text-[13px] bg-white outline-none"
               style={{ borderColor: T.outline, color: T.t1 }}
               onFocus={e => { e.currentTarget.style.borderColor = T.primary }}
               onBlur={e => { e.currentTarget.style.borderColor = T.outline }}
@@ -1137,7 +1142,7 @@ export default function KolDirectoryPage({
           </div>
 
           {/* the six biggest categories inline; the rest live in the sidebar */}
-          <div className="flex gap-[7px] flex-wrap">
+          <div className="contents">
             <Chip label="All" on={!filters.categories.length}
               onClick={() => patchFilters({ categories: [] })} />
             {topCategories.map(c => (
@@ -1149,7 +1154,9 @@ export default function KolDirectoryPage({
                 })} />
             ))}
           </div>
+          </div>
 
+          <div className="flex items-center gap-2 flex-wrap justify-end ml-auto">
           <Pill icon="tune" onClick={() => setFiltPanel(o => !o)}
             title="Show or hide the filter panel — filters stay visible while you browse">
             Filters{fCount > 0 && <Count n={fCount} />}
@@ -1230,7 +1237,8 @@ export default function KolDirectoryPage({
             )}
           </div>
 
-          <div className="relative ml-auto">
+          <div className="flex items-center gap-2">
+          <div className="relative">
             <Pill icon="sort" onClick={() => setSortOpen(o => !o)} title="Change result ordering">
               Sort: {SORTOPTS.find(s => s[0] === sort.key)?.[1]}
             </Pill>
@@ -1288,7 +1296,7 @@ export default function KolDirectoryPage({
           )}
 
           {/* card / table segmented control */}
-          <div className="flex rounded-[10px] p-[3px] gap-0.5" style={{ background: '#eef1f3' }}>
+          <div className="flex rounded-[10px] p-[3px] gap-0.5 h-9" style={{ background: '#eef1f3' }}>
             {([['card', 'grid_view'], ['table', 'table_rows']] as const).map(([v, icon]) => (
               <button key={v} type="button" onClick={() => setView(v)}
                 title={v === 'card' ? 'Card view' : 'Table view — sortable columns & bulk actions'}
@@ -1298,10 +1306,12 @@ export default function KolDirectoryPage({
                   color: view === v ? T.primaryDeep : T.t3,
                   boxShadow: view === v ? T.shadow : undefined,
                 }}
-                className="w-[38px] h-8 rounded-lg inline-flex items-center justify-center">
+                className="w-[38px] h-[30px] rounded-lg inline-flex items-center justify-center">
                 <span className="material-symbols-outlined text-[16px]">{icon}</span>
               </button>
             ))}
+          </div>
+          </div>
           </div>
         </div>
 
@@ -1335,11 +1345,14 @@ export default function KolDirectoryPage({
           </div>
         )}
 
-        {/* ── content + filter sidebar ── */}
-        <div style={{
+        {/* ── content + filter sidebar ──
+            The collapsed filter tab no longer takes a grid column: it sits in
+            the page gutter (see `KolFilterTab`), so the card grid's right edge
+            lines up with the toolbar and banner above it. */}
+        <div className="relative" style={{
           display: 'grid',
-          gridTemplateColumns: `minmax(0,1fr) ${filtPanel ? '248px' : '30px'}`,
-          gap: filtPanel ? 16 : 6,
+          gridTemplateColumns: filtPanel ? 'minmax(0,1fr) 248px' : 'minmax(0,1fr)',
+          gap: 16,
           alignItems: 'start',
         }}>
           <div className="min-w-0">
@@ -1364,7 +1377,15 @@ export default function KolDirectoryPage({
             ) : (
               <div style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 120ms' }}>
                 {view === 'card' ? (
-                  <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${filtPanel ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
+                  /* Columns follow the width the grid actually has — the app
+                     sidebar makes the viewport a poor guide. Every column is an
+                     equal 1fr; a card never goes below 264px (the width its
+                     action row and four metric boxes need), and the row never
+                     holds more than four cards (three beside the open panel). */
+                  <div className="grid gap-4" style={{
+                    gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, max(264px, calc((100% - ${
+                      (filtPanel ? 2 : 3) * 16}px) / ${filtPanel ? 3 : 4}))), 1fr))`,
+                  }}>
                     {rows.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
                   </div>
                 ) : (
@@ -1560,14 +1581,14 @@ function CreatorCard({
 
   return (
     <article onClick={onOpen}
-      className="relative rounded-[18px] border overflow-hidden bg-white transition-all hover:-translate-y-[3px]"
+      className="relative flex flex-col h-full min-w-0 rounded-[18px] border overflow-hidden bg-white transition-all hover:-translate-y-[3px]"
       style={{ borderColor: T.outline, boxShadow: T.shadow, cursor: 'pointer' }}
       title="Lihat insight singkat creator ini"
     >
-      <div className="h-14 relative overflow-hidden" style={{ background: banner }}>
+      <div className="h-14 flex-shrink-0 relative overflow-hidden" style={{ background: banner }}>
         <span className="absolute rounded-full" style={{ width: 90, height: 90, top: -40, right: 20, background: 'rgba(255,255,255,.16)' }} />
         <span className="absolute rounded-full" style={{ width: 50, height: 50, bottom: -24, right: 90, background: 'rgba(255,255,255,.16)' }} />
-        <div className="absolute top-[9px] right-[9px] flex gap-1.5 z-[3]">
+        <div className="absolute top-2 right-2 flex items-center gap-1 z-[3]">
           <IconToggle on={fav} onClick={onFav} icon="favorite" title="Favorite" activeColor={T.accent} filled />
           <IconToggle on={inCompare} onClick={onCompare} icon={inCompare ? 'check' : 'add'} title="Add to compare"
             activeColor={T.primary} solid />
@@ -1599,7 +1620,7 @@ function CreatorCard({
         </div>
       </div>
 
-      <div className="w-[60px] h-[60px] rounded-[17px] border-4 border-white -mt-[34px] ml-4 flex items-center justify-center relative overflow-hidden"
+      <div className="w-[60px] h-[60px] flex-shrink-0 rounded-[17px] border-4 border-white -mt-[34px] ml-4 flex items-center justify-center relative overflow-hidden"
         style={{ background: banner, boxShadow: T.shadow }}>
         <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[22px]" />
         {/* Connected — the creator linked the account through OAuth. Not the
@@ -1629,7 +1650,7 @@ function CreatorCard({
         </div>
       )}
 
-      <div className="px-4 pt-2 pb-[15px]">
+      <div className="flex flex-col flex-1 min-w-0 px-3.5 pt-2 pb-[15px]">
         {/* The real name leads when the roster has one — 3.463 creators carry a
             name that differs from their handle, and BE-03 made those searchable,
             so a result found by name has to show that name. Falls back to the
@@ -1656,13 +1677,13 @@ function CreatorCard({
           </div>
         )}
 
-        <span className="inline-flex items-center gap-1.5 mt-[9px] rounded-lg px-[9px] py-[3px] text-[10.5px] font-bold max-w-full"
+        <span className="self-start inline-flex items-center gap-1.5 mt-[9px] rounded-lg px-[9px] py-[3px] text-[10.5px] font-bold max-w-full"
           style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}>
           <span className="material-symbols-outlined text-[12px]">category</span>
           <span className="truncate">{c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'}</span>
         </span>
 
-        <div className="flex gap-1.5 mt-[13px]">
+        <div className="grid grid-cols-4 gap-1 mt-[13px]">
           <Stat label="Followers" value={followersLabel(c.followers)} />
           {/* Measured, unlike the growth figure that used to sit in the row
               below: this one comes from l2_gold and is '—' when the pipeline
@@ -1695,8 +1716,10 @@ function CreatorCard({
           </div>
         )}
 
-        <div className="mt-2.5 flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold"
+        {/* Status and footer ride the bottom of the card, so cards of one row
+            end on the same line whatever their badges took above. */}
+        <div className="mt-auto pt-2.5 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold min-w-0 truncate"
             style={{ ...PJ, background: st.bg, color: st.fg }}
             title={`Data ${c.status.toLowerCase()} · last synced ${sinceLabel(c.lastRefreshedAt)}`}>
             <span className="material-symbols-outlined text-[12px]">{st.icon}</span>
@@ -1921,10 +1944,13 @@ function Check({ on, onClick, title }: { on: boolean; onClick: () => void; title
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex-1 rounded-[11px] border px-1.5 py-2 text-center"
+    <div className="min-w-0 flex flex-col items-center justify-center rounded-[11px] border px-0.5 py-2 text-center"
       style={{ background: T.surfaceLow, borderColor: T.outlineSoft }}>
-      <div style={{ ...PJ, color: T.t1 }} className="text-[13.5px] font-extrabold tabular-nums">{value}</div>
-      <div className="text-[9px] mt-0.5 uppercase tracking-[.03em] font-semibold" style={{ color: T.t4 }}>{label}</div>
+      <div style={{ ...PJ, color: T.t1 }} className="max-w-full truncate text-[12px] leading-[1.2] tracking-[-0.01em] font-extrabold tabular-nums">{value}</div>
+      {/* Two-line slot for every label, so one that wraps ("ENG. RATE") does
+          not make its box taller than the box beside it. */}
+      <div className="mt-0.5 min-h-[2.3em] flex items-center text-[8.5px] leading-[1.15] uppercase tracking-[.02em] font-semibold"
+        style={{ color: T.t4 }}>{label}</div>
     </div>
   )
 }
@@ -1959,13 +1985,13 @@ function IconToggle({
   return (
     <button type="button" title={title} aria-pressed={on}
       onClick={e => { e.stopPropagation(); onClick() }}
-      className="w-[30px] h-[30px] rounded-[9px] border flex items-center justify-center transition-colors"
+      className="w-[26px] h-[26px] flex-shrink-0 rounded-[8px] border flex items-center justify-center transition-colors"
       style={{
         background: on && solid ? activeColor : 'rgba(255,255,255,.9)',
         borderColor: on && solid ? activeColor : 'rgba(255,255,255,.6)',
         color: on ? (solid ? '#fff' : activeColor) : T.t3,
       }}>
-      <span className={`material-symbols-outlined text-[15px] ${on && filled ? 'fill' : ''}`}>{icon}</span>
+      <span className={`material-symbols-outlined text-[14px] leading-none ${on && filled ? 'fill' : ''}`}>{icon}</span>
     </button>
   )
 }
@@ -2007,7 +2033,7 @@ function Pill({
 }: { children: React.ReactNode; icon: string; onClick: () => void; title?: string }) {
   return (
     <button type="button" onClick={onClick} title={title} style={{ ...PJ, borderColor: T.outline, color: T.t2 }}
-      className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-[10px] border bg-white/85 text-[12px] font-semibold transition-colors hover:bg-white">
+      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-[10px] border bg-white/85 text-[12px] font-semibold whitespace-nowrap transition-colors hover:bg-white">
       <span className="material-symbols-outlined text-[16px]" style={{ color: T.t4 }}>{icon}</span>
       {children}
     </button>
@@ -2024,7 +2050,7 @@ function Chip({
       borderColor: on ? T.primary : T.outline,
       color: on ? T.primaryDeep : T.t2,
     }}
-      className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] border text-[12px] font-semibold transition-colors">
+      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-[10px] border text-[12px] font-semibold whitespace-nowrap transition-colors">
       {icon && <span className="material-symbols-outlined text-[14px]" style={{ color: T.t4 }}>{icon}</span>}
       {label}
     </button>

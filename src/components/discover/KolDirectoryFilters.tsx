@@ -792,23 +792,35 @@ export function KolFilterPanel({
 }
 
 /** The collapsed state: a vertical tab clinging to the right edge. */
+/**
+ * The collapsed filter panel's edge tab.
+ *
+ * It lives in the page gutter rather than in a grid column: an absolutely
+ * placed rail, 20px wide, hung just outside the right edge of the content
+ * (the parent is `relative`), with the tab sticky inside it. The card grid
+ * keeps the full content width, and the tab never sits on top of a card.
+ */
 export function KolFilterTab({ count, onOpen }: { count: number; onOpen: () => void }) {
   return (
-    <div className="sticky top-[110px] flex justify-end">
+    <div className="absolute top-0 bottom-0 -right-5 w-5 pointer-events-none">
+    <div className="sticky top-[110px] flex justify-end pointer-events-auto">
       <div onClick={onOpen} title="Open the filter sidebar"
         style={{
           writingMode: 'vertical-rl', background: T.gradient, boxShadow: T.shadowMd, ...PJ,
         }}
-        className="flex items-center gap-[7px] py-[13px] px-[7px] rounded-l-xl text-white text-[11.5px] font-extrabold tracking-[.05em] cursor-pointer select-none">
-        <span className="material-symbols-outlined text-[16px]" style={{ writingMode: 'horizontal-tb' }}>tune</span>
+        // pt/pb, not py: Tailwind's `py` is `padding-block`, which in vertical
+        // writing mode pads left and right and would widen the tab past 20px.
+        className="w-5 overflow-hidden flex items-center gap-[6px] pt-3 pb-3 rounded-l-lg text-white text-[10.5px] leading-none font-extrabold tracking-[.05em] cursor-pointer select-none">
+        <span className="material-symbols-outlined text-[14px] leading-none" style={{ writingMode: 'horizontal-tb' }}>tune</span>
         Filters
         {count > 0 && (
           <span style={{ writingMode: 'horizontal-tb', color: T.primaryDeep }}
-            className="bg-white rounded-full text-[9.5px] px-1.5 py-px font-extrabold">
+            className="bg-white rounded-full text-[9px] leading-none px-1 py-[3px] font-extrabold">
             {count}
           </span>
         )}
       </div>
+    </div>
     </div>
   )
 }
