@@ -28,7 +28,7 @@ export {
   type PerformanceTargets,
 } from './rules'
 
-export { loadBrand, loadCreators } from './records'
+export { brandBelongsToAgency, loadBrand, loadCreators } from './records'
 export {
   getBrandFit, getBrandFitForBrand, saveBrandFit,
   type AnalysisToStore, type StoredBrandFit,
@@ -64,12 +64,12 @@ export interface BrandFitRunResult {
  */
 export async function runBrandFit(
   brandId: string,
-  options: { agencyKolAccountIds?: string[]; persist?: boolean } = {},
+  options: { agencyKolAccountIds?: string[]; persist?: boolean; agencyId?: string | null } = {},
 ): Promise<BrandFitRunResult> {
   const brand = await loadBrand(brandId)
   if (!brand) throw new BrandFitNotFound(`No brand with id ${brandId} on the KOL server.`)
 
-  const creators = await loadCreators(options.agencyKolAccountIds)
+  const creators = await loadCreators(options.agencyKolAccountIds, undefined, options.agencyId ?? null)
   const results = creators.map(creator => ({
     agencyKolAccountId: creator.agencyKolAccountId,
     username: creator.username,

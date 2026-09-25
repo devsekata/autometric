@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Btn, Chip, PJ, Spinner, ErrorState, TOKENS as T } from './ui'
 import type { BrandProfile, GenderMajority } from '@/lib/discover/brandMatch/profile'
+import { creatorPersonalityFor } from '@/lib/discover/brandFit/personalityMap'
 
 interface Payload {
   profile: BrandProfile
@@ -77,6 +78,12 @@ const CONTENT_STYLES = [
   'Unboxing', 'Behind the scenes', 'Testimonial', 'Livestream',
 ]
 
+/**
+ * The form's original ten, then the Brand Personality words of
+ * `scripts/brand-match/vocabulary.mjs` that it lacked. Brand Fit compares each
+ * against a creator personality label through `BRAND_TO_CREATOR_PERSONALITY`;
+ * a word with no entry there is kept and shown, but not scored.
+ */
 const PERSONALITIES = [
   'Playful', 'Premium', 'Warm', 'Bold', 'Minimal', 'Energetic',
   'Trustworthy', 'Youthful', 'Confident', 'Down-to-earth',
@@ -452,7 +459,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
 
         <Field
           label="Brand personality"
-          hint="Stored and shown, not yet scored: the creator database has no personality or tone reading for anyone, so this dimension is reported as unmeasured rather than guessed at."
+          hint="Scored in Brand Fit's Values component against the creator personality tags in the KOL database. Each word is compared with one creator label (e.g. Playful → Entertaining); a word with no creator equivalent is saved but not scored."
         >
           <div className="flex flex-wrap gap-1.5">
             {PERSONALITIES.map(p => (
@@ -462,6 +469,14 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
               />
             ))}
           </div>
+          {(() => {
+            const unscored = draft.brandPersonality.filter(p => creatorPersonalityFor(p) === null)
+            return unscored.length > 0 && (
+              <p className="text-[10.5px] leading-snug mt-1.5" style={{ color: T.t4 }}>
+                Not scored in Brand Fit (no creator equivalent): {unscored.join(', ')}.
+              </p>
+            )
+          })()}
         </Field>
 
         <Field

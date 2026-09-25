@@ -23,6 +23,7 @@ import {
   audienceFit, categoryFit, toScore, valuesFit,
   type AudienceDimension, type AudienceFitResult, type CategoryVerdict, type Score,
 } from './calculator'
+import { mapBrandPersonality } from './personalityMap'
 import {
   COMPONENT_WEIGHTS, MIN_COMPONENTS, VERDICT_LABEL, audienceDimensions, categoryResolver,
   performanceFit,
@@ -38,7 +39,7 @@ export interface BrandFitBrand {
   brandName: string | null
   /** One of the nine canonical categories, or null while unset. */
   category: string | null
-  /** `brand_personality` + `brand_tone`, already concatenated by the reader. */
+  /** `brand_personality` (`brand_tone` was dropped by migrations/kol/009). */
   attributes: string[]
   audience: BrandAudienceTarget
   performanceTargets: PerformanceTargets
@@ -161,16 +162,25 @@ export function analyseBrandFit({ brand, creator }: BrandFitInputs): BrandFitAna
   }
 
   /* 3 ── Values ------------------------------------------------------------ */
+  // Brand personality words are translated to creator personality labels first
+  // (./personalityMap); a word with no creator equivalent is left out of the
+  // denominator and named in the notes, because it cannot be measured.
   // Availability is checked BEFORE calling: `valuesFit(brandAttrs, [])` returns
   // 0 because nothing matched, which is the wrong answer for a creator who was
   // never tagged at all. Absent inputs are NOT MEASURED.
-  const values: Score = !brand.attributes.length || !creator.hasAttributeMapping
+  const personality = mapBrandPersonality(brand.attributes)
+  const values: Score = !personality.labels.length || !creator.hasAttributeMapping
     ? null
-    : valuesFit(brand.attributes, creator.attributes)
+    : valuesFit(personality.labels, creator.attributes)
+  if (personality.unmapped.length) {
+    notes.push(`Values: brand_personality ${personality.unmapped.join(', ')} belum punya padanan di creator_personality, tidak dihitung.`)
+  }
   if (values === null) {
     notes.push(!brand.attributes.length
-      ? 'Values: brand belum punya brand_personality / brand_tone.'
-      : 'Values: creator belum punya baris di public.kol_attribute_map.')
+      ? 'Values: brand belum punya brand_personality.'
+      : !personality.labels.length
+        ? 'Values: tidak ada brand_personality yang bisa dipetakan ke creator_personality.'
+        : 'Values: creator belum punya baris di public.kol_attribute_map.')
   }
 
   /* 4 ── Past Performance -------------------------------------------------- */
@@ -178,7 +188,7 @@ export function analyseBrandFit({ brand, creator }: BrandFitInputs): BrandFitAna
   if (performance.score === null) {
     notes.push(Object.keys(brand.performanceTargets).length
       ? 'Performance: creator tidak punya metrik untuk target yang diminta brand.'
-      : 'Performance: brand_profile.performance_targets masih kosong.')
+      : 'Performance: brand_profile tidak punya kolom target performa (performance_targets dihapus migration kol/009).')
   }
 
   /* 5 ── Partnership score ------------------------------------------------- */

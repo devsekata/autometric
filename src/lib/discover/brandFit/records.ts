@@ -20,7 +20,7 @@
 import kolDb from '@/lib/kolDb'
 import type { BrandFitBrand, BrandFitCreator } from './engine'
 import type { PoolClient } from 'pg'
-import { PERFORMANCE_METRICS, type CreatorAudience, type GenderTarget, type PerformanceTargets } from './rules'
+import { type CreatorAudience, type GenderTarget } from './rules'
 
 const GENDERS: readonly string[] = ['Any', 'Female', 'Male', 'Balanced']
 
@@ -63,21 +63,59 @@ function knownShares(raw: unknown): Record<string, number> | null {
   return Object.fromEntries(entries.map(([k, v]) => [k, (v / total) * 100]))
 }
 
+/**
+ * `feature.{ig,tt}_audience_analysis.top_interest` as `{ interest: count }`.
+ *
+ * The column is a jsonb ARRAY of `{"interest": <key>, "count": <n>}` — the
+ * scrapper's audience writer builds it that way, and every live row has that
+ * shape — so handing it to `knownShares` directly returned null for every
+ * creator and the Interest dimension fell back to a present/absent check on
+ * `interest_top`. This folds the array into the object `knownShares` expects
+ * (counts for a repeated key are summed); an object is passed through unchanged.
+ * Anything else is unreadable and stays null — never a guessed share.
+ */
+export function interestShares(raw: unknown): Record<string, number> | null {
+  if (!Array.isArray(raw)) return knownShares(raw)
+  const counts: Record<string, number> = {}
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const key = String((item as { interest?: unknown }).interest ?? '').trim().toLowerCase()
+    const count = num((item as { count?: unknown }).count)
+    if (!key || count === null) continue
+    counts[key] = (counts[key] ?? 0) + count
+  }
+  return knownShares(counts)
+}
+
 /* ── brand side ───────────────────────────────────────────────────────────── */
+
+/**
+ * Whether `public.brand` row `brandId` belongs to the agency. Brand Fit reads
+ * and writes per brand, so every request-supplied brand id is checked against
+ * the caller's agency before anything is loaded (a brand with no agency_id
+ * belongs to no one and is refused too).
+ */
+export async function brandBelongsToAgency(
+  brandId: string, agencyId: string, db: Queryable = kolDb(),
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM public.brand WHERE id = $1 AND agency_id = $2 LIMIT 1`,
+    [brandId, agencyId],
+  )
+  return rows.length > 0
+}
 
 interface BrandRow {
   brand_id: string
   brand_name: string | null
   brand_category: string | null
   brand_personality: string[] | null
-  brand_tone: string[] | null
   gender_majority: string | null
   target_age_min: number | null
   target_age_max: number | null
   target_country: string | null
   target_city: string | null
   audience_interests: string[] | null
-  performance_targets: unknown
 }
 
 /**
@@ -105,14 +143,12 @@ export async function loadBrand(
            COALESCE(p.brand_name, b.name) AS brand_name,
            p.brand_category,
            p.brand_personality,
-           p.brand_tone,
            p.gender_majority,
            p.target_age_min,
            p.target_age_max,
            p.target_country,
            p.target_city,
-           p.audience_interests,
-           p.performance_targets
+           p.audience_interests
       FROM public.brand b
       LEFT JOIN LATERAL (
         SELECT * FROM public.brand_profile bp
@@ -133,9 +169,9 @@ export async function loadBrand(
     brandId: r.brand_id,
     brandName: r.brand_name,
     category: r.brand_category,
-    // Personality and tone form ONE attribute set: the Values formula's
-    // denominator is everything the brand asks for, however it was recorded.
-    attributes: [...list(r.brand_personality), ...list(r.brand_tone)],
+    // `brand_tone` was dropped by migrations/kol/009, so personality is the
+    // whole attribute set the Values formula compares against.
+    attributes: list(r.brand_personality),
     audience: {
       gender,
       ageMin: num(r.target_age_min),
@@ -144,20 +180,11 @@ export async function loadBrand(
       city: r.target_city,
       interests: list(r.audience_interests),
     },
-    performanceTargets: parseTargets(r.performance_targets),
+    // `performance_targets` was dropped by migrations/kol/009 and has no
+    // replacement column, so there are no targets: Past Performance reports
+    // NOT MEASURED rather than scoring against invented numbers.
+    performanceTargets: {},
   }
-}
-
-/** Keeps only the five recognised metrics, and only positive numeric targets. */
-function parseTargets(raw: unknown): PerformanceTargets {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const source = raw as Record<string, unknown>
-  const out: PerformanceTargets = {}
-  for (const metric of PERFORMANCE_METRICS) {
-    const value = num(source[metric])
-    if (value !== null && value > 0) out[metric] = value
-  }
-  return out
 }
 
 /* ── creator side ─────────────────────────────────────────────────────────── */
@@ -195,7 +222,7 @@ interface CreatorRow {
  * "score this brand against everyone" run needs.
  */
 export async function loadCreators(
-  agencyKolAccountIds?: string[], db: Queryable = kolDb(),
+  agencyKolAccountIds?: string[], db: Queryable = kolDb(), agencyId: string | null = null,
 ): Promise<BrandFitCreator[]> {
   const filtered = agencyKolAccountIds?.length ? agencyKolAccountIds : null
 
@@ -210,6 +237,9 @@ export async function loadCreators(
         FROM public.agency_kol_accounts aka
         JOIN public.kol_directory kd ON kd.id = aka.kol_account_id
        WHERE ($1::uuid[] IS NULL OR aka.id = ANY($1::uuid[]))
+         -- Tenant: only the calling agency's own active links. Ids from a
+         -- request body are narrowed by this, never trusted on their own.
+         AND ($2::uuid IS NULL OR (aka.agency_id = $2 AND aka.is_active IS TRUE))
     ),
     -- One social account per creator, chosen deterministically so repeated runs
     -- read the same audience row rather than whichever the planner returns first.
@@ -262,7 +292,7 @@ export async function loadCreators(
       LEFT JOIN audience au ON au.social_account_id = s.social_account_id
       LEFT JOIN l2_gold.kol_profile_card pc ON pc.social_account_id = s.social_account_id
      ORDER BY a.agency_kol_account_id`,
-    [filtered])
+    [filtered, agencyId])
 
   return rows.map(toCreator)
 }
@@ -299,7 +329,7 @@ function toAudience(r: CreatorRow): CreatorAudience {
     ageCoveragePct: num(r.age_coverage_pct),
     countries: knownShares(r.geo_country),
     cities: knownShares(r.geo_city),
-    interests: knownShares(r.interests),
+    interests: interestShares(r.interests),
     interestTop: r.interest_top,
   }
 }

@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
 import {
+  brandBelongsToAgency,
   BrandFitNotFound, COMPONENT_WEIGHTS, MIN_COMPONENTS, PERFORMANCE_METRICS,
   RELATED_THRESHOLD, getBrandFitForBrand, runBrandFit,
 } from '@/lib/discover/brandFit'
 
 type Params = { params: Promise<{ id: string }> }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The brand must belong to the caller's agency (`public.brand.agency_id`). A
+ * brand id from the query or body is never enough on its own: without this any
+ * member could read, and any admin recompute, another agency's Brand Fit.
+ * Unknown and foreign brands answer the same 404, so ids cannot be probed.
+ */
+async function ownedBrand(brandId: string | null, agencyId: string): Promise<NextResponse | null> {
+  if (!brandId) return NextResponse.json({ error: 'brandId is required.' }, { status: 400 })
+  if (!UUID_RE.test(brandId) || !(await brandBelongsToAgency(brandId, agencyId))) {
+    return NextResponse.json({ error: 'Brand not found.' }, { status: 404 })
+  }
+  return null
+}
 
 /**
  * Brand Fit Analysis for one brand.
@@ -44,9 +61,8 @@ export async function GET(req: NextRequest, { params }: Params) {
     }
 
     const brandId = req.nextUrl.searchParams.get('brandId')
-    if (!brandId) {
-      return NextResponse.json({ error: 'brandId is required.' }, { status: 400 })
-    }
+    const refused = await ownedBrand(brandId, access.orgId)
+    if (refused || !brandId) return refused!
 
     const results = await getBrandFitForBrand(brandId)
     return NextResponse.json({
@@ -82,9 +98,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     const body = await req.json().catch(() => null) as
       { brandId?: unknown; agencyKolAccountIds?: unknown; persist?: unknown } | null
     const brandId = typeof body?.brandId === 'string' ? body.brandId : null
-    if (!brandId) {
-      return NextResponse.json({ error: 'brandId is required.' }, { status: 400 })
-    }
+    const refused = await ownedBrand(brandId, access.orgId)
+    if (refused || !brandId) return refused!
 
     const ids = Array.isArray(body?.agencyKolAccountIds)
       ? body.agencyKolAccountIds.filter((x): x is string => typeof x === 'string')
@@ -93,6 +108,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     const run = await runBrandFit(brandId, {
       agencyKolAccountIds: ids,
       persist: body?.persist !== false,
+      // Only this agency's creators are scored, whatever ids the body names.
+      agencyId: access.orgId,
     })
 
     return NextResponse.json({
