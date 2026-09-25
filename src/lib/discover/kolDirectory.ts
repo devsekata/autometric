@@ -2,6 +2,7 @@ import kolDb from '@/lib/kolDb'
 import { toIso } from './util'
 import { getKolMeasured, type KolMeasured } from './kolMeasured'
 import { getKolGold, type KolGold } from './kolGold'
+import { AUDIENCE_SERVED, CURATED_GENDER_SHARE_MIN, CURATED_BALANCED_SHARE_MIN } from './curatedAudience'
 
 /**
  * Query layer for the KOL Directory page.
@@ -253,6 +254,13 @@ export interface KolDirectoryPayload {
   facets?: KolDirectoryFacets
 }
 
+/** Does creator `b` have an Analysis Audience row (IG or TikTok) at all? */
+const HAS_AUDIENCE_ROW = `
+  SELECT 1 FROM public.kol_social_account ksa
+   WHERE ksa.kol_id = b.id
+     AND (EXISTS (SELECT 1 FROM feature.ig_audience_analysis f WHERE f.social_account_id = ksa.social_account_id)
+       OR EXISTS (SELECT 1 FROM feature.tt_audience_analysis f WHERE f.social_account_id = ksa.social_account_id))`
+
 export interface KolDirectoryQuery {
   /**
    * Fetch exactly these creators, ignoring paging.
@@ -336,6 +344,10 @@ export interface KolDirectoryQuery {
    *  key is matched against, so a city name cannot match a province row. */
   audienceGeoKey?: string | null
   audienceGeoLevel?: string | null
+  /** Audience Gender / Age label ('female'|'male'|'balanced', '18-24'...):
+   *  the final classification, measured when usable, else curated. */
+  audienceGender?: string | null
+  audienceAge?: string | null
   connectedOnly?: boolean
   /**
    * Platform badge only. A SEPARATE axis from `connectedOnly` and never a
@@ -857,8 +869,40 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          -- Calculated-metric filters (037/038). Each is inert while its
          -- parameter is NULL, so a creator missing the metric only disappears
          -- when someone actually asks a question that metric has to answer.
-         AND ($17::float8 IS NULL OR b.female_pct  >= $17)
-         AND ($18::float8 IS NULL OR b.male_pct    >= $18)
+         -- Audience gender, final classification (curatedAudience.ts): the
+         -- measured split answers only when it is USABLE (>= 5 known followers);
+         -- otherwise the curated label (migration 054) answers, and only for what
+         -- it claims: female/male = that side >= ${CURATED_GENDER_SHARE_MIN}%, balanced = both >= ${CURATED_BALANCED_SHARE_MIN}%.
+         -- A creator with no Analysis Audience row keeps the card split.
+         -- EXISTS, not a join, so no creator is duplicated.
+         AND ($17::float8 IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id
+                  AND ((s.gender_measured IS NOT NULL AND s.female_pct >= $17)
+                    OR (s.gender_measured IS NULL
+                        AND ((s.curated_gender = 'female'   AND $17 <= ${CURATED_GENDER_SHARE_MIN})
+                          OR (s.curated_gender = 'balanced' AND $17 <= ${CURATED_BALANCED_SHARE_MIN})))))
+              OR (b.female_pct >= $17 AND NOT EXISTS (${HAS_AUDIENCE_ROW})))
+         AND ($18::float8 IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id
+                  AND ((s.gender_measured IS NOT NULL AND s.male_pct >= $18)
+                    OR (s.gender_measured IS NULL
+                        AND ((s.curated_gender = 'male'     AND $18 <= ${CURATED_GENDER_SHARE_MIN})
+                          OR (s.curated_gender = 'balanced' AND $18 <= ${CURATED_BALANCED_SHARE_MIN})))))
+              OR (b.male_pct >= $18 AND NOT EXISTS (${HAS_AUDIENCE_ROW})))
+         -- Audience Gender / Age label: the final value (measured when usable,
+         -- else curated). EXISTS, so no creator is duplicated.
+         AND ($40::text IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id AND s.gender_final = $40))
+         AND ($41::text IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id AND s.age_final = $41))
          -- Creator gender from the Brand Profile. Same card the lateral above
          -- already picked (LIMIT 1), so no join and no duplicate creators.
          -- NULL (unknown) never equals 'female'/'male', so unknown creators
@@ -903,7 +947,23 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
                    ON gd.social_account_id = ksa.social_account_id
                 WHERE ksa.kol_id = b.id
                   AND gd.geo_key = $33
-                  AND ($34::text IS NULL OR gd.geo_level = $34)))
+                  AND ($34::text IS NULL OR gd.geo_level = $34)
+                  AND (gd.geo_level NOT IN ('country', 'city') OR NOT EXISTS (
+                        SELECT 1 FROM (${AUDIENCE_SERVED}) s
+                         WHERE s.social_account_id = ksa.social_account_id
+                           AND CASE gd.geo_level WHEN 'country' THEN s.country_measured
+                                                 ELSE s.city_measured END IS NULL)))
+              -- Curated fallback (migration 054): at country/city level the measured
+              -- rows answer only while that level is USABLE for the account (final
+              -- classification); otherwise the curated label answers. Province and
+              -- island have no curated label, so they stay measured-only.
+              OR EXISTS (
+               SELECT 1
+                 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id
+                  AND ((($34::text IS NULL OR $34 = 'country') AND s.country_measured IS NULL AND s.curated_country = $33)
+                    OR (($34::text IS NULL OR $34 = 'city')    AND s.city_measured    IS NULL AND s.curated_city    = $33))))
     )
     SELECT *, COUNT(*) OVER()::int AS total_count
       FROM filtered
@@ -959,6 +1019,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.profilePlatforms?.length ? query.profilePlatforms : null,
       query.profileTiers?.length ? query.profileTiers : null,
       query.profileCategories?.length ? query.profileCategories : null,
+      query.audienceGender || null,
+      query.audienceAge || null,
     ],
   )
 

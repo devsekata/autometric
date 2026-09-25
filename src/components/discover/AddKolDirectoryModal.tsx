@@ -76,6 +76,8 @@ interface AccountPreview {
    *  creating a duplicate. */
   existingKolDirectoryId?: string | null
   existingSocialAccountId?: string | null
+  /** The existing roster row is inactive; adding it reactivates it. */
+  reactivates?: boolean
 }
 
 interface ExistingKol {
@@ -576,11 +578,14 @@ function ResultPhase({
         <Outcome
           tone="good" icon="person_add" title="New KOL Detected"
           body={
-            result.account.existingKolDirectoryId
-              ? 'This handle has a directory row already, but it was never scraped through to follower data. Adding it will scrape into that existing row rather than creating a duplicate.'
-              : 'This account is not in the directory yet and is ready to be added.'
+            result.account.reactivates
+              ? 'This handle is in the directory but inactive. Adding it re-scrapes into that existing row (no duplicate) and makes it active in Discovery again.'
+              : result.account.existingKolDirectoryId
+                ? 'This handle has a directory row already, but it was never scraped through to follower data. Adding it will scrape into that existing row rather than creating a duplicate.'
+                : 'This account is not in the directory yet and is ready to be added.'
           }
-          notes={result.account.existingKolDirectoryId ? ['Belum pernah discrape penuh'] : undefined}
+          notes={result.account.reactivates ? ['Tidak aktif — akan diaktifkan kembali']
+            : result.account.existingKolDirectoryId ? ['Belum pernah discrape penuh'] : undefined}
           preview={result.account}
           actions={
             <Action onClick={() => onAdd(result.account)} variant="primary" busy={submitting}>

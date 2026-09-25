@@ -133,6 +133,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       audienceInterest: list('interest'),
       audienceGeoKey: sp.get('geoKey'),
       audienceGeoLevel: sp.get('geoLevel'),
+      audienceGender: sp.get('audGender'),
+      audienceAge: sp.get('audAge'),
       connectedOnly: sp.get('connected') === '1',
       // Separate axis from `connected`, deliberately: one is the platform's
       // badge, the other is whether the creator linked the account to us.

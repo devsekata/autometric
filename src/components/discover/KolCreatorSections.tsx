@@ -1160,7 +1160,7 @@ const CONFIDENCE_LABEL: Record<string, string> = {
  * data does not make.
  */
 function GoldBreakdown({
-  title, slices, coverage, asDonut,
+  title, slices, coverage, asDonut, source,
 }: {
   title: string
   slices: { label: string; pct: number; n: number }[]
@@ -1171,8 +1171,30 @@ function GoldBreakdown({
    */
   coverage: number | null
   asDonut?: boolean
+  /**
+   * `curated` = no usable measured value, so the slice is a curated LABEL
+   * (migration 054), not a share of any sample. It is shown as a label with an
+   * estimate note and never as a chart, which would print a made-up "100%".
+   */
+  source?: 'measured' | 'curated' | null
 }) {
   if (!slices.length) return null
+  if (source === 'curated') {
+    return (
+      <div>
+        <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
+          {title}
+        </div>
+        <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+          className="h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center capitalize">
+          {slices[0].label}
+        </span>
+        <p className="text-[9.5px] mt-2 leading-[1.5]" style={{ color: T.t4 }}>
+          Estimasi kurasi — belum ada data terukur untuk dimensi ini.
+        </p>
+      </div>
+    )
+  }
   return (
     <div>
       <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
@@ -1222,9 +1244,11 @@ export function AudienceSection({ creator, gold }: SectionProps) {
    * `inferred_low`), never a percentage: the column is text and the pipeline
    * grades the inference rather than scoring it.
    */
+  const anyCurated = !!g && Object.values(g.source ?? {}).some(s => s === 'curated')
   const goldNote = g
     ? `Diinferensi dari sampel follower${g.asOf ? `, per ${g.asOf}` : ''}` +
-      `${g.confidence ? ` · ${CONFIDENCE_LABEL[g.confidence] ?? g.confidence}` : ''}`
+      `${g.confidence ? ` · ${CONFIDENCE_LABEL[g.confidence] ?? g.confidence}` : ''}` +
+      `${anyCurated ? ' · dimensi bertanda "estimasi kurasi" bukan hasil pengukuran' : ''}`
     : undefined
 
   return (
@@ -1232,10 +1256,12 @@ export function AudienceSection({ creator, gold }: SectionProps) {
       {(hasGender || hasAge || hasGeo || hasInterest) && g && (
         <VizCard title="Audience Insights (terukur)" subtitle={goldNote}>
           <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
-            <GoldBreakdown title="Gender" slices={g.gender} coverage={g.coverage.gender} asDonut />
-            <GoldBreakdown title="Age" slices={g.age} coverage={g.coverage.age} />
-            <GoldBreakdown title="Top Countries" slices={g.countries} coverage={g.coverage.geo} />
-            <GoldBreakdown title="Top Cities" slices={g.cities} coverage={null} />
+            <GoldBreakdown title="Gender" slices={g.gender} coverage={g.coverage.gender} asDonut
+              source={g.source?.gender} />
+            <GoldBreakdown title="Age" slices={g.age} coverage={g.coverage.age} source={g.source?.age} />
+            <GoldBreakdown title="Top Countries" slices={g.countries} coverage={g.coverage.geo}
+              source={g.source?.country} />
+            <GoldBreakdown title="Top Cities" slices={g.cities} coverage={null} source={g.source?.city} />
           </div>
           {hasInterest && (
             <div className="mt-5">

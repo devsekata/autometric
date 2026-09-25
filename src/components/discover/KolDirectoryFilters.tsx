@@ -89,6 +89,9 @@ export interface KolFilters {
    *  named like a city cannot answer a city question. */
   geoKey: string
   geoLevel: string
+  /** Audience Gender / Age: the final classification (measured, else curated). */
+  audGender: string
+  audAge: string
 }
 
 /** Label vocabularies, in step with the warehouse. Display only. */
@@ -108,6 +111,8 @@ export const STABILITY_OPTIONS = [
   '', 'High Stability', 'Medium Stability', 'Low Stability',
 ] as const
 export const GEO_LEVEL_OPTIONS = ['', 'city', 'province', 'island', 'country'] as const
+export const AUD_GENDER_OPTIONS = ['', 'female', 'male', 'balanced'] as const
+export const AUD_AGE_OPTIONS = ['', '13-17', '18-24', '25-34', '35-44', '45+'] as const
 
 /**
  * The label vocabularies, kept in step with `metrics_thresholds.py`. They are
@@ -141,7 +146,7 @@ export const KOL_FILTERS_DEFAULT: KolFilters = {
   growthClass: '', freqReliability: '', priority: '',
   saveMin: 0, viralMin: 0, risingOnly: false, contentTopic: '',
   formatDominant: '', audQuality: '', stability: '', audInterest: '',
-  geoKey: '', geoLevel: '',
+  geoKey: '', geoLevel: '', audGender: '', audAge: '',
 }
 
 /**
@@ -185,7 +190,7 @@ export function activeFilterCount(f: KolFilters): number {
     f.shareMin > 0, f.growthClass !== '', f.freqReliability !== '', f.priority !== '',
     f.saveMin > 0, f.viralMin > 0, f.risingOnly, f.contentTopic !== '',
     f.formatDominant !== '', f.audQuality !== '', f.stability !== '',
-    f.audInterest !== '', f.geoKey !== '',
+    f.audInterest !== '', f.geoKey !== '', f.audGender !== '', f.audAge !== '',
   ].filter(Boolean).length
 }
 
@@ -223,6 +228,8 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.audQuality) p.audQuality = f.audQuality
   if (f.stability) p.stability = f.stability
   if (f.audInterest) p.interest = f.audInterest
+  if (f.audGender) p.audGender = f.audGender
+  if (f.audAge) p.audAge = f.audAge
   if (f.geoKey) {
     p.geoKey = f.geoKey
     // Level only travels with a key; on its own it would filter nothing.
@@ -579,6 +586,8 @@ export function KolFilterPanel({
             ['Audience quality', 'audQuality', TINGKAT_OPTIONS],
             ['Performance stability', 'stability', STABILITY_OPTIONS],
             ['Audience interest', 'audInterest', TOPIC_OPTIONS],
+            ['Audience gender', 'audGender', AUD_GENDER_OPTIONS],
+            ['Audience age', 'audAge', AUD_AGE_OPTIONS],
           ] as const).map(([label, key, opsi]) => (
             <div className="my-[7px] mb-2.5" key={key}>
               <div className="flex justify-between text-[10.5px] mb-[3px]" style={{ color: T.t3 }}>

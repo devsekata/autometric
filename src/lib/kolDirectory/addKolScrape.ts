@@ -487,6 +487,8 @@ async function updateDirectoryFromIg(kolDirectoryId: string, profile: Json): Pro
             bio                  = COALESCE($8, k.bio),
             verified_status      = COALESCE($9, k.verified_status),
             scrape_status        = 'success',
+            -- found again by a successful scrape -> serving (inactive -> active)
+            directory_status     = 'active',
             last_refreshed_at    = now(),
             updated_at           = now()
       WHERE k.id = $1`,
@@ -520,6 +522,8 @@ async function updateDirectoryFromTt(kolDirectoryId: string, author: ApifyTiktok
             bio               = COALESCE($4, k.bio),
             verified_status   = COALESCE($5, k.verified_status),
             scrape_status     = 'success',
+            -- found again by a successful scrape -> serving (inactive -> active)
+            directory_status  = 'active',
             last_refreshed_at = now(),
             updated_at        = now()
       WHERE k.id = $1`,
