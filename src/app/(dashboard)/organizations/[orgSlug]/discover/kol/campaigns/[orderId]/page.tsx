@@ -1,23 +1,24 @@
 import { notFound } from 'next/navigation'
 import { auth } from '@/auth'
 import { getOrgBySlugForUser } from '@/lib/organizations/queries'
-import CampaignDashboard from '@/components/discover/CampaignDashboard'
+import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 
-interface Props { params: Promise<{ orgSlug: string; orderId: string }> }
+type Props = { params: Promise<{ orgSlug: string; orderId: string }> }
 
 /**
- * Campaign Dashboard. Sits under /discover/kol alongside the order detail so the
- * whole commercial flow keeps one nav home; `campaigns` is a static segment and
- * therefore wins over the sibling `[accountId]` route.
+ * Switched off: campaigns were orders in `discover_orders` on the analytics warehouse (dropped).
  */
-export default async function CampaignDashboardPage({ params }: Props) {
-  const { orgSlug, orderId } = await params
+export default async function Page({ params }: Props) {
+  const { orgSlug } = await params
   const session = await auth()
-  const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
+  const userId = session?.user?.id
+  if (!userId) notFound()
+  const org = await getOrgBySlugForUser(orgSlug, userId)
   if (!org) notFound()
 
-  const id = Number(orderId)
-  if (!Number.isInteger(id) || id <= 0) notFound()
-
-  return <CampaignDashboard orgId={org.id} orgSlug={orgSlug} orderId={id} />
+  return (
+    <div className="p-5">
+      <FeatureUnavailable title="Campaign dashboard" />
+    </div>
+  )
 }

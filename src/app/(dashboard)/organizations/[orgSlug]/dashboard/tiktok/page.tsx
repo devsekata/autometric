@@ -1,15 +1,26 @@
 import { notFound } from 'next/navigation'
 import { auth } from '@/auth'
 import { getOrgBySlugForUser } from '@/lib/organizations/queries'
-import TikTokDeepDashboard from '@/components/dashboard/TikTokDeepDashboard'
+import FeatureUnavailable from '@/components/discover/FeatureUnavailable'
 
-interface Props { params: Promise<{ orgSlug: string }> }
+type Props = { params: Promise<{ orgSlug: string }> }
 
-export default async function DashboardTikTokPage({ params }: Props) {
+/**
+ * Switched off: the TikTok dashboard reads the analytics warehouse, and the KOL product uses
+ * the KOL database only.
+ */
+export default async function Page({ params }: Props) {
   const { orgSlug } = await params
   const session = await auth()
-  const org = await getOrgBySlugForUser(orgSlug, session?.user?.id ?? '')
-  if (!org) return notFound()
+  const userId = session?.user?.id
+  if (!userId) notFound()
+  const org = await getOrgBySlugForUser(orgSlug, userId)
+  if (!org) notFound()
 
-  return <TikTokDeepDashboard orgId={org.id} />
+  return (
+    <div className="p-5">
+      <FeatureUnavailable title="Dashboard"
+        body="Modul ini masih membaca data analitik brand di luar database KOL, jadi dinonaktifkan dulu sampai datanya tersedia di KOL." />
+    </div>
+  )
 }
