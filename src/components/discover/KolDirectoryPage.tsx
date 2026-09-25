@@ -1386,7 +1386,7 @@ export default function KolDirectoryPage({
                     gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, max(264px, calc((100% - ${
                       (filtPanel ? 2 : 3) * 16}px) / ${filtPanel ? 3 : 4}))), 1fr))`,
                   }}>
-                    {rows.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
+                    {ordered.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
                   </div>
                 ) : (
                   <DirectoryTable
