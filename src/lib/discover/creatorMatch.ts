@@ -475,7 +475,7 @@ export const CREATOR_PRESETS: CreatorPreset[] = [
     icon: 'auto_awesome',
     desc: 'Di bawah 100rb follower, diurutkan dari engagement rate terukur tertinggi.',
     // The follower ceiling is a real server-side bound now (BE: `follMax`), so
-    // this narrows all 7.720 creators instead of hiding the big ones on the
+    // this narrows the whole roster instead of hiding the big ones on the
     // page that happened to load.
     filters: { follMax: 100_000 },
     rank: s => Math.min(100, (s.erPct / 8) * 100),

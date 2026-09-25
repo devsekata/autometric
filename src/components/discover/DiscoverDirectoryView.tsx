@@ -409,7 +409,7 @@ export default function DiscoverDirectoryView({
         <div className="relative">
           <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-[#9ca3af]">search</span>
           <input value={filters.q} onChange={e => update({ q: e.target.value })}
-            placeholder="Cari akun, kategori, lokasi, lifestyle…"
+            placeholder="Cari username atau nama brand…"
             className="w-[300px] max-w-full h-8 pl-8 pr-3 rounded-lg border border-[#e5e7eb] text-[12px] text-[#374151] placeholder:text-[#9ca3af] focus:outline-none focus:border-[#327488]" />
         </div>
         <span className="text-[11px] text-[#9ca3af]">

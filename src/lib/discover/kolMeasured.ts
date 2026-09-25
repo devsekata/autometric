@@ -28,7 +28,9 @@ import { toIso } from './util'
  *
  *   `public.campaigns` / `public.campaign_kols`   0 rows — no campaign history
  *   `feature.*_comments_analysis`                 0 rows — no sentiment
- *   `feature.*_post_analysis.content_category`    NULL in all 503 — no topics
+ *   `feature.*_post_analysis.content_category`    NULL in every row — the
+ *     pipeline's topic lives in `l2_gold.kol_profile_card.content_topic`
+ *     instead (part of the roster), which Discover does not read yet
  *   `unified_post.reach`                          0 in all 503 — no reach
  *
  * `feature.*_audience_analysis` is NOT in that list: it holds 27 rows and now

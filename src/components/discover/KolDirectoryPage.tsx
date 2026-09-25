@@ -84,11 +84,11 @@ const PLATFORM_LABEL: Record<string, string> = {
  */
 const SECTION_TABS: { id: string; label: string; icon: string; sort: SortKey; hint: string }[] = [
   { id: 'all', label: 'Semua creator', icon: 'grid_view', sort: 'followers',
-    hint: 'Seluruh roster aktif, terbesar dulu.' },
+    hint: 'Seluruh roster aktif. Creator berstatus Live/Calculated tampil dulu, lalu yang terbesar dulu.' },
   { id: 'added', label: 'Baru ditambahkan', icon: 'person_add', sort: 'created',
-    hint: 'Urut dari yang paling baru masuk database (kol_directory.created_at).' },
+    hint: 'Creator berstatus Live/Calculated tampil dulu, lalu urut dari yang paling baru masuk database (kol_directory.created_at).' },
   { id: 'updated', label: 'Baru diperbarui', icon: 'update', sort: 'recent',
-    hint: 'Urut dari yang angkanya paling baru diukur (kol_directory.last_refreshed_at).' },
+    hint: 'Creator berstatus Live/Calculated tampil dulu, lalu urut dari waktu refresh terakhir (kol_directory.last_refreshed_at) — waktu refresh, belum tentu waktu angka terakhir diukur.' },
 ]
 
 /** The source's SORTOPTS, minus the keys this roster cannot rank on. */
@@ -999,17 +999,19 @@ export default function KolDirectoryPage({
 
         {/* ── section tabs (BE-04) ──────────────────────────────────────────
             Two of the seven tabs the reference header carries have a source in
-            this roster and are wired here: `created_at` (99,7% filled) and
-            `last_refreshed_at` (97,1%). The other five have no Product
+            this roster and are wired here: `created_at` and `last_refreshed_at`,
+            both filled on every roster row. The other five have no Product
             definition yet — not a missing column, a missing decision — so they
             are neither named nor guessed at.
 
             Ordering, not a date window. The backend also accepts `createdAfter`
             and `refreshedAfter`, but the size of the window is itself a Product
-            decision, and picking one here would invent it: the roster has taken
-            no new creator since 2026-08-28, so a "last 7 days" tab would render
-            permanently empty. Ordering answers the same question ("who is
-            newest") and cannot go empty. */}
+            decision, and picking one here would invent it: new creators arrive
+            in small, irregular batches, so a fixed "last 7 days" tab would often
+            render empty. Ordering answers the same question ("who is newest")
+            and cannot go empty. Like every ordering here it runs after the
+            Live → Calculated → Estimated grouping (`orderBy` in
+            `@/lib/discover/kolDirectory`), so it is newest within each group. */}
         <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
           {SECTION_TABS.map(t => {
             const on = sectionTab === t.id

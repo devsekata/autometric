@@ -137,8 +137,7 @@ export interface KolDirectoryRow {
    */
   agency: string | null
   /**
-   * The creator's real name, from `agency_kol_accounts.label` — filled for 7.684
-   * of the 7.720 active rows and different from the handle for 3.463 of them.
+   * The creator's real name, from `agency_kol_accounts.label`.
    * Null when absent or when it merely repeats the username, the same rule
    * `getKolCreator` already applies. Attached by `attachRosterExtras`, which was
    * already reading this table for the agency name.
@@ -153,8 +152,8 @@ export interface KolDirectoryRow {
 export interface KolDirectoryFacets {
   categories: { name: string; count: number }[]
   /**
-   * Active creators carrying no category at all — 3.546 of 7.720. Counted so the
-   * 46% of the roster that every category chip hides is visible as a number
+   * Active creators carrying no category at all. Counted so the share of the
+   * roster that every category chip hides is visible as a number
    * rather than only as a gap between the chip counts and the roster total.
    */
   uncategorized: number

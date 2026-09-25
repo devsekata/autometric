@@ -929,14 +929,19 @@ export function ContentSection({ creator, intel, gold }: SectionProps) {
                   </div>
                 )}
             </VizCard>
-            {/* Content Topic read `feature.*_post_analysis.content_category`,
-                which is NULL in all 503 rows; Sentiment read
-                `feature.*_comments_analysis`, which holds 0 rows. Both were
-                generated from the creator's id. Kept as cards, because the
-                Content tab is where a reader looks for them and an absent card
-                reads as "we never thought about it". */}
+            {/* Content Topic used to read `feature.*_post_analysis.content_category`,
+                which is NULL in every row; Sentiment read
+                `feature.*_comments_analysis`, which holds 0 rows. Both used to
+                be generated from the creator's id. The pipeline does now write
+                a topic for part of the roster (`l2_gold.kol_profile_card
+                .content_topic`), but Discover does not read it yet — Content
+                Topic is a separate concept from KOL Category and its taxonomy
+                is not wired — so the card says "not in Discover", not "no data
+                exists". Kept as cards, because the Content tab is where a reader
+                looks for them and an absent card reads as "we never thought
+                about it". */}
             <VizCard title="Content Topic">
-              <Unavailable text="Klasifikasi topik konten belum diisi pipeline untuk creator ini." />
+              <Unavailable text="Topik konten belum ditampilkan di Discover." />
             </VizCard>
             <VizCard title="Sentiment">
               <Unavailable text="Analisis sentimen komentar belum tersedia — tabel comments analysis masih kosong." />

@@ -253,11 +253,15 @@ const PLATFORMS = ['instagram', 'tiktok'] as const
 /**
  * Content formats per platform, from the reference panel's `igF` / `ttF`.
  *
- * Rendered disabled: `kol_directory` has no content-format column — nor does
- * any other table in the KOL database — so nothing here can filter the roster.
- * The section is kept visible, in the reference's shape and position, so the
- * panel reads the same and the control is ready the day the column lands; it is
- * greyed out rather than shipped as a chip that quietly filters nothing.
+ * Rendered disabled. `kol_directory` has no content-format column. The format
+ * data that does exist, `l2_gold.content_format_daily`, is per account, day and
+ * `media_type` (`feed`, `clips`, `carousel_container`, `unknown`, `VIDEO`,
+ * `CAROUSEL`; no Story rows) and covers a small part of the roster. Turning it
+ * into a per-creator filter needs a period/window aggregation rule that has not
+ * been set, and these chip labels do not map 1:1 onto those media types. The
+ * section is kept visible, in the reference's shape and position, so the panel
+ * reads the same; it is greyed out rather than shipped as a chip that quietly
+ * filters nothing.
  */
 const FORMATS: Record<string, string[]> = {
   instagram: ['All formats', 'Feed Post', 'Reels', 'Story', 'Carousel', 'Content'],
@@ -545,8 +549,9 @@ export function KolFilterPanel({
               ))}
             </div>
             <Unavailable>
-              Format konten belum ada datanya di roster KOL, jadi filter ini
-              belum bisa dipakai.
+              Filter format konten belum bisa dipakai: data format baru ada
+              untuk sebagian kecil creator, dan aturan agregasinya per creator
+              belum ditetapkan.
             </Unavailable>
           </Section>
         )}

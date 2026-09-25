@@ -9,6 +9,10 @@ import { toIso } from './util'
  * pipeline writes figures that are already aggregated to the grain a screen
  * wants, so the page does not aggregate them again on every request.
  *
+ * Row counts below are a snapshot from when this module was written (early
+ * Sep 2026); the tables grow with every harvest, so re-measure before quoting
+ * them. The grain is what stays true.
+ *
  *   * `l2_gold.kol_profile_card`            1.976 rows — one card per account
  *   * `l2_gold.kol_metric_daily`              280 rows — per account per day
  *   * `l2_gold.kol_metric_monthly`             68 rows — per account per month
@@ -44,8 +48,8 @@ import { toIso } from './util'
  * `l2_gold.post_metric` and `l2_gold.content_format_daily` used to hold zero rows
  * and were skipped for that reason. The scraper repo's `gold_post.py` asset now
  * fills them inside the same `transform_chain_job` the other rollups ride, so
- * they are read here on the same terms as the rest: 30 creators have rows today,
- * the same 30 that carry `kol_metric_daily`.
+ * they are read here on the same terms as the rest: 30 creators had rows when
+ * they came online, the same 30 that carried `kol_metric_daily`.
  *
  * They reconcile against `kol_metric_daily` by construction, which is what makes
  * them safe to show beside it — summing `content_format_daily` across formats for

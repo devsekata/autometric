@@ -299,7 +299,7 @@ export default function CreatorQuickInsight({
             ) : (
               <Unavailable
                 icon="group_off"
-                text="Belum ada analisis audiens untuk creator ini. Demografi, lokasi dan minat baru terukur untuk 24 dari ~7.000 creator di database."
+                text="Belum ada analisis audiens untuk creator ini. Demografi, lokasi dan minat audiens baru terukur untuk sebagian kecil creator di database."
               />
             )}
           </Section>
