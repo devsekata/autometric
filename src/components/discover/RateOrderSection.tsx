@@ -21,6 +21,7 @@ import { Btn, EmptyState, PJ, Spinner, fmtDate } from './ui'
 import { useDiscoverCart } from './useDiscoverCart'
 import type { AccountDetailPayload } from '@/lib/discover/account'
 import type { Deliverable, RateCard } from '@/lib/discover/vocab'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
@@ -31,12 +32,14 @@ export default function RateOrderSection({
   const [rate, setRate] = useState<RateCard | null>(null)
   const [deliverables, setDeliverables] = useState<Deliverable[]>([])
   const [draft, setDraft] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(RATE_CARD_AVAILABLE)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cart = useDiscoverCart(orgId)
 
   useEffect(() => {
+    // No official rate-card source: nothing to load (`/discover/rates` is 503).
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -53,6 +56,7 @@ export default function RateOrderSection({
   }, [orgId, a.id, a.platform])
 
   const save = useCallback(async () => {
+    if (!RATE_CARD_AVAILABLE) return
     // Accept "10.000.000" as readily as "10000000".
     const baseRate = Number(draft.replace(/[^\d]/g, ''))
     if (!Number.isFinite(baseRate) || baseRate < 0) { setError('Tarif harus angka positif.'); return }
@@ -72,6 +76,19 @@ export default function RateOrderSection({
       setSaving(false)
     }
   }, [orgId, a.id, draft])
+
+  // After every hook. Only this section goes unavailable — the rest of the
+  // account's detail page renders as usual. No rate form, no price, no order.
+  if (!RATE_CARD_AVAILABLE) {
+    return (
+      <Card>
+        <CardHead title="Rate card" sub="Harga dan pemesanan akun ini" />
+        <div className="px-4 pb-4">
+          <EmptyState icon="payments" title="Rate card belum tersedia" body={RATE_CARD_UNAVAILABLE_REASON} />
+        </div>
+      </Card>
+    )
+  }
 
   if (loading || !cart.ready) return <Spinner />
 

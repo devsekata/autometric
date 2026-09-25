@@ -40,6 +40,7 @@
 
 import { PJ, TOKENS as T, fmtNum } from './ui'
 import type { KolDirectoryFacets } from '@/lib/discover/kolDirectory'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 
 export interface KolFilters {
   /**
@@ -111,15 +112,13 @@ export const KOL_FILTERS_DEFAULT: KolFilters = {
 }
 
 /**
- * Why the rate-card control is live again.
+ * Why the rate-card control is disabled.
  *
- * It was inert, and that was a measurement rather than a design decision: the
- * table it reads held 0 rows, so the server-side ceiling was correct SQL that
- * could only ever return nothing. That measurement expired on 13 Sep 2026, when
- * the roster rate cards were synced through to `l1_silver.unified_rate_card` —
- * 8.856 priced deliverables over 6.959 of the 7.432 roster creators. The ceiling
- * now narrows rather than empties: ≤Rp1jt keeps 5.073 creators, ≤Rp10jt keeps
- * 6.673. Nothing about the SQL changed; only the table under it.
+ * The server-side ceiling is correct SQL over `l1_silver.unified_rate_card`,
+ * but that table holds 0 rows and has no approved source, so any ceiling could
+ * only ever return nothing. While `RATE_CARD_AVAILABLE` is false the slider is
+ * shown disabled with the reason, and a stored `maxRate` (an old URL or saved
+ * list) is neither sent nor counted as an active filter.
  */
 
 /**
@@ -211,7 +210,7 @@ export const FOLLOWER_STEPS = [
 export function activeFilterCount(f: KolFilters): number {
   return [
     f.platform !== '', f.tiers.length > 0, f.follMin > 0, f.follMax > 0,
-    f.erMin > 0, f.connectedOnly, f.growth !== '', f.maxRate > 0,
+    f.erMin > 0, f.connectedOnly, f.growth !== '', RATE_CARD_AVAILABLE && f.maxRate > 0,
   ].filter(Boolean).length
 }
 
@@ -225,7 +224,7 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.follMin > 0) p.follMin = String(f.follMin)
   if (f.follMax > 0) p.follMax = String(f.follMax)
   if (f.erMin > 0) p.minEr = String(f.erMin)
-  if (f.maxRate > 0) p.maxRate = String(f.maxRate)
+  if (RATE_CARD_AVAILABLE && f.maxRate > 0) p.maxRate = String(f.maxRate)
   if (f.connectedOnly) p.connected = '1'
   // Only the bounds the chosen band actually sets are sent, so "Naik" leaves
   // growthMax absent rather than pinning it to some arbitrary ceiling.
@@ -576,10 +575,20 @@ export function KolFilterPanel({
             display={filters.erMin ? `${filters.erMin.toFixed(1)}%` : 'Any'}
             onChange={v => onChange({ erMin: v })} />
           {/* Step 0 of RATE_STEPS is 0 itself, so "Any" is reachable from the
-              low end of the slider — no last-step-clears trick needed here. */}
-          <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
-            display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
-            onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
+              low end of the slider — no last-step-clears trick needed here.
+              Disabled while there is no official rate-card source: a live
+              ceiling over an empty table could only ever return nothing. */}
+          {RATE_CARD_AVAILABLE ? (
+            <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={rateIdx}
+              display={filters.maxRate ? `≤ ${idrShortFilter(filters.maxRate)}` : 'Any'}
+              onChange={i => onChange({ maxRate: RATE_STEPS[i] })} />
+          ) : (
+            <>
+              <Range label="Max. rate card" min={0} max={RATE_STEPS.length - 1} step={1} value={0}
+                display="Belum tersedia" disabled onChange={() => {}} />
+              <Unavailable>{RATE_CARD_UNAVAILABLE_REASON}</Unavailable>
+            </>
+          )}
           {/* A select rather than a Range: see `growth` on KolFilters — 0% is a
               real value here, so the 0-means-any convention the sliders use
               would make "flat" unaskable. */}
@@ -790,7 +799,7 @@ export function appliedFilters(f: KolFilters): AppliedFilter[] {
   if (f.erMin > 0) {
     out.push({ key: 'erMin', label: `ER ≥ ${f.erMin.toFixed(1)}%`, clear: { erMin: 0 } })
   }
-  if (f.maxRate > 0) {
+  if (RATE_CARD_AVAILABLE && f.maxRate > 0) {
     out.push({
       key: 'maxRate',
       label: `Rate ≤ ${idrShortFilter(f.maxRate)}`,

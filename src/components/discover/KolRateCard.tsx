@@ -27,6 +27,7 @@ import { DELIVERABLES, unitPrice, type Deliverable, type RateCard } from '@/lib/
 import { reachFor, engagementFor } from '@/lib/discover/campaign'
 import type { KolProfile } from '@/lib/discover/profile'
 import type { AccountDetailPayload } from '@/lib/discover/account'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
@@ -72,6 +73,8 @@ export default function KolRateCard({
   const cart = useDiscoverCart(orgId)
 
   useEffect(() => {
+    // No official rate-card source: nothing to load (`/discover/rates` is 503).
+    if (!RATE_CARD_AVAILABLE) { setLoading(false); return }
     let cancelled = false
     setLoading(true)
     fetch(`/api/organizations/${orgId}/discover/rates`)
@@ -117,6 +120,12 @@ export default function KolRateCard({
     cart.add({ socialAccountId: a.id, relation: a.relation, deliverableId: d.id }, selectedPkg.units)
     setAdded(`${selectedPkg.units}× ${d.label} ditambahkan ke keranjang`)
     setTimeout(() => setAdded(null), 4000)
+  }
+
+  // After every hook: shown instead of a price form over a source that does not
+  // exist — no price, no 0, nothing to set.
+  if (!RATE_CARD_AVAILABLE) {
+    return <EmptyState icon="payments" title="Rate card belum tersedia" body={RATE_CARD_UNAVAILABLE_REASON} />
   }
 
   if (loading || !cart.ready) return <Spinner />

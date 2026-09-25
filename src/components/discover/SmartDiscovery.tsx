@@ -25,6 +25,7 @@ import type { SimilarCandidate, SimilarResult } from '@/lib/discover/creatorSimi
 import type { TrackingStatus } from '@/lib/discover/types'
 import { useDiscoverSelection, selectionKey } from './useDiscoverSelection'
 import { useCreatorLinks } from './useCreatorLinks'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 
 export interface SmartDiscoveryProps {
   orgId: string
@@ -259,8 +260,11 @@ export default function SmartDiscovery({
       if (tier) qs.set('tier', tier)
       if (city) qs.set('city', city)
       if (sameCategory) qs.set('sameCategory', '1')
-      if (maxRate) qs.set('maxRate', String(maxRate))
-      if (cheaper) qs.set('cheaper', '1')
+      // Both constraints price creators from the rate card. With no official
+      // source (`rateCardAvailability`) neither is sent, whatever the state
+      // holds, so the search narrows on the other constraints only.
+      if (RATE_CARD_AVAILABLE && maxRate) qs.set('maxRate', String(maxRate))
+      if (RATE_CARD_AVAILABLE && cheaper) qs.set('cheaper', '1')
 
       const res = await fetch(`/api/organizations/${orgId}/discover/creators/similar?${qs}`)
       const data = await res.json()
@@ -399,8 +403,18 @@ export default function SmartDiscovery({
           subtitle="Similarity in category, audience size, engagement and topics is always part of the ranking. These narrow the field on top of it.">
           <div className="flex items-center gap-2 flex-wrap mb-3">
             <div className="w-[170px]">
-              <SelectPill icon="payments" label="Rate card" value={maxRate} options={RATE_STEPS}
-                onChange={v => setMaxRate(v)} />
+              {RATE_CARD_AVAILABLE ? (
+                <SelectPill icon="payments" label="Rate card" value={maxRate} options={RATE_STEPS}
+                  onChange={v => setMaxRate(v)} />
+              ) : (
+                // Shown, not hidden, so the missing control is explained rather
+                // than silently gone; nothing here can be picked.
+                <div aria-disabled="true" title={RATE_CARD_UNAVAILABLE_REASON} style={PJ}
+                  className="w-full inline-flex items-center gap-1.5 rounded-lg text-[11.5px] font-semibold px-2.5 h-8 border bg-[#f9fafb] border-[#e5e7eb] text-[#b6bcc4] cursor-not-allowed">
+                  <span className="material-symbols-outlined text-[14px]">payments</span>
+                  <span className="flex-1 text-left truncate">Rate card belum tersedia</span>
+                </div>
+              )}
             </div>
             <div className="w-[160px]">
               <SelectPill icon="workspace_premium" label="Any tier" value={tier}
@@ -412,9 +426,16 @@ export default function SmartDiscovery({
                 options={[{ label: 'Any location', value: '' }, ...LOCATIONS.map(l => ({ label: l, value: l as string }))]}
                 onChange={v => setCity(v)} />
             </div>
-            <Chip label="Lower price than the reference" icon="trending_down" on={cheaper}
-              onClick={() => setCheaper(v => !v)} />
+            {RATE_CARD_AVAILABLE && (
+              <Chip label="Lower price than the reference" icon="trending_down" on={cheaper}
+                onClick={() => setCheaper(v => !v)} />
+            )}
           </div>
+          {!RATE_CARD_AVAILABLE && (
+            <p className="text-[10.5px] leading-[1.4] -mt-1.5 mb-3" style={{ color: T.t4 }}>
+              {RATE_CARD_UNAVAILABLE_REASON}
+            </p>
+          )}
 
           <div className="flex items-center gap-1.5 flex-wrap mb-3">
             <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#c4cbd4] mr-1">

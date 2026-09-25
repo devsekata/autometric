@@ -25,6 +25,7 @@ import type { CartRelation, Deliverable, RateCard, RosterRateCard } from '@/lib/
 import type { Quotation } from '@/lib/discover/orders'
 import type { KolProfile } from '@/lib/discover/profile'
 import { estimateCampaign, type SelectedKol } from '@/lib/discover/campaign'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 import { fmtNum } from './ui'
 
 const OBJECTIVES = ['Awareness', 'Consideration', 'Conversion', 'Engagement', 'Loyalty'] as const
@@ -56,11 +57,15 @@ export default function DiscoverCart({
   const [profiles, setProfiles] = useState<KolProfile[]>([])
   const [quotation, setQuotation] = useState<Quotation | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(RATE_CARD_AVAILABLE)
 
   const cart = useDiscoverCart(orgId)
 
+  // The cart prices every line from the rate card. With no official source
+  // (`rateCardAvailability`) none of the requests below is made: not the rates
+  // (503), not the reach profiles, not the server quotation.
   useEffect(() => {
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -81,6 +86,7 @@ export default function DiscoverCart({
   }, [orgId])
 
   useEffect(() => {
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/profiles`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -133,7 +139,7 @@ export default function DiscoverCart({
   // Server prices the cart on every change, debounced so stepping a quantity
   // does not fire a request per click.
   useEffect(() => {
-    if (!cart.ready) return
+    if (!RATE_CARD_AVAILABLE || !cart.ready) return
     if (lines.length === 0) { setQuotation(null); return }
     const t = setTimeout(() => {
       fetch(`/api/organizations/${orgId}/discover/orders`, {
@@ -161,6 +167,14 @@ export default function DiscoverCart({
     }
     return estimateCampaign([...byAccount.values()])
   }, [cart.lines, profiles])
+
+  // After every hook: no priced cart and no checkout without a rate card.
+  if (!RATE_CARD_AVAILABLE) {
+    return (
+      <EmptyState icon="shopping_cart" title="Rate card belum tersedia"
+        body={`${RATE_CARD_UNAVAILABLE_REASON} Keranjang dan checkout baru bisa dipakai setelah rate card resmi tersedia.`} />
+    )
+  }
 
   if (loading || !cart.ready) return <Spinner />
 

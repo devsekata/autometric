@@ -41,6 +41,7 @@ import type { DirectoryAccount } from '@/lib/discover/types'
 import type { Deliverable, RateCard } from '@/lib/discover/vocab'
 import type { KolProfile } from '@/lib/discover/profile'
 import { useDiscoverCart } from './useDiscoverCart'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 
 type DealTab = 'offer' | 'chat' | 'terms' | 'campaign' | 'settlement'
 
@@ -78,14 +79,18 @@ export default function NegotiationWorkspace({
   const [catalogue, setCatalogue] = useState<Deliverable[]>([])
   const [profiles, setProfiles] = useState<KolProfile[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(RATE_CARD_AVAILABLE)
 
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<DealTab>('offer')
   const [picking, setPicking] = useState(false)
   const [closing, setClosing] = useState(false)
 
+  // A deal starts from the rate card: the accounts, the deliverable catalogue
+  // and every list price come from it. With no official source
+  // (`rateCardAvailability`) neither request below is made.
   useEffect(() => {
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -99,6 +104,7 @@ export default function NegotiationWorkspace({
   }, [orgId])
 
   useEffect(() => {
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/profiles`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -110,6 +116,15 @@ export default function NegotiationWorkspace({
   }, [orgId])
 
   const deal = selected ? api.get(selected) : undefined
+
+  // After every hook: no list price to negotiate from, so no deals and no
+  // "add to cart" — instead of the 503 this tab used to show.
+  if (!RATE_CARD_AVAILABLE) {
+    return (
+      <EmptyState icon="handshake" title="Rate card belum tersedia"
+        body={`${RATE_CARD_UNAVAILABLE_REASON} Negosiasi dimulai dari harga rate card, jadi belum bisa dipakai.`} />
+    )
+  }
 
   if (error) return <ErrorState message={error} />
   if (loading || !api.ready) return <Spinner />

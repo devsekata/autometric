@@ -23,6 +23,7 @@ import {
 } from './ui'
 import type { DirectoryAccount } from '@/lib/discover/types'
 import type { Deliverable, RateCard } from '@/lib/discover/vocab'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
 
 const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
@@ -41,10 +42,12 @@ export default function DiscoverRates({
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(RATE_CARD_AVAILABLE)
   const [relation, setRelation] = useState('all')
 
   useEffect(() => {
+    // No official rate-card source: nothing to load (`/discover/rates` is 503).
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -58,6 +61,7 @@ export default function DiscoverRates({
   }, [orgId])
 
   const save = async (accountId: string) => {
+    if (!RATE_CARD_AVAILABLE) return
     const raw = drafts[accountId]
     // Accept "10.000.000" or "10000000" — Indonesian thousands separators are
     // the natural thing to type here.
@@ -85,6 +89,12 @@ export default function DiscoverRates({
   const rows = useMemo(
     () => accounts.filter(a => relation === 'all' || a.relation === relation),
     [accounts, relation])
+
+  // After every hook: shown instead of a rate form over a source that does not
+  // exist — no price, no 0, no API error.
+  if (!RATE_CARD_AVAILABLE) {
+    return <EmptyState icon="payments" title="Rate card belum tersedia" body={RATE_CARD_UNAVAILABLE_REASON} />
+  }
 
   if (loading) return <Spinner />
   if (error && accounts.length === 0) return <ErrorState message={error} />

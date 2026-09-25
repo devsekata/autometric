@@ -118,19 +118,19 @@ export interface KolDirectoryRow {
    * The three columns the source platform's directory carries that this one used
    * to leave out. They were left out because the roster row has no column for
    * them — which was true of EMV, authenticity, growth and brand fit, and is
-   * still true. It was never true of the agency name: the agency tables name
-   * 7.684 of the 7.720 creators.
+   * still true. It was never true of the agency name, which the agency tables
+   * carry.
    *
-   * The rate card has now answered twice with different numbers, so date the
-   * figure you read here. Measured 13 Sep 2026, after the roster sync ran:
-   * `l1_silver.unified_rate_card` holds 8.856 priced deliverables and the join
-   * below fills `rateFrom` for 6.959 of the 7.432 roster creators. It genuinely
-   * did hold 0 rows on 8 Sep, which is why the rate filter shipped disabled;
-   * that control is live again.
+   * The rate card has answered with different numbers over time, so check the
+   * table before trusting any figure. The roster-derived prices that once filled
+   * `l1_silver.unified_rate_card` were removed by scrapper migration 050, the
+   * table holds no rows, and the rate filter is disabled while
+   * `RATE_CARD_AVAILABLE` (`@/lib/discover/rateCardAvailability`) is false.
+   * `rateFrom` stays null until an approved source fills the table.
    *
-   * `l2_gold.kol_profile_card.rate_card_min_fee` is still null for all 1.978
-   * rows and is NOT consulted here. That is deliberate — one source per figure,
-   * and the source is L1. See the note in `kolGold.ts`.
+   * `l2_gold.kol_profile_card.rate_card_min_fee` is NOT consulted here. That is
+   * deliberate — one source per figure, and the source is L1. See the note in
+   * `kolGold.ts`.
    *
    * Both are attached after paging rather than joined in (`attachRosterExtras`),
    * because a LATERAL join for either runs before `LIMIT` and costs seconds.

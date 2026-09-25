@@ -47,6 +47,7 @@ import type {
 import type { MatchExplanation } from '@/lib/discover/brandMatch/explain'
 import { MatchBadge, NoBrandProfileNotice } from './MatchBadge'
 import type { Deliverable, RosterRateCard } from '@/lib/discover/vocab'
+import { RATE_CARD_AVAILABLE } from '@/lib/discover/rateCardAvailability'
 import type { TrackingStatus } from '@/lib/discover/types'
 
 /* ── tokens & vocabulary ──────────────────────────────────────────────────── */
@@ -472,6 +473,9 @@ export default function KolDirectoryPage({
    * it does for a creator nobody has priced — no worse a state than the truth.
    */
   useEffect(() => {
+    // No official rate-card source (see `rateCardAvailability`): nothing to load,
+    // and `/discover/rates` answers 503 anyway.
+    if (!RATE_CARD_AVAILABLE) return
     let cancelled = false
     fetch(`/api/organizations/${orgId}/discover/rates`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -775,6 +779,9 @@ export default function KolDirectoryPage({
    * badge in the header and the checkout all read the same store now.
    */
   const addToCart = useCallback((r: KolDirectoryRow) => {
+    // Ordering prices a creator from the rate card; with no official source there
+    // is nothing to price from, and the price dialog must not invent one.
+    if (!RATE_CARD_AVAILABLE) { flash('Rate card belum tersedia — creator belum bisa dipesan'); return }
     if (!r.platform) { flash('Creator ini tidak punya platform — belum bisa dipesan'); return }
     const first = deliverables.find(d => d.platform === r.platform)
     if (!first) { flash(`Belum ada deliverable untuk ${r.platform}`); return }
@@ -796,6 +803,7 @@ export default function KolDirectoryPage({
     [cart.lines])
 
   const bulkCart = () => {
+    if (!RATE_CARD_AVAILABLE) { flash('Rate card belum tersedia — creator belum bisa dipesan'); return }
     const rows = [...selected.values()]
     const priced = rows.filter(r => r.platform && (rosterRates[r.id]?.baseRate ?? 0) > 0)
     for (const r of priced) {
@@ -1367,7 +1375,7 @@ export default function KolDirectoryPage({
         </div>
       </div>
 
-      {pricing && (
+      {RATE_CARD_AVAILABLE && pricing && (
         <RosterRateDialog
           orgId={orgId}
           creator={pricing}
