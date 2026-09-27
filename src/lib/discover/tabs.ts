@@ -162,8 +162,9 @@ export const DISCOVER_TABS: DiscoverTab[] = [
         subtitle: 'Browse and filter creators from the complete creator database — by keyword, platform, category, tier, followers, engagement rate and rate card.',
       },
       /**
-       * The creators this org added by hand — the working list, and the one the
-       * product calls the roster KOL. Its id stays `mine` rather than `roster`
+       * The creators this org works with — KOL-database creators it added with
+       * Add KOL or saved from the Creator Database (`agency_kol_accounts`, read
+       * through `/discover/links`). Its id stays `mine` rather than `roster`
        * because "roster" is also the word the commercial directory carries in
        * this product, and the two must not be one id.
        */
@@ -171,7 +172,7 @@ export const DISCOVER_TABS: DiscoverTab[] = [
         id: 'mine',
         label: 'My Creators',
         icon: 'folder_shared',
-        subtitle: 'View and manage the creators your organization has added — your own creator roster. Add an account, check its profiling status, then narrow the list with filters.',
+        subtitle: 'View and manage the creators your organization works with — added with Add KOL or saved from the Creator Database. Each one stays linked to its Creator Database record, which is kept up to date.',
       },
       {
         // The warehouse side. It is the roster with post-level history, so the

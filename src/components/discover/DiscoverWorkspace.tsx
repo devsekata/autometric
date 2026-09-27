@@ -57,9 +57,7 @@ import TrackedAccountsView from './TrackedAccountsView'
 import KolDirectoryPage from './KolDirectoryPage'
 import DiscoverHub from './DiscoverHub'
 import MyCreatorsView from './MyCreatorsView'
-import CreatorProfilingScreen from './CreatorProfilingScreen'
 import AddKolDirectoryModal from './AddKolDirectoryModal'
-import CreatorDetail from './CreatorDetail'
 import SmartDiscovery from './SmartDiscovery'
 import DiscoverCart from './DiscoverCart'
 import DiscoverRates from './DiscoverRates'
@@ -204,20 +202,31 @@ export default function DiscoverWorkspace({
   }, [go])
 
   /**
-   * Which of Directory's creator-side screens is showing, if any: the org's own
-   * roster, the recommendations, and the two per-creator drill-downs.
-   *
-   * These are Directory views, so this only fires for `directory` — and the two
-   * drill-downs need an id, so a link to one without `?creator=` (a bookmark
-   * saved before the creator was deleted, say) resolves to the roster rather
-   * than to a screen with nothing to render.
+   * For link sources other than `roster`, which `LinkedCreatorList` still
+   * accepts. `/discover/links` only returns `roster` links (KOL creators, opened
+   * with their directory profile), and the warehouse creator copy these used to
+   * open is retired — so this is not reached; if it ever is, it goes to My
+   * Creators rather than to a screen that could only say "unavailable".
    */
-  const CREATOR_VIEWS = ['mine', 'smart', 'profiling', 'creator']
+  const openRetiredCreator = useCallback(() => goCreator('mine'), [goCreator])
+
+  /**
+   * Which of Directory's creator-side screens is showing, if any: My Creators
+   * and the recommendations.
+   *
+   * These are Directory views, so this only fires for `directory`. `profiling`
+   * and `creator` were the drill-downs into the retired warehouse creator copy
+   * (`discover_creators`, whose endpoints are switched off); nothing links to
+   * them any more, and a bookmark to either lands on My Creators instead of a
+   * screen that could only show "unavailable".
+   */
+  const CREATOR_VIEWS = ['mine', 'smart']
+  const LEGACY_CREATOR_VIEWS = ['profiling', 'creator']
   const creatorScreen = tab !== 'directory' ? null
     // A bare `?tab=directory` is the hub, which is none of these.
     : !view ? null
+    : LEGACY_CREATOR_VIEWS.includes(view) ? 'mine'
     : !CREATOR_VIEWS.includes(view) ? null
-    : (view === 'profiling' || view === 'creator') && !creatorId ? 'mine'
     : view
 
   /**
@@ -246,12 +255,12 @@ export default function DiscoverWorkspace({
 
   /**
    * Where the shell draws the button itself: everywhere the dialog may open,
-   * minus the two screens that carry their own. The Creator Database has the
-   * source platform's `Add KOL` in its page head and My Creators has one beside
-   * its filters; a second in the header above either would be two buttons for
-   * one action.
+   * minus the Creator Database, which has the source platform's `Add KOL` in its
+   * page head — a second in the header above it would be two buttons for one
+   * action. My Creators is included: its own button lived on the retired
+   * "Added by us" roster.
    */
-  const showAddKol = addHere && !!view && view !== 'database' && view !== 'mine'
+  const showAddKol = addHere && !!view && view !== 'database'
 
   /* ── the sub-strip, for tabs that hold more than one screen ───────────── */
 
@@ -295,17 +304,14 @@ export default function DiscoverWorkspace({
 
     /**
      * Name the list a drill-down was opened from before naming the drill-down
-     * itself: the analysis views hang off the tracked accounts, and profiling
-     * and a creator's profile hang off the org's own roster. Neither is in the
-     * sub-strip while it is showing — the strip has been replaced by that
+     * itself: the analysis views hang off the tracked accounts. They are not in
+     * the sub-strip while showing — the strip has been replaced by that
      * creator's own sections — so without this crumb there is no way back to
      * the list except the browser's own.
      */
     if (inCreator) {
       out.push({ label: labelOf('tracked'), href: () => go(def.id, 'tracked') })
       if (kolName) out.push({ label: kolName })
-    } else if (creatorScreen === 'profiling' || creatorScreen === 'creator') {
-      out.push({ label: labelOf('mine'), href: () => go(def.id, 'mine') })
     }
 
     // Not on the landing: `Discover / Discover Creators / Creator Database`
@@ -313,7 +319,7 @@ export default function DiscoverWorkspace({
     // already shows which segment is selected.
     if (active && def.views?.length && view !== landing) out.push({ label: active.label })
     return out
-  }, [def, view, inCreator, creatorScreen, kolName, go])
+  }, [def, view, inCreator, kolName, go])
 
   return (
     <div className="p-5 max-w-[1500px] mx-auto">
@@ -403,7 +409,6 @@ export default function DiscoverWorkspace({
         {tab === 'directory' && !creatorSection && view === 'hub' && (
           <DiscoverHub
             orgId={orgId}
-            onOpenCreator={id => goCreator('creator', id)}
             onOpenRosterCreator={id =>
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onFindSimilar={(id, source) => goFindSimilar(id, source)}
@@ -438,7 +443,7 @@ export default function DiscoverWorkspace({
             // The creators half — what Start Tracking anywhere in Discovery
             // fills. The warehouse accounts half is the screen this segment has
             // always shown, handed the same three callbacks it always had.
-            onOpenCreator={id => goCreator('creator', id)}
+            onOpenCreator={openRetiredCreator}
             onOpenRosterCreator={id =>
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onGoToDatabase={() => go('directory', 'database')}
@@ -473,43 +478,17 @@ export default function DiscoverWorkspace({
           />
         )}
 
-        {/* My Creators — the org's own roster and the intake flow — plus Smart
-            Discovery beside it. The two drill-downs read `?creator=`; without
-            one there is nothing to show, so they fall back to the roster rather
-            than to an empty shell. */}
+        {/* My Creators — the agency's KOL creators (`/discover/links`) — plus
+            Smart Discovery beside it. Old `profiling` / `creator` links resolve
+            to My Creators (see `creatorScreen`). */}
         {creatorScreen === 'mine' && (
           <MyCreatorsView
             orgId={orgId}
-            onAddCreator={goAddKol}
-            onOpenCreator={id => goCreator('creator', id)}
-            onOpenProfiling={id => goCreator('profiling', id)}
+            onOpenCreator={openRetiredCreator}
             onOpenRosterCreator={id =>
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onGoToDatabase={() => go('directory', 'database')}
             onFindSimilar={(id, source) => goFindSimilar(id, source)}
-          />
-        )}
-
-        {creatorScreen === 'profiling' && creatorId && (
-          <CreatorProfilingScreen
-            orgId={orgId}
-            creatorId={creatorId}
-            onViewProfile={id => goCreator('creator', id)}
-            onAddAnother={() => go('directory', 'database', { add: '1' })}
-            onGoToDiscovery={() => go('directory', 'database')}
-            onFindSimilar={id => goFindSimilar(id, 'creator')}
-            onBackToRoster={() => goCreator('mine')}
-          />
-        )}
-
-        {creatorScreen === 'creator' && creatorId && (
-          <CreatorDetail
-            orgId={orgId}
-            creatorId={creatorId}
-            onBack={() => goCreator('mine')}
-            onFollowRun={id => goCreator('profiling', id)}
-            onFindSimilar={id => goFindSimilar(id, 'creator')}
-            onDeleted={() => goCreator('mine')}
           />
         )}
 
@@ -519,7 +498,6 @@ export default function DiscoverWorkspace({
             embedded
             referenceId={creatorId}
             referenceSource={referenceSource}
-            onOpenCreator={id => goCreator('creator', id)}
             onOpenRosterCreator={id =>
               router.push(`/organizations/${orgSlug}/discover/kol-directory/${id}`)}
             onGoToRoster={() => goCreator('mine')}

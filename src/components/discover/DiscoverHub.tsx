@@ -62,7 +62,12 @@ interface HubCard {
 
 export interface DiscoverHubProps {
   orgId: string
-  onOpenCreator: (creatorId: string) => void
+  /**
+   * Open a creator's profile. Every card on this screen is a KOL-database
+   * creator — including `source: 'creator'` recommendations, which are rows of
+   * this agency's own My Creators (`creatorSimilar`, `listKolDirectory({ agencyId })`)
+   * — so there is one profile page for all of them.
+   */
   onOpenRosterCreator: (kolId: string) => void
   onFindSimilar: (kolId: string, source: CardSource) => void
   onGoToSmart: () => void
@@ -103,7 +108,7 @@ const fromRow = (r: KolDirectoryRow, note: string | null = null): HubCard => ({
 })
 
 export default function DiscoverHub({
-  orgId, onOpenCreator, onOpenRosterCreator, onFindSimilar, onGoToSmart,
+  orgId, onOpenRosterCreator, onFindSimilar, onGoToSmart,
   onSearch, onGoToDatabase, onGoToMine, onGoToTracked,
 }: DiscoverHubProps) {
   const [recommended, setRecommended] = useState<HubCard[] | null>(null)
@@ -205,8 +210,10 @@ export default function DiscoverHub({
     return () => { alive = false }
   }, [orgId])
 
-  const open = (c: HubCard) =>
-    c.source === 'creator' ? onOpenCreator(c.id) : onOpenRosterCreator(c.id)
+  // Both sources are KOL `kol_directory` ids, so both open the KOL profile. The
+  // source still travels to Find Similar, where `creator` scopes the reference
+  // to this agency's My Creators.
+  const open = (c: HubCard) => onOpenRosterCreator(c.id)
 
   /**
    * Save and Track, offered on every card that can carry them.

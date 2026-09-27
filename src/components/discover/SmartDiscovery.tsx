@@ -19,7 +19,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Chip, EmptyState, PJ, TOKENS as T, fmtNum, RosterAvatar, SelectPill } from './ui'
 import { CREATOR_PLATFORMS, platformLabel } from '@/lib/discover/creatorInput'
 import { LOCATIONS, TIERS } from '@/lib/discover/vocab'
-import type { CreatorSummary } from '@/lib/discover/creatorFlow'
 import type { KolDirectoryRow } from '@/lib/discover/kolDirectory'
 import type { SimilarCandidate, SimilarResult } from '@/lib/discover/creatorSimilar'
 import type { TrackingStatus } from '@/lib/discover/types'
@@ -41,15 +40,11 @@ export interface SmartDiscoveryProps {
   referenceSource?: RefSource | null
   /** The shell already draws this segment's title and subtitle. */
   embedded?: boolean
-  onOpenCreator: (creatorId: string) => void
   /**
-   * Open a Creator Database result. Separate from `onOpenCreator` because the
-   * two live on different pages — an org creator has a profile inside this
-   * workspace, a database creator has one in the directory.
-   *
-   * Without this, every recommendation that came from the database was a dead
-   * card: the ranking named creators you could not then go and look at, which
-   * is most of what the ranking is for.
+   * Open a result's profile. Every candidate is a KOL-database creator: a
+   * `creator` result is one of this agency's own My Creators, a `roster` result
+   * is anyone else in the Creator Database — and both have their profile in the
+   * directory.
    */
   onOpenRosterCreator: (kolId: string) => void
   onGoToRoster: () => void
@@ -94,20 +89,11 @@ const metaLine = (p: RefPick, suffix?: string): string => [
   p.followers !== null ? `${fmtNum(p.followers)}${suffix ?? ''}` : null,
 ].filter(Boolean).join(' · ')
 
-const fromSummary = (c: CreatorSummary): RefPick => ({
-  id: c.id,
-  source: 'creator',
-  username: c.username,
-  displayName: c.displayName,
-  avatarUrl: c.avatarUrl,
-  platform: c.platform,
-  category: c.category,
-  followers: c.followers,
-})
-
-const fromDirectoryRow = (r: KolDirectoryRow): RefPick => ({
+const fromDirectoryRow = (r: KolDirectoryRow, source: RefSource = 'roster'): RefPick => ({
   id: r.id,
-  source: 'roster',
+  // `creator` = one of this agency's own My Creators; the similarity search
+  // then resolves the reference inside the agency (`creatorSimilar`).
+  source,
   // The roster has no display-name column; the handle is the only identity.
   displayName: null,
   username: r.username,
@@ -126,10 +112,11 @@ const RATE_STEPS: { label: string; value: number }[] = [
 ]
 
 export default function SmartDiscovery({
-  orgId, referenceId, referenceSource, embedded, onOpenCreator, onOpenRosterCreator, onGoToRoster,
+  orgId, referenceId, referenceSource, embedded, onOpenRosterCreator, onGoToRoster,
   onGoToCompare,
 }: SmartDiscoveryProps) {
-  const [pool, setPool] = useState<CreatorSummary[] | null>(null)
+  /** This agency's My Creators, as reference quick picks. */
+  const [pool, setPool] = useState<RefPick[] | null>(null)
   /**
    * The chosen reference, whichever list it came from.
    *
@@ -183,47 +170,58 @@ export default function SmartDiscovery({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Only profiled creators can be a reference: an unprofiled row has a handle
-  // and nothing else, and "creators like this handle" is not a question.
+  /**
+   * "Your creators" — this agency's My Creators, from `/discover/links` (the
+   * active `agency_kol_accounts` links) and read back through the same `ids=`
+   * directory query every other screen uses. They are KOL `kol_directory` ids.
+   * The directory answers at most 60 ids per request, which is plenty of quick
+   * picks; the database search above covers everyone else.
+   */
+  const myCreatorIds = creatorLinks.ready
+    ? [...creatorLinks.byKey.values()]
+      .filter(l => l.source === 'roster' && l.inRoster)
+      .map(l => l.id)
+      .sort()
+      .slice(0, 60)
+      .join(',')
+    : null
+
   useEffect(() => {
+    if (myCreatorIds === null) return
+    if (!myCreatorIds) { setPool([]); return }
     let alive = true
-    fetch(`/api/organizations/${orgId}/discover/creators?status=ready`)
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${myCreatorIds}`)
       .then(r => r.json())
-      .then(d => { if (alive) setPool((d.creators ?? []) as CreatorSummary[]) })
+      .then(d => {
+        if (alive) setPool(((d.rows ?? []) as KolDirectoryRow[]).map(r => fromDirectoryRow(r, 'creator')))
+      })
       .catch(() => { if (alive) setPool([]) })
     return () => { alive = false }
-  }, [orgId])
+  }, [orgId, myCreatorIds])
 
   /**
    * Resolve a reference handed over by another screen.
    *
-   * `Find Similar` on a Creator Database row sends an id this screen has never
-   * seen — it is not in `pool`, and the roster is 7.7k rows that are not worth
-   * loading to name one of them. So the id is looked up directly, by the same
-   * `ids=` the directory API already supports.
+   * Both sources are KOL `kol_directory` ids (`creator` = one of this agency's
+   * My Creators), so either is looked up by the same `ids=` the directory API
+   * already supports — the id may not be in any list this screen keeps. The
+   * source rides along so the similarity search resolves a `creator` reference
+   * inside the agency.
    */
   useEffect(() => {
     if (!referenceId) return
     let alive = true
     const source: RefSource = referenceSource === 'roster' ? 'roster' : 'creator'
 
-    if (source === 'creator') {
-      // The org's own creators are already being fetched; pick it out of that
-      // list once it lands rather than asking for the same row twice.
-      const hit = pool?.find(c => c.id === referenceId)
-      if (hit) setRef(fromSummary(hit))
-      return
-    }
-
     fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${referenceId}`)
       .then(r => r.json())
       .then(d => {
         const row = (d.rows ?? [])[0] as KolDirectoryRow | undefined
-        if (alive && row) setRef(fromDirectoryRow(row))
+        if (alive && row) setRef(fromDirectoryRow(row, source))
       })
       .catch(() => { /* The picker still works; the hand-over just did not land. */ })
     return () => { alive = false }
-  }, [orgId, referenceId, referenceSource, pool])
+  }, [orgId, referenceId, referenceSource])
 
   /**
    * Search the complete Creator Database for a reference.
@@ -242,7 +240,7 @@ export default function SmartDiscovery({
         .then(r => r.json())
         .then(d => {
           if (!alive) return
-          setDbRows(((d.rows ?? []) as KolDirectoryRow[]).map(fromDirectoryRow))
+          setDbRows(((d.rows ?? []) as KolDirectoryRow[]).map(r => fromDirectoryRow(r)))
         })
         .catch(() => { if (alive) setDbRows([]) })
         .finally(() => { if (alive) setDbBusy(false) })
@@ -372,7 +370,7 @@ export default function SmartDiscovery({
              is missing from *this list* without implying the feature is shut. */
           <div className="rounded-lg border border-dashed border-[#e5e7eb] px-3 py-2.5 flex items-center gap-2 flex-wrap">
             <span className="text-[11.5px] text-[#9ca3af]">
-              Your organization has no profiled creators yet — search the database above, or add one.
+              No creators in My Creators yet — search the database above, or save one from the Creator Database.
             </span>
             <button type="button" onClick={onGoToRoster} style={PJ}
               className="inline-flex items-center gap-1.5 rounded-lg text-[11.5px] font-bold px-3 h-8 border border-[#A7C8D4] bg-white text-[#327488] hover:bg-[#eaf3f6] cursor-pointer">
@@ -382,13 +380,10 @@ export default function SmartDiscovery({
           </div>
         ) : (
           <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
-            {pool.map(c => {
-              const pick = fromSummary(c)
-              return (
-                <RefButton key={`creator-${c.id}`} pick={pick}
-                  on={ref?.source === 'creator' && ref.id === c.id} onPick={() => choose(pick)} />
-              )
-            })}
+            {pool.map(pick => (
+              <RefButton key={`creator-${pick.id}`} pick={pick}
+                on={ref?.source === 'creator' && ref.id === pick.id} onPick={() => choose(pick)} />
+            ))}
           </div>
         )}
       </Section>
@@ -540,9 +535,8 @@ export default function SmartDiscovery({
                   key={`${c.source}-${c.id}`}
                   rank={i + 1}
                   candidate={c}
-                  onOpen={c.source === 'creator'
-                    ? () => onOpenCreator(c.id)
-                    : () => onOpenRosterCreator(c.id)}
+                  // Both sources are KOL ids with one profile page.
+                  onOpen={() => onOpenRosterCreator(c.id)}
                   inCompare={c.source === 'roster' && compare.ids.has(selectionKey('roster', c.id))}
                   onCompare={c.source === 'roster'
                     ? () => compare.toggle(selectionKey('roster', c.id))
@@ -690,7 +684,7 @@ function RecommendationRow({
           <span style={PJ} className={`rounded-md text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 ${
             c.source === 'creator' ? 'bg-[#eaf5ef] text-[#3d8a5f]' : 'bg-[#f3f0fb] text-[#6b5bb5]'
           }`}>
-            {c.source === 'creator' ? 'your database' : 'KOL roster'}
+            {c.source === 'creator' ? 'My Creators' : 'KOL roster'}
           </span>
         </div>
 
