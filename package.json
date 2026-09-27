@@ -59,7 +59,8 @@
     "verify:brand-match-wm": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-what-matters.ts",
     "verify:brand-match-audience": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-audience.ts",
     "verify:audience-geo": "dotenv -e .env.local -- npx tsx scripts/verify-audience-geo.ts",
-    "verify:brand-match-no-tsdb": "npx tsx scripts/verify-brand-match-no-tsdb.ts"
+    "verify:brand-match-no-tsdb": "npx tsx scripts/verify-brand-match-no-tsdb.ts",
+    "brand-match:recalc": "dotenv -e .env.local -- npx tsx scripts/brand-match-recalc.ts"
   },
   "keywords": [],
   "author": "",
