@@ -13,14 +13,14 @@
  *               from `/discover/links` (`listCreatorLinks(orgId)` after the
  *               membership check, agency-scoped active links only), the
  *               workspace reaches it through MyCreatorsView → LinkedCreatorList,
- *               the legacy warehouse creator routes answer "unavailable", and
+ *               the legacy warehouse creator routes are gone, and
  *               the workspace no longer mounts the warehouse roster.
  *   2. live   — `listKolDirectory({ agencyId })` returns exactly the creators
  *               an agency holds an active link to; an unknown agency sees
  *               nothing; `myCreatorIdsAmong` agrees with a direct SELECT;
  *               `listCreatorLinks` returns only the agency's own active links.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import kolDb from '@/lib/kolDb'
 import { listKolDirectory } from '@/lib/discover/kolDirectory'
 import { myCreatorIdsAmong } from '@/lib/discover/myCreators'
@@ -77,10 +77,9 @@ const LEGACY = [
   'src/app/api/organizations/[id]/discover/creators/[creatorId]/refresh/route.ts',
   'src/app/api/organizations/[id]/discover/creators/check/route.ts',
 ]
-for (const f of LEGACY) {
-  const s = read(f)
-  ok(`${f} is switched off`, s.includes('featureUnavailable(') && !s.includes('creatorStore') && !TSDB.test(s))
-}
+// The retired warehouse creator copy ("Added by us") is removed, not just
+// switched off. `creators/similar` stays: it is live KOL code.
+for (const f of LEGACY) ok(`${f} no longer exists`, !existsSync(f))
 
 const ws = read('src/components/discover/DiscoverWorkspace.tsx')
 ok('workspace mounts My Creators (MyCreatorsView)',

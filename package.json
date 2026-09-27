@@ -15,7 +15,6 @@
     "seed:l0": "dotenv -e .env.local -- node scripts/seed-l0.js",
     "seed:admin": "dotenv -e .env.local -- npx tsx seeds/admin.ts",
     "verify:fpk": "dotenv -e .env.local -- node scripts/verify-fpk-wiring.js",
-    "verify:creators": "dotenv -e .env.local -- npx tsx scripts/verify-creator-intake.ts",
     "verify:filters": "dotenv -e .env.local -- npx tsx scripts/verify-discovery-filters.ts",
     "verify:kol-filters": "dotenv -e .env.local -- npx tsx scripts/verify-kol-filters.ts",
     "verify:rate-card": "dotenv -e .env.local -- npx tsx scripts/verify-rate-card.ts",

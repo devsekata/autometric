@@ -110,10 +110,9 @@ export interface DiscoverWorkspaceProps {
   tab: string
   view: string | null
   /**
-   * Which creator the `creators` tab's two drill-down views are about, from
-   * `?creator=`. Null everywhere else. In the URL rather than in state so the
-   * profiling screen survives a reload and can be handed to someone else — a run
-   * takes minutes, and "send me the link" is the normal thing to do with it.
+   * `?creator=` — Smart Discovery's reference creator. Null everywhere else. In
+   * the URL rather than in state so the screen survives a reload and can be
+   * handed to someone else.
    */
   creatorId: string | null
   /**
@@ -127,9 +126,9 @@ export interface DiscoverWorkspaceProps {
   referenceSource: 'creator' | 'roster' | null
   /**
    * `?add=1` — open the Add KOL dialog over whichever Discovery screen is
-   * showing. A URL flag rather than component state because "Add Another
-   * Creator" arrives here as a navigation from the profiling screen, and state
-   * does not survive one.
+   * showing. A URL flag rather than component state so the dialog can be
+   * opened by a navigation (the header button, a shared link), which state
+   * does not survive.
    */
   openAddCreator: boolean
   /**
@@ -214,18 +213,14 @@ export default function DiscoverWorkspace({
    * Which of Directory's creator-side screens is showing, if any: My Creators
    * and the recommendations.
    *
-   * These are Directory views, so this only fires for `directory`. `profiling`
-   * and `creator` were the drill-downs into the retired warehouse creator copy
-   * (`discover_creators`, whose endpoints are switched off); nothing links to
-   * them any more, and a bookmark to either lands on My Creators instead of a
-   * screen that could only show "unavailable".
+   * These are Directory views, so this only fires for `directory`. Old links to
+   * the retired `profiling` / `creator` drill-downs never arrive here:
+   * `resolveTabParams` maps them to `mine`.
    */
   const CREATOR_VIEWS = ['mine', 'smart']
-  const LEGACY_CREATOR_VIEWS = ['profiling', 'creator']
   const creatorScreen = tab !== 'directory' ? null
     // A bare `?tab=directory` is the hub, which is none of these.
     : !view ? null
-    : LEGACY_CREATOR_VIEWS.includes(view) ? 'mine'
     : !CREATOR_VIEWS.includes(view) ? null
     : view
 
@@ -480,7 +475,7 @@ export default function DiscoverWorkspace({
 
         {/* My Creators — the agency's KOL creators (`/discover/links`) — plus
             Smart Discovery beside it. Old `profiling` / `creator` links resolve
-            to My Creators (see `creatorScreen`). */}
+            to My Creators (see `resolveTabParams`). */}
         {creatorScreen === 'mine' && (
           <MyCreatorsView
             orgId={orgId}
@@ -581,8 +576,8 @@ export default function DiscoverWorkspace({
 
       {/* Add KOL — every `?add=1` entry point (the header button, My Creators)
           opens the same KOL-database intake the Creator Database uses, so there
-          is one Add KOL flow. The old warehouse intake (`AddCreatorModal`,
-          `/discover/creators*`) is switched off on the KOL-only product. */}
+          is one Add KOL flow. The old warehouse intake has been removed from
+          the KOL-only product. */}
       {addHere && openAddCreator && (
         <AddKolDirectoryModal
           orgId={orgId}

@@ -195,12 +195,6 @@ export const DISCOVER_TABS: DiscoverTab[] = [
         icon: 'auto_awesome',
         subtitle: 'Tell us what you need and find creators that match. Start from a creator who already works for you, say what should be different — a lower budget, another city — and see the alternatives with the reasons they were picked.',
       },
-      // Two screens you are sent to, not screens you switch to: one run's
-      // progress, and one creator's full profile. Both need `&creator=`, so a
-      // card with no id would be a dead link — the same reason the per-creator
-      // analysis views below are hidden until a creator is active.
-      { id: 'profiling', label: 'Profiling', icon: 'timeline', hidden: true, subtitle: 'Tujuh langkah profiling satu creator, seperti yang dicatat server.' },
-      { id: 'creator', label: 'Creator Profile', icon: 'person', hidden: true, subtitle: 'Profil lengkap creator yang ditambahkan organisasi ini, beserta riwayat monitoring-nya.' },
     ],
     creatorViews: [
       { id: 'profile', label: 'Profile', icon: 'person', subtitle: 'Identitas dan KPI utama KOL aktif.' },
@@ -427,8 +421,8 @@ export function resolveTabParams(
      * `?tab=` out for the default tab, so every URL this module writes for one
      * of Directory's own screens arrives here carrying only a view. Falling
      * through to `home()` sent all of them to the landing instead — My
-     * Creators, Tracked Accounts, Smart Discovery, the profiling screen and the
-     * seven per-creator analysis views, none of which could be reached by URL
+     * Creators, Tracked Accounts, Smart Discovery and the seven per-creator
+     * analysis views, none of which could be reached by URL
      * or survive a reload.
      */
     if (rawView) return resolveTabParams(DEFAULT_TAB, rawView)
@@ -456,6 +450,12 @@ export function resolveTabParams(
     return { tab: 'directory', view: 'mine' }
   }
   if (rawTab === 'directory' && rawView === 'roster') return { tab: 'directory', view: 'database' }
+  // `profiling` and `creator` were the drill-downs into the retired warehouse
+  // creator copy ("Added by us"). Their screens are gone; a saved link to either
+  // lands on My Creators, which is where both hung off.
+  if (rawTab === 'directory' && (rawView === 'profiling' || rawView === 'creator')) {
+    return { tab: 'directory', view: 'mine' }
+  }
 
   const alias = ALIASES[rawTab]
   if (alias) {
@@ -485,9 +485,9 @@ export function resolveTabParams(
  * The canonical URL for a tab/view pair, relative to the org.
  *
  * `extra` carries the one thing a view can need beyond the pair: which creator
- * it is about. The profiling screen and a creator's profile are both `creators`
- * views that mean nothing without an id, and holding that id in component state
- * instead would lose it on reload and make the screen unshareable.
+ * it is about — Smart Discovery's reference creator, for one. Holding that id in
+ * component state instead would lose it on reload and make the screen
+ * unshareable.
  */
 export function tabHref(
   orgSlug: string,

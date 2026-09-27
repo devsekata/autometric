@@ -9,7 +9,8 @@ type Params = { params: Promise<{ id: string }> }
  *
  * Which of these Creator Database ids are in this agency's My Creators — what a
  * page of cards needs to draw its add/remove toggle. The list itself is
- * `/discover/kol-directory?scope=mine`, which reuses the directory's filters.
+ * `/discover/links` (`listCreatorLinks`), with the creators behind it at
+ * `/discover/links/creators?facet=roster`.
  */
 export async function GET(req: NextRequest, { params }: Params) {
   try {
