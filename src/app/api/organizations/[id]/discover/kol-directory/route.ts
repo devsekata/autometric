@@ -103,6 +103,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       audienceQualityTier: list('audQuality'),
       audienceGeoKey: sp.get('geoKey'),
       audienceGeoLevel: sp.get('geoLevel'),
+      audienceGender: sp.get('audGender'),
+      audienceAge: sp.get('audAge'),
       connectedOnly: sp.get('connected') === '1',
       createdAfter,
       refreshedAfter,

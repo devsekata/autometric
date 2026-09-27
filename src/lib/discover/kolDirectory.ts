@@ -3,6 +3,7 @@ import kolDb from '@/lib/kolDb'
 import { toIso } from './util'
 import { getKolMeasured, type KolMeasured } from './kolMeasured'
 import { getKolGold, type KolGold } from './kolGold'
+import { AUDIENCE_SERVED } from './curatedAudience'
 
 /**
  * Query layer for the KOL Directory page.
@@ -323,6 +324,10 @@ export interface KolDirectoryQuery {
   audienceQualityTier?: string[] | null
   audienceGeoKey?: string | null
   audienceGeoLevel?: string | null
+  /** Audience Gender / Age label ('female'|'male'|'balanced', '18-24'...):
+   *  the final classification, measured when usable, else curated. */
+  audienceGender?: string | null
+  audienceAge?: string | null
   connectedOnly?: boolean
   /**
    * Lower bounds on the two roster timestamps, for the Section Tabs (BE-04).
@@ -796,6 +801,16 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
          -- set an unmeasured creator is left out rather than counted as passing.
          AND ($20::float8 IS NULL OR b.female_pct >= $20)
          AND ($21::float8 IS NULL OR b.male_pct   >= $21)
+         -- Audience Gender / Age label: the final value (measured when usable,
+         -- else curated). EXISTS, so no creator is duplicated.
+         AND ($25::text IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id AND s.gender_final = $25))
+         AND ($26::text IS NULL OR EXISTS (
+               SELECT 1 FROM public.kol_social_account ksa
+                 JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
+                WHERE ksa.kol_id = b.id AND s.age_final = $26))
          AND ($22::text[] IS NULL OR b.audience_quality_tier = ANY ($22))
          -- Audience location. EXISTS against the daily table rather than a card
          -- column: a creator has many locations. The level is matched too, so a
@@ -845,6 +860,8 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.audienceQualityTier?.length ? query.audienceQualityTier : null,
       query.audienceGeoKey?.trim() || null,
       query.audienceGeoKey?.trim() ? (query.audienceGeoLevel?.trim() || null) : null,
+      query.audienceGender?.trim() || null,
+      query.audienceAge?.trim() || null,
     ],
     q !== null,
   )

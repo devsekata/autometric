@@ -1,5 +1,6 @@
 import kolDb from '@/lib/kolDb'
 import { audienceGeoFor } from './audienceGeo'
+import { AUDIENCE_SERVED } from './curatedAudience'
 import { toIso } from './util'
 
 /**
@@ -162,6 +163,43 @@ export interface GoldAudience {
   confidence: string | null
   /** The day the inference was computed. */
   asOf: string | null
+  /**
+   * Where each dimension's slices came from, by the final classification rule
+   * (`AUDIENCE_SERVED` in ./curatedAudience, the SQL form of scrapper-project
+   * `audience_classification.py`): `measured` = the measured/inferred value is
+   * usable (>= 5 known, unique top) and its slices are shown; `curated` = it is
+   * not, so the curated LABEL from `feature.*_audience_analysis.curated_*`
+   * (migration 054) is shown (one slice, no follower count behind it; the UI
+   * labels it an estimate); `null` = neither.
+   */
+  source: { gender: AudienceSource; age: AudienceSource; country: AudienceSource; city: AudienceSource }
+  /** The final classification value per dimension, null when neither source has one. */
+  final: { gender: string | null; age: string | null; country: string | null; city: string | null }
+}
+
+export type AudienceSource = 'measured' | 'curated' | null
+
+/**
+ * Measured slices when the measured value is USABLE (decided by the final
+ * classification, passed in as `usable`); otherwise the curated label;
+ * otherwise nothing. Never mixes the two and never turns a label into a
+ * percentage split: the curated fallback is a single slice with `n = 0` (no
+ * follower count behind it); its `pct` is 100 only so the slice shape holds.
+ *
+ * A usable measured value is never replaced by the curated label, even when
+ * this module's own slices for that dimension are empty: the slices here are
+ * read from this module's existing sources (L2 gender/age rows, `audienceGeoFor`
+ * for geo), which are not always the rows the classification decided on.
+ */
+export function withCuratedFallback(
+  measured: GoldAudienceSlice[],
+  usable: boolean,
+  curated: string | null | undefined,
+): { slices: GoldAudienceSlice[]; source: AudienceSource } {
+  if (usable) return { slices: measured, source: measured.length ? 'measured' : null }
+  const label = (curated ?? '').trim()
+  if (!label || label.toLowerCase() === UNCLASSIFIED) return { slices: [], source: null }
+  return { slices: [{ label, pct: 100, n: 0 }], source: 'curated' }
 }
 
 /**
@@ -381,7 +419,7 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality] =
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality, curated] =
     await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
@@ -596,11 +634,51 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         LIMIT 1`,
       [kolId],
     ),
+
+    // FINAL audience classification (./curatedAudience AUDIENCE_SERVED): per
+    // account whether the measured value is usable, the curated label and the
+    // served value, from the account's own platform table (IG ->
+    // ig_audience_analysis, TikTok -> tt_audience_analysis). Read-only.
+    db.query<{
+      platform: string
+      gender_measured: string | null; age_measured: string | null
+      country_measured: string | null; city_measured: string | null
+      curated_gender: string | null; curated_age: string | null
+      curated_country: string | null; curated_city: string | null
+      gender_final: string | null; age_final: string | null
+      country_final: string | null; city_final: string | null
+    }>(
+      `SELECT s.platform,
+              s.gender_measured, s.age_measured, s.country_measured, s.city_measured,
+              s.curated_gender, s.curated_age, s.curated_country, s.curated_city,
+              s.gender_final, s.age_final, s.country_final, s.city_final
+         FROM (${AUDIENCE_SERVED}) s
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = s.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY s.platform`,
+      [kolId],
+    ),
   ])
+
+  // One row per account (a KOL links to one account today). Per field the first
+  // non-null wins, so a second account can only fill a gap, never flip a value.
+  const fin = curated.rows
+  const firstOf = <K extends keyof (typeof fin)[number]>(k: K) =>
+    (fin.find(r => r[k] !== null && r[k] !== undefined)?.[k] ?? null) as (typeof fin)[number][K] | null
+  const cur = {
+    curated_gender: firstOf('curated_gender'), curated_age: firstOf('curated_age'),
+    curated_country: firstOf('curated_country'), curated_city: firstOf('curated_city'),
+  }
+  const usable = {
+    gender: firstOf('gender_measured') !== null, age: firstOf('age_measured') !== null,
+    country: firstOf('country_measured') !== null, city: firstOf('city_measured') !== null,
+  }
+  const hasCurated = !!(cur.curated_gender || cur.curated_age || cur.curated_country || cur.curated_city)
+    || fin.some(r => r.gender_final || r.age_final || r.country_final || r.city_final)
 
   const hasAudience =
     gender.rows.length > 0 || age.rows.length > 0 ||
-    Object.keys(geo).length > 0 || interest.rows.length > 0
+    Object.keys(geo).length > 0 || interest.rows.length > 0 || hasCurated
 
   if (
     !cards.rows.length && !daily.rows.length && !monthly.rows.length &&
@@ -629,7 +707,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const pctOf = (t: { classified: number; total: number }) =>
     t.total ? Math.round((t.classified / t.total) * 1000) / 10 : null
 
-  function buildAudience() {
+  function buildAudience(): GoldAudience {
     const g = toSlices(gender.rows)
     const a = toSlices(age.rows)
     const geoLevel = (level: string) =>
@@ -637,21 +715,33 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
     const country = toSlices(geoLevel('country'))
     const city = toSlices(geoLevel('city'))
     const i = toSlices(interest.rows)
+    // Usable measured value -> measured; otherwise the curated label; otherwise nothing.
+    const gF = withCuratedFallback(g.slices, usable.gender, cur.curated_gender)
+    const aF = withCuratedFallback(a.slices, usable.age, cur.curated_age)
+    const coF = withCuratedFallback(country.slices, usable.country, cur.curated_country)
+    const ciF = withCuratedFallback(city.slices, usable.city, cur.curated_city)
+    // A curated dimension has no classified share to report.
+    const cov = (src: AudienceSource, v: number | null) => (src === 'curated' ? null : v)
     return {
-      gender: g.slices,
-      age: a.slices,
-      countries: country.slices,
-      cities: city.slices,
+      gender: gF.slices,
+      age: aF.slices,
+      countries: coF.slices,
+      cities: ciF.slices,
       interests: i.slices,
       coverage: {
-        gender: pctOf(g),
-        age: pctOf(a),
+        gender: cov(gF.source, pctOf(g)),
+        age: cov(aF.source, pctOf(a)),
         // Country is the geo dimension with real coverage; city is a subset of it.
-        geo: pctOf(country),
+        geo: cov(coF.source, pctOf(country)),
         interests: pctOf(i),
       },
       confidence,
       asOf,
+      source: { gender: gF.source, age: aF.source, country: coF.source, city: ciF.source },
+      final: {
+        gender: firstOf('gender_final'), age: firstOf('age_final'),
+        country: firstOf('country_final'), city: firstOf('city_final'),
+      },
     }
   }
 

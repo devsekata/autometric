@@ -44,6 +44,8 @@ export type CheckKolResult =
          */
         existingKolDirectoryId?: string | null
         existingSocialAccountId?: string | null
+        /** The existing roster row is `inactive` (non-serving); a successful scrape reactivates it. */
+        reactivates?: boolean
       }
     }
 
@@ -65,6 +67,25 @@ interface RosterHit {
   last_refreshed_at: Date | string | null
   /** `kol_social_account.social_account_id`, if that link already exists. */
   social_account_id: string | null
+  /** `kol_directory.directory_status` — 'active' (serving) or 'inactive' (kept, not served). */
+  directory_status: string | null
+}
+
+export type ExistingKolAction = 'insert' | 'already_in_directory' | 'reuse'
+
+/**
+ * What Add New KOL does with the roster row a handle already has (if any).
+ * An active, fully scraped creator is already there. An INACTIVE one — kept
+ * with all its history but not served — is re-scraped through the SAME ids
+ * (never a second `kol_directory` row), and the successful scrape sets it back
+ * to `active` (`addKolScrape.updateDirectoryFrom*`), returning it to Discovery.
+ */
+export function existingKolAction(
+  hit: { directory_status: string | null; hasFollowerData: boolean } | null,
+): ExistingKolAction {
+  if (!hit) return 'insert'
+  if (hit.hasFollowerData && hit.directory_status === 'active') return 'already_in_directory'
+  return 'reuse'
 }
 
 /**
@@ -90,7 +111,7 @@ async function findInDirectory(
 ): Promise<(RosterHit & { hasFollowerData: boolean }) | null> {
   const { rows } = await kolDb().query<RosterHit>(
     `SELECT kd.id, kd.username, kd.scrape_status, kd.followers_count, kd.last_refreshed_at,
-            ksa.social_account_id
+            kd.directory_status, ksa.social_account_id
        FROM public.kol_directory kd
        JOIN public.platforms pl ON pl.id = kd.platform_id
        LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
@@ -212,9 +233,9 @@ export type ExistingIdentity =
   | { state: 'invalid_input'; message: string }
   /** The handle has no roster row: the scrape inserts a fresh identity. */
   | { state: 'none' }
-  /** A roster row exists but was never scraped through: reuse its ids. */
+  /** A roster row exists but was never scraped through, or is inactive: reuse its ids. */
   | { state: 'reuse'; kolDirectoryId: string; socialAccountId: string | null }
-  /** Already complete — adding again would overwrite a finished creator. */
+  /** Active and complete — adding again would overwrite a finished creator. */
   | { state: 'already_in_directory'; kolDirectoryId: string }
 
 /**
@@ -233,7 +254,11 @@ export async function resolveExistingIdentity(platform: AddKolPlatform, rawInput
   if (parsed.platform === 'facebook') return { state: 'invalid_input', message: 'Facebook is not supported for Add New KOL.' }
   const existing = await findInDirectory(parsed.platform, parsed.username)
   if (!existing) return { state: 'none' }
-  if (existing.hasFollowerData) return { state: 'already_in_directory', kolDirectoryId: existing.id }
+  // Same decision as `checkKolExists`, so an inactive creator the check offers
+  // for reactivation is not refused here as already in the directory.
+  if (existingKolAction(existing) === 'already_in_directory') {
+    return { state: 'already_in_directory', kolDirectoryId: existing.id }
+  }
   return { state: 'reuse', kolDirectoryId: existing.id, socialAccountId: existing.social_account_id }
 }
 
@@ -265,7 +290,7 @@ export async function checkKolExists(platform: AddKolPlatform, rawInput: string)
   }
 
   const existing = await findInDirectory(parsed.platform, parsed.username)
-  if (existing && existing.hasFollowerData) {
+  if (existing && existingKolAction(existing) === 'already_in_directory') {
     return {
       state: 'already_in_directory',
       kol: {
@@ -290,6 +315,7 @@ export async function checkKolExists(platform: AddKolPlatform, rawInput: string)
   if (result.state === 'new' && existing) {
     result.account.existingKolDirectoryId = existing.id
     result.account.existingSocialAccountId = existing.social_account_id
+    result.account.reactivates = existing.directory_status !== 'active'
   }
   return result
 }

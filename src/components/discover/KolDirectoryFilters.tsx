@@ -38,6 +38,7 @@
 import { PJ, TOKENS as T, fmtNum } from './ui'
 import type { KolDirectoryFacets } from '@/lib/discover/kolDirectory'
 import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
+import { AGE_BUCKETS } from '@/lib/discover/curatedAudience'
 
 export interface KolFilters {
   /**
@@ -97,7 +98,17 @@ export interface KolFilters {
   audQuality: string[]
   /** An audience city exactly as the pipeline wrote it at geo_level 'city'. */
   audCity: string
+  /** Audience Gender / Age: the final classification (measured, else curated). */
+  audGender: string
+  audAge: string
 }
+
+export const AUD_GENDER_OPTIONS = [
+  { key: 'female', label: 'Wanita' },
+  { key: 'male', label: 'Pria' },
+  { key: 'balanced', label: 'Seimbang' },
+] as const
+export const AUD_AGE_OPTIONS = AGE_BUCKETS
 
 /**
  * Growth bands. Bounds are percentage points of change since the account's
@@ -117,7 +128,7 @@ export type GrowthKey = (typeof GROWTH_PRESETS)[number]['key']
 export const KOL_FILTERS_DEFAULT: KolFilters = {
   categories: [], platform: '', tiers: [], follMin: 0, follMax: 0, erMin: 0,
   maxRate: 0, connectedOnly: false, growth: '',
-  femaleMin: 0, maleMin: 0, audQuality: [], audCity: '',
+  femaleMin: 0, maleMin: 0, audQuality: [], audCity: '', audGender: '', audAge: '',
 }
 
 /**
@@ -184,6 +195,8 @@ export function normalizeKolFilters(raw: unknown): KolFilters {
     maleMin: Math.min(Math.max(num(f.maleMin, 0), 0), 100),
     audQuality: many(f.audQuality),
     audCity: typeof f.audCity === 'string' ? f.audCity : '',
+    audGender: AUD_GENDER_OPTIONS.some(g => g.key === f.audGender) ? (f.audGender as string) : '',
+    audAge: (AUD_AGE_OPTIONS as readonly unknown[]).includes(f.audAge) ? (f.audAge as string) : '',
   }
 }
 
@@ -225,6 +238,7 @@ export function activeFilterCount(f: KolFilters): number {
     f.platform !== '', f.tiers.length > 0, f.follMin > 0, f.follMax > 0,
     f.erMin > 0, f.connectedOnly, f.growth !== '', RATE_CARD_AVAILABLE && f.maxRate > 0,
     f.femaleMin > 0, f.maleMin > 0, f.audQuality.length > 0, f.audCity !== '',
+    f.audGender !== '', f.audAge !== '',
   ].filter(Boolean).length
 }
 
@@ -252,6 +266,8 @@ export const filtersToParams = (f: KolFilters): Record<string, string> => {
   if (f.maleMin > 0) p.maleMin = String(f.maleMin)
   if (f.audQuality.length) p.audQuality = f.audQuality.join(',')
   if (f.audCity) { p.geoKey = f.audCity; p.geoLevel = 'city' }
+  if (f.audGender) p.audGender = f.audGender
+  if (f.audAge) p.audAge = f.audAge
   return p
 }
 
@@ -286,18 +302,13 @@ const FORMATS: Record<string, string[]> = {
   tiktok: ['All formats', 'Video', 'Photo'],
 }
 
-/** The reference panel's audience age bands. */
-const AGE_BANDS = ['All', '13–17', '18–24', '25–34', '35–44', '45–54', '55+']
-
 /**
  * Sections the reference panel carries that this roster cannot answer, each with
  * the reason, shown under the section so the greyed-out controls explain
  * themselves instead of looking broken:
  *
- *   audience  age only: the pipeline writes an age row per follower batch, but
- *             almost every follower's age is `unknown` (3 creators have any
- *             known age), so there is no "top audience group" to filter on.
- *             Gender split, quality tier and audience city ARE filterable.
+ *   audience  nothing: gender split, gender / age classification (measured,
+ *             else curated), quality tier and audience city are filterable.
  *   location  creator location only: `creator_city` is empty for every active row
  *   other     authenticity, brand fit and paid ratio have no columns; campaigns
  *             run would come from `campaign_kols`, which has no rows yet
@@ -448,7 +459,8 @@ export function KolFilterPanel({
   const reachActive = [filters.follMin > 0, filters.follMax > 0, filters.erMin > 0,
     filters.growth !== '']
     .filter(Boolean).length
-  const audienceActive = [filters.femaleMin > 0, filters.maleMin > 0, filters.audQuality.length > 0]
+  const audienceActive = [filters.femaleMin > 0, filters.maleMin > 0, filters.audQuality.length > 0,
+    filters.audGender !== '', filters.audAge !== '']
     .filter(Boolean).length
 
   return (
@@ -645,7 +657,7 @@ export function KolFilterPanel({
 
         <Section id="audience" icon="groups" label="Audience" open={open.has('audience')} onToggle={onToggleSection}
           onReset={audienceActive
-            ? () => onChange({ femaleMin: 0, maleMin: 0, audQuality: [] })
+            ? () => onChange({ femaleMin: 0, maleMin: 0, audQuality: [], audGender: '', audAge: '' })
             : undefined}
           badge={audienceActive ? `${audienceActive} aktif` : null}>
           <Range label="Major Female (%)" min={0} max={100} step={5} value={filters.femaleMin}
@@ -678,16 +690,30 @@ export function KolFilterPanel({
           </p>
 
           <div className="text-[10.5px] font-semibold mb-1.5" style={{ color: T.t3 }}>
+            Audience gender
+          </div>
+          <div className="flex flex-wrap gap-[7px]">
+            <Chip label="All" on={!filters.audGender} onClick={() => onChange({ audGender: '' })} />
+            {AUD_GENDER_OPTIONS.map(g => (
+              <Chip key={g.key} label={g.label} on={filters.audGender === g.key}
+                onClick={() => onChange({ audGender: filters.audGender === g.key ? '' : g.key })} />
+            ))}
+          </div>
+
+          <div className="text-[10.5px] font-semibold mb-1.5 mt-2.5" style={{ color: T.t3 }}>
             Age (top audience group)
           </div>
           <div className="flex flex-wrap gap-[7px]">
-            {AGE_BANDS.map(a => <Chip key={a} label={a} on={false} disabled onClick={() => {}} />)}
+            <Chip label="All" on={!filters.audAge} onClick={() => onChange({ audAge: '' })} />
+            {AUD_AGE_OPTIONS.map(a => (
+              <Chip key={a} label={a} on={filters.audAge === a}
+                onClick={() => onChange({ audAge: filters.audAge === a ? '' : a })} />
+            ))}
           </div>
-          <Unavailable>
-            Umur audiens hanya diketahui bila follower menyebutkannya di bio —
-            hampir semua follower tercatat &quot;unknown&quot;, jadi belum ada kelompok umur
-            teratas yang bisa difilter.
-          </Unavailable>
+          <p className="text-[9.5px] leading-[1.4] mt-1 mb-2" style={{ color: T.t4 }}>
+            Klasifikasi akhir: nilai terukur bila sampelnya cukup, selain itu
+            estimasi kurasi. Creator tanpa klasifikasi tidak ikut saat filter ini dipasang.
+          </p>
         </Section>
 
         <Section id="category" icon="category" label="Category" open={open.has('category')} onToggle={onToggleSection}
@@ -908,6 +934,13 @@ export function appliedFilters(f: KolFilters): AppliedFilter[] {
   }
   if (f.audCity) {
     out.push({ key: 'audCity', label: `Kota audiens: ${f.audCity}`, clear: { audCity: '' } })
+  }
+  if (f.audGender) {
+    const g = AUD_GENDER_OPTIONS.find(x => x.key === f.audGender)
+    out.push({ key: 'audGender', label: `Gender audiens: ${g?.label ?? f.audGender}`, clear: { audGender: '' } })
+  }
+  if (f.audAge) {
+    out.push({ key: 'audAge', label: `Umur audiens: ${f.audAge}`, clear: { audAge: '' } })
   }
   return out
 }
