@@ -23,6 +23,7 @@
     "verify:nav": "npx tsx scripts/verify-discover-nav.ts",
     "verify:export": "npx tsx scripts/verify-discover-export.ts",
     "verify:no-tsdb": "npx tsx scripts/verify-no-tsdb.ts",
+    "verify:kol-identity": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-identity.ts",
     "verify:kol-tenant": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-tenant-isolation.ts",
     "verify:nav-roles": "npx tsx scripts/verify-nav-roles.ts",
     "verify:links": "dotenv -e .env.local -- npx tsx scripts/verify-creator-links.ts",
