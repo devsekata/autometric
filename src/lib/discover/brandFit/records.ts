@@ -109,7 +109,6 @@ interface BrandRow {
   brand_id: string
   brand_name: string | null
   brand_category: string | null
-  brand_personality: string[] | null
   gender_majority: string | null
   target_age_min: number | null
   target_age_max: number | null
@@ -127,7 +126,7 @@ interface BrandRow {
  * `public.brand` carries only category, keywords and hashtags and is read for
  * identity by six other modules (see `migrations/kol/002_brand-fit-inputs.sql`).
  *
- * A brand with no profile row still returns — with empty attributes and no
+ * A brand with no profile row still returns — with no category and no
  * targets, which the engine reports as NOT MEASURED. That is the truthful answer
  * for a brand nobody has configured, and it is not an error.
  *
@@ -142,7 +141,6 @@ export async function loadBrand(
     SELECT b.id                       AS brand_id,
            COALESCE(p.brand_name, b.name) AS brand_name,
            p.brand_category,
-           p.brand_personality,
            p.gender_majority,
            p.target_age_min,
            p.target_age_max,
@@ -169,9 +167,6 @@ export async function loadBrand(
     brandId: r.brand_id,
     brandName: r.brand_name,
     category: r.brand_category,
-    // `brand_tone` was dropped by migrations/kol/009, so personality is the
-    // whole attribute set the Values formula compares against.
-    attributes: list(r.brand_personality),
     audience: {
       gender,
       ageMin: num(r.target_age_min),
@@ -194,8 +189,6 @@ interface CreatorRow {
   platform_id: string | null
   username: string | null
   categories: string[] | null
-  attributes: string[] | null
-  attribute_rows: string | number
   engagement_rate: string | number | null
   median_views: string | number | null
   followers_growth: string | number | null
@@ -268,12 +261,6 @@ export async function loadCreators(
            (SELECT array_agg(DISTINCT kc.taxonomy_key)
               FROM public.kol_categories kc
              WHERE kc.id = ANY(a.category_ids) AND kc.taxonomy_key IS NOT NULL) AS categories,
-           (SELECT array_agg(ka.label ORDER BY ka.label)
-              FROM public.kol_attribute_map m
-              JOIN public.kol_attribute ka ON ka.id = m.kol_attribute_id
-             WHERE m.kol_directory_id = a.kol_directory_id) AS attributes,
-           (SELECT count(*) FROM public.kol_attribute_map m
-             WHERE m.kol_directory_id = a.kol_directory_id) AS attribute_rows,
            a.engagement_rate,
            pc.median_views,
            pc.followers_growth,
@@ -298,17 +285,11 @@ export async function loadCreators(
 }
 
 function toCreator(r: CreatorRow): BrandFitCreator {
-  const attributeRows = Number(r.attribute_rows ?? 0)
   return {
     agencyKolAccountId: r.agency_kol_account_id,
     platformId: r.platform_id,
     username: r.username,
     categories: (r.categories ?? []).filter(Boolean),
-    attributes: (r.attributes ?? []).filter(Boolean),
-    // The count, not the array's length: it distinguishes "never tagged" from
-    // "tagged with something that resolved to no label", and only the first of
-    // those is NOT MEASURED.
-    hasAttributeMapping: attributeRows > 0,
     audience: r.has_audience ? toAudience(r) : null,
     performance: {
       engagement_rate: num(r.engagement_rate),

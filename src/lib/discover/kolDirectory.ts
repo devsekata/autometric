@@ -148,6 +148,8 @@ export interface KolDirectoryRow {
   rateFrom: number | null
   /** How many distinct deliverables carry a price. */
   rateCount: number
+  /** Whether the requesting agency has this creator in My Creators; set by the route. */
+  inMyCreators?: boolean
 }
 
 export interface KolDirectoryFacets {
@@ -238,6 +240,26 @@ export interface KolDirectoryPayload {
    */
   brandMatch?: import('./whatMatters/brandMatch').DirectoryBrandMatch
   whatMatters?: KolDirectoryWhatMatters
+  /**
+   * The Brand Profile eligibility this list was narrowed by — present only when
+   * `?brandProfile=1` applied at least one preference, so the page can say why
+   * the roster is smaller than the database.
+   */
+  profileEligibility?: ProfileEligibility
+}
+
+/**
+ * The Brand Profile's Ideal Creator Profile, in the Directory's own vocabulary:
+ *   platforms      `platforms.key`           (Preferred platforms)
+ *   tiers          `kol_tiers.name`          (Preferred creator tier)
+ *   categoryKeys   `kol_categories.taxonomy_key`, falling back to the name for a
+ *                  row with no key          (Preferred creator categories)
+ * An empty preference is null, not an empty list.
+ */
+export interface ProfileEligibility {
+  platforms: string[] | null
+  tiers: string[] | null
+  categoryKeys: string[] | null
 }
 
 export interface KolDirectoryQuery {
@@ -251,6 +273,13 @@ export interface KolDirectoryQuery {
    * "no results", because an absent selection is not a selection of nothing.
    */
   ids?: string[] | null
+  /**
+   * The saved Brand Profile's Ideal Creator Profile, as hard eligibility — set
+   * only by the Directory route under `?brandProfile=1`. AND-ed with every
+   * manual filter below; each list unions its own values; null means "no
+   * preference" and filters nothing. Never part of Match %.
+   */
+  profileEligibility?: ProfileEligibility | null
   /**
    * My Creators: only creators this agency holds an active link to in
    * `agency_kol_accounts`. Matched on the id, never the name, and only ever set
@@ -812,6 +841,18 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
                  JOIN (${AUDIENCE_SERVED}) s ON s.social_account_id = ksa.social_account_id
                 WHERE ksa.kol_id = b.id AND s.age_final = $26))
          AND ($22::text[] IS NULL OR b.audience_quality_tier = ANY ($22))
+         -- Brand Profile eligibility (Ideal Creator Profile), AND-ed with the
+         -- manual filters above. Category by taxonomy key, which is the Brand
+         -- Profile's vocabulary; the manual chip above matches raw names.
+         AND ($27::text[] IS NULL OR b.platform = ANY ($27))
+         AND ($28::text[] IS NULL OR b.tier = ANY ($28))
+         AND ($29::text[] IS NULL OR EXISTS (
+               SELECT 1
+                 FROM public.kol_directory kd2
+                 JOIN public.kol_categories kc
+                   ON kc.id = ANY (COALESCE(kd2.category_ids, ARRAY[kd2.category_id]))
+                WHERE kd2.id = b.id
+                  AND COALESCE(kc.taxonomy_key, kc.name) = ANY ($29)))
          -- Audience location. EXISTS against the daily table rather than a card
          -- column: a creator has many locations. The level is matched too, so a
          -- city never collides with a province of the same spelling.
@@ -862,6 +903,9 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.audienceGeoKey?.trim() ? (query.audienceGeoLevel?.trim() || null) : null,
       query.audienceGender?.trim() || null,
       query.audienceAge?.trim() || null,
+      query.profileEligibility?.platforms?.length ? query.profileEligibility.platforms : null,
+      query.profileEligibility?.tiers?.length ? query.profileEligibility.tiers : null,
+      query.profileEligibility?.categoryKeys?.length ? query.profileEligibility.categoryKeys : null,
     ],
     q !== null,
   )

@@ -17,7 +17,8 @@
  *               creator's audience matches what the brand asked for.
  * Performance   Option B, direct metric against a brand-stated target. No
  *               archetype anywhere, by design.
- * Weights       25/25/25/25, from the proposal, pending product approval.
+ * Weights       25 each for the three components, from the proposal, pending
+ *               product approval. (Values, the fourth, was removed.)
  */
 import { CATEGORY_RELATEDNESS } from '@/lib/discover/brandMatch/model'
 import type {
@@ -321,12 +322,17 @@ export function performanceFit(
  * four deserve equal say. PENDING PRODUCT APPROVAL.
  *
  * They are weights rather than a hardcoded average so that approving a
- * different split is an edit to four numbers and nothing else.
+ * different split is an edit to these numbers and nothing else.
+ *
+ * The workbook's fourth component, Values (brand personality against creator
+ * personality), was removed with Brand personality / Brand values. The three
+ * that remain keep their 25 each: `partnershipScore` divides by the weight of
+ * the components present, so this is exactly the score a brand with no
+ * personality already got, not a new split.
  */
 export const COMPONENT_WEIGHTS = {
   category: 25,
   audience: 25,
-  values: 25,
   performance: 25,
 } as const
 export type ComponentKey = keyof typeof COMPONENT_WEIGHTS

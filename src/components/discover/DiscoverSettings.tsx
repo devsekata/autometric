@@ -52,30 +52,56 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'platforms', label: 'Platform', icon: 'hub' },
 ]
 
+/**
+ * One read-out source's load state. `unavailable` is its own state, not an
+ * error: on the KOL-only product `/discover/directory` and `/discover/summary`
+ * answer 503 `feature_unavailable` by design, because their data lives on the
+ * analytics warehouse — the same answer `DiscoverCompare` treats as "no tracked
+ * accounts" rather than a failure.
+ */
+type Source<T> =
+  | { status: 'loading' }
+  | { status: 'ready'; data: T }
+  | { status: 'unavailable'; message: string }
+  | { status: 'error'; message: string }
+
+async function loadSource<T>(url: string): Promise<Source<T>> {
+  try {
+    const r = await fetch(url)
+    if (r.ok) return { status: 'ready', data: (await r.json()) as T }
+    const body = await r.json().catch(() => null) as { error?: string; code?: string } | null
+    if (r.status === 503 && body?.code === 'feature_unavailable') {
+      return { status: 'unavailable', message: body.error ?? 'Sementara tidak tersedia.' }
+    }
+    return { status: 'error', message: `HTTP ${r.status}` }
+  } catch (e) {
+    return { status: 'error', message: String((e as Error).message ?? e) }
+  }
+}
+
 export default function DiscoverSettings({
   orgId, orgSlug, embedded = false,
 }: { orgId: string; orgSlug: string; embedded?: boolean }) {
   const [tab, setTab] = useState<Tab>('brand')
-  const [dir, setDir] = useState<DirectoryPayload | null>(null)
-  const [summary, setSummary] = useState<DiscoverSummaryPayload | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [dir, setDir] = useState<Source<DirectoryPayload>>({ status: 'loading' })
+  const [summary, setSummary] = useState<Source<DiscoverSummaryPayload>>({ status: 'loading' })
 
+  // Loaded independently, and never ahead of Brand Profile: that tab reads the
+  // KOL database through its own route, so a read-out source being switched
+  // off must not take the whole screen down with it.
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      fetch(`/api/organizations/${orgId}/discover/directory`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
-      fetch(`/api/organizations/${orgId}/discover/summary`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
-    ])
-      .then(([d, s]) => { if (!cancelled) { setDir(d); setSummary(s) } })
-      .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
+    setDir({ status: 'loading' })
+    setSummary({ status: 'loading' })
+    loadSource<DirectoryPayload>(`/api/organizations/${orgId}/discover/directory`)
+      .then(s => { if (!cancelled) setDir(s) })
+    loadSource<DiscoverSummaryPayload>(`/api/organizations/${orgId}/discover/summary`)
+      .then(s => { if (!cancelled) setSummary(s) })
     return () => { cancelled = true }
   }, [orgId])
 
-  if (error) return <div className={embedded ? '' : 'p-5'}><ErrorState message={error} /></div>
-  if (!dir || !summary) return <div className={embedded ? '' : 'p-5'}><Spinner /></div>
-
-  const owned = dir.accounts.filter(a => a.relation === 'owned')
-  const competitors = dir.accounts.filter(a => a.relation === 'competitor')
+  const owned = dir.status === 'ready' ? dir.data.accounts.filter(a => a.relation === 'owned') : []
+  const competitors = dir.status === 'ready' ? dir.data.accounts.filter(a => a.relation === 'competitor') : []
 
   return (
     <div className={embedded ? '' : 'p-5 max-w-[1200px] mx-auto'}>
@@ -96,7 +122,8 @@ export default function DiscoverSettings({
       <div className="mt-4">
         {tab === 'brand' && <BrandProfileForm orgId={orgId} />}
 
-        {tab === 'accounts' && (
+        {tab === 'accounts' && dir.status !== 'ready' && <SourceState source={dir} />}
+        {tab === 'accounts' && dir.status === 'ready' && (
           <Card className="overflow-hidden">
             <CardHead title="Akun brand" sub={`${owned.length} akun yang datanya masuk ke Discover`} />
             {owned.length === 0
@@ -107,7 +134,8 @@ export default function DiscoverSettings({
           </Card>
         )}
 
-        {tab === 'competitors' && (
+        {tab === 'competitors' && dir.status !== 'ready' && <SourceState source={dir} />}
+        {tab === 'competitors' && dir.status === 'ready' && (
           <Card className="overflow-hidden">
             <CardHead title="Akun kompetitor" sub={`${competitors.length} akun kompetitor yang dilacak`} />
             {competitors.length === 0
@@ -117,16 +145,17 @@ export default function DiscoverSettings({
           </Card>
         )}
 
-        {tab === 'pillars' && (
+        {(tab === 'pillars' || tab === 'platforms') && summary.status !== 'ready' && <SourceState source={summary} />}
+        {tab === 'pillars' && summary.status === 'ready' && (
           <Card>
             <CardHead title="Content pillars" sub="Pillar yang terdeteksi pada konten brand — dipakai sebagai filter Category di Discovery Content" />
             <div className="px-4 pb-4">
-              {summary.byPillar.length === 0 ? (
+              {summary.data.byPillar.length === 0 ? (
                 <EmptyState icon="category" title="Belum ada pillar"
                   body="Konten brand belum diberi content pillar, jadi filter Category di Discover masih kosong." />
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  {summary.byPillar.map(p => (
+                  {summary.data.byPillar.map(p => (
                     <span key={p.label} style={PJ}
                       className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e7eb] bg-white px-3 h-8 text-[11.5px] font-bold text-[#374151]">
                       {p.label}
@@ -140,11 +169,11 @@ export default function DiscoverSettings({
           </Card>
         )}
 
-        {tab === 'platforms' && (
+        {tab === 'platforms' && summary.status === 'ready' && (
           <Card>
             <CardHead title="Platform" sub="Platform yang menyumbang data ke Discover" />
             <div className="px-4 pb-4 flex flex-col gap-2">
-              {summary.byPlatform.map(p => (
+              {summary.data.byPlatform.map(p => (
                 <div key={p.label} className="flex items-center gap-3 py-2 border-b border-[#f3f4f6] last:border-0">
                   <span className="w-9 h-9 rounded-xl bg-[#f0f7fa] flex items-center justify-center">
                     <span className="material-symbols-outlined text-[17px] text-[#285D6E]">
@@ -168,6 +197,25 @@ export default function DiscoverSettings({
       </div>
     </div>
   )
+}
+
+/**
+ * A read-out tab whose source is not ready. `unavailable` says so plainly and
+ * shows no numbers: an empty list would read as "this workspace has none",
+ * which is not what a switched-off source means.
+ */
+function SourceState({ source }: { source: Source<unknown> }) {
+  if (source.status === 'loading') return <Spinner />
+  if (source.status === 'error') return <ErrorState message={source.message} />
+  if (source.status === 'unavailable') {
+    return (
+      <Card>
+        <EmptyState icon="cloud_off" title={source.message}
+          body="Data ini belum tersedia di database KOL, jadi tab ini sengaja tidak menampilkan angka. Brand Profile tetap bisa dipakai." />
+      </Card>
+    )
+  }
+  return null
 }
 
 function AccountRows({ rows }: { rows: DirectoryAccount[] }) {

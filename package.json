@@ -23,6 +23,7 @@
     "verify:my-creators": "dotenv -e .env.local -- npx tsx scripts/verify-my-creators.ts",
     "verify:export": "npx tsx scripts/verify-discover-export.ts",
     "verify:no-tsdb": "npx tsx scripts/verify-no-tsdb.ts",
+    "verify:register-otp": "dotenv -e .env.local -- npx tsx scripts/verify-register-otp.ts",
     "verify:kol-identity": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-identity.ts",
     "verify:kol-persistence": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-persistence.ts",
     "verify:kol-tenant": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-tenant-isolation.ts",
@@ -62,6 +63,7 @@
     "verify:brand-match-audience": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-audience.ts",
     "verify:audience-geo": "dotenv -e .env.local -- npx tsx scripts/verify-audience-geo.ts",
     "verify:brand-match-freshness": "dotenv -e .env.local -- npx tsx scripts/verify-brand-match-freshness.ts",
+    "verify:brand-profile-directory": "dotenv -e .env.local -- npx tsx --tsconfig scripts/verify-brand-profile-kol/tsconfig.json scripts/verify-brand-profile-directory.ts",
     "verify:brand-match-no-tsdb": "npx tsx scripts/verify-brand-match-no-tsdb.ts",
     "brand-match:recalc": "dotenv -e .env.local -- npx tsx scripts/brand-match-recalc.ts"
   },

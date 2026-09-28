@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOrgMemberById } from '@/lib/reports/access'
-import { listKolDirectory, listKolFacets } from '@/lib/discover/kolDirectory'
+import { listKolDirectory, listKolFacets, type ProfileEligibility } from '@/lib/discover/kolDirectory'
 import { getBrandProfile } from '@/lib/discover/brandMatch/profile'
 import { scoringRecordsFor } from '@/lib/discover/brandMatch/records'
 import { measuredSignals } from '@/lib/discover/brandMatch/measured'
@@ -82,8 +82,38 @@ export async function GET(req: NextRequest, { params }: Params) {
     const sortKey = sp.get('sort')
     const sortDir = sp.get('dir')
 
+    /**
+     * Brand Profile eligibility — `?brandProfile=1`, sent by the main Creator
+     * Database list only.
+     *
+     * The saved Ideal Creator Profile is the base of that list: Preferred
+     * platforms, Preferred creator tier and Preferred creator categories become
+     * hard filters, AND-ed with whatever the user sets in the filter panel.
+     * Read from the KOL server on every request, so a saved profile applies on
+     * the next load with no cache to clear.
+     *
+     * Deliberately NOT filters: Target Audience (gender, age, country, city,
+     * interests) and What Matters are Brand Match criteria — they score, they
+     * do not exclude; brand category is the brand's own industry; content style
+     * has no creator-side data.
+     *
+     * Never applied to `?ids=`: Compare, Cart and the Brand Match request fetch
+     * creators already picked, and must get exactly those back.
+     */
+    let profileEligibility: ProfileEligibility | null = null
+    if (sp.get('brandProfile') === '1' && !ids.length) {
+      const p = await getBrandProfile(access.orgId)
+      const e: ProfileEligibility = {
+        platforms: p.preferredPlatforms.length ? p.preferredPlatforms : null,
+        tiers: p.preferredTiers.length ? p.preferredTiers : null,
+        categoryKeys: p.preferredCategories.length ? p.preferredCategories : null,
+      }
+      if (e.platforms || e.tiers || e.categoryKeys) profileEligibility = e
+    }
+
     const data = await listKolDirectory({
       ids,
+      profileEligibility,
       q: sp.get('q'),
       platform,
       categories: list('category'),
@@ -114,6 +144,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       // An explicit id list is the page: paging it would drop selections.
       pageSize: ids.length ? ids.length : (num('pageSize') ?? 20),
     })
+
+    if (profileEligibility) data.profileEligibility = profileEligibility
 
     // Facets are requested on the first load and again when the platform
     // changes, because the tier counts are scoped to it (BE-02).

@@ -8,22 +8,24 @@
  * lets the whole of Brand Fit be tested without a connection, and it is why the
  * verification script can assert every branch of the NULL handling.
  *
- * The four components come from three places, and none of them lives here:
+ * The three components come from two places, and none of them lives here:
  *
  *   Category     `categoryFit()` in ./calculator, with `categoryResolver`
  *   Audience     `audienceFit()` in ./calculator, with `audienceDimensions`
- *   Values       `valuesFit()`   in ./calculator
  *   Performance  `performanceFit()` in ./rules
+ *
+ * There is no Values component. It scored `brand_personality` against creator
+ * personality tags; brand personality and brand values were removed from the
+ * Brand Profile, so neither is an input to Brand Fit any more.
  *
  * `./calculator.ts` is not modified by any of this. It was written for the POC
  * with its rules left injectable, and this file is the production caller that
  * injects them.
  */
 import {
-  audienceFit, categoryFit, toScore, valuesFit,
+  audienceFit, categoryFit, toScore,
   type AudienceDimension, type AudienceFitResult, type CategoryVerdict, type Score,
 } from './calculator'
-import { mapBrandPersonality } from './personalityMap'
 import {
   COMPONENT_WEIGHTS, MIN_COMPONENTS, VERDICT_LABEL, audienceDimensions, categoryResolver,
   performanceFit,
@@ -39,8 +41,6 @@ export interface BrandFitBrand {
   brandName: string | null
   /** One of the nine canonical categories, or null while unset. */
   category: string | null
-  /** `brand_personality` (`brand_tone` was dropped by migrations/kol/009). */
-  attributes: string[]
   audience: BrandAudienceTarget
   performanceTargets: PerformanceTargets
 }
@@ -53,14 +53,6 @@ export interface BrandFitCreator {
   username: string | null
   /** Canonical `kol_categories.taxonomy_key` values. */
   categories: string[]
-  /** Labels from `kol_attribute_map` -> `kol_attribute`. Empty means UNMAPPED. */
-  attributes: string[]
-  /**
-   * Whether the creator has ever been tagged at all. Distinct from an empty
-   * `attributes`: absent data is NOT MEASURED, whereas a creator who was tagged
-   * and matched none of the brand's attributes genuinely scores 0.
-   */
-  hasAttributeMapping: boolean
   audience: CreatorAudience | null
   performance: CreatorPerformance
 }
@@ -114,7 +106,6 @@ export interface BrandFitAnalysis {
   sub_scores: {
     category_matching: SubScore
     audience_overlap: AudienceSubScore
-    values_alignment: SubScore
     past_performance: SubScore
   }
   audience_overlap_pct: Score
@@ -124,7 +115,7 @@ export interface BrandFitAnalysis {
   /** Not persisted as a column — returned so the API can explain a result. */
   meta: {
     componentsAvailable: number
-    /** Percentage of the four components that carried a value. */
+    /** Percentage of the three components that carried a value. */
     coverage: number
     status: Record<ComponentKey, ComponentStatus>
     audienceMeasured: AudienceDimension[]
@@ -161,29 +152,7 @@ export function analyseBrandFit({ brand, creator }: BrandFitInputs): BrandFitAna
       : 'Audience: creator tidak punya baris di feature.ig/tt_audience_analysis.')
   }
 
-  /* 3 ── Values ------------------------------------------------------------ */
-  // Brand personality words are translated to creator personality labels first
-  // (./personalityMap); a word with no creator equivalent is left out of the
-  // denominator and named in the notes, because it cannot be measured.
-  // Availability is checked BEFORE calling: `valuesFit(brandAttrs, [])` returns
-  // 0 because nothing matched, which is the wrong answer for a creator who was
-  // never tagged at all. Absent inputs are NOT MEASURED.
-  const personality = mapBrandPersonality(brand.attributes)
-  const values: Score = !personality.labels.length || !creator.hasAttributeMapping
-    ? null
-    : valuesFit(personality.labels, creator.attributes)
-  if (personality.unmapped.length) {
-    notes.push(`Values: brand_personality ${personality.unmapped.join(', ')} belum punya padanan di creator_personality, tidak dihitung.`)
-  }
-  if (values === null) {
-    notes.push(!brand.attributes.length
-      ? 'Values: brand belum punya brand_personality.'
-      : !personality.labels.length
-        ? 'Values: tidak ada brand_personality yang bisa dipetakan ke creator_personality.'
-        : 'Values: creator belum punya baris di public.kol_attribute_map.')
-  }
-
-  /* 4 ── Past Performance -------------------------------------------------- */
+  /* 3 ── Past Performance -------------------------------------------------- */
   const performance = performanceFit(brand.performanceTargets, creator.performance)
   if (performance.score === null) {
     notes.push(Object.keys(brand.performanceTargets).length
@@ -191,16 +160,15 @@ export function analyseBrandFit({ brand, creator }: BrandFitInputs): BrandFitAna
       : 'Performance: brand_profile tidak punya kolom target performa (performance_targets dihapus migration kol/009).')
   }
 
-  /* 5 ── Partnership score ------------------------------------------------- */
+  /* 4 ── Partnership score ------------------------------------------------- */
   const components: Record<ComponentKey, Score> = {
     category: category.score,
     audience: audience.score,
-    values,
     performance: performance.score,
   }
   const partnership = partnershipScore(components)
-  const available = (Object.keys(COMPONENT_WEIGHTS) as ComponentKey[])
-    .filter(k => isNum(components[k]))
+  const componentKeys = Object.keys(COMPONENT_WEIGHTS) as ComponentKey[]
+  const available = componentKeys.filter(k => isNum(components[k]))
 
   return {
     partnership_score: partnership,
@@ -208,7 +176,6 @@ export function analyseBrandFit({ brand, creator }: BrandFitInputs): BrandFitAna
       category_matching: { score: category.score, status: statusOf(category.score) },
       // Status only — the number is `audience_overlap_pct` and nowhere else.
       audience_overlap: { status: statusOf(audience.score), source: 'audience_overlap_pct' },
-      values_alignment: { score: values, status: statusOf(values) },
       past_performance: { score: performance.score, status: statusOf(performance.score) },
     },
     audience_overlap_pct: audience.score,
@@ -221,11 +188,10 @@ export function analyseBrandFit({ brand, creator }: BrandFitInputs): BrandFitAna
     recommendations: recommend(components, category.tags, performance),
     meta: {
       componentsAvailable: available.length,
-      coverage: toScore((available.length / 4) * 100) as number,
+      coverage: toScore((available.length / componentKeys.length) * 100) as number,
       status: {
         category: statusOf(category.score),
         audience: statusOf(audience.score),
-        values: statusOf(values),
         performance: statusOf(performance.score),
       },
       audienceMeasured: audience.measured,
@@ -315,7 +281,7 @@ function recommend(
   performance: PerformanceFitResult,
 ): Recommendation[] {
   const out: Recommendation[] = []
-  const { category, audience, values, performance: perf } = components
+  const { category, audience, performance: perf } = components
 
   if (isNum(category)) {
     const exact = tags.filter(t => t.fit === 'match').map(t => t.tag)
@@ -358,26 +324,6 @@ function recommend(
       code: 'audience_unmeasured',
       title: 'Audiens belum terukur',
       detail: 'Skor belum memperhitungkan kesesuaian audiens.',
-    })
-  }
-
-  if (isNum(values)) {
-    out.push(values >= 60
-      ? {
-        code: 'values_strong',
-        title: 'Karakter creator sejalan dengan brand',
-        detail: 'Cocok untuk konten bernarasi, bukan sekadar penempatan produk.',
-      }
-      : {
-        code: 'values_weak',
-        title: 'Karakter creator belum sejalan dengan brand',
-        detail: `Baru ${values}% atribut brand yang dimiliki creator — siapkan brief yang lebih terarah.`,
-      })
-  } else {
-    out.push({
-      code: 'values_unmeasured',
-      title: 'Karakter creator belum dipetakan',
-      detail: 'Values alignment belum bisa dihitung sampai atribut creator terisi.',
     })
   }
 

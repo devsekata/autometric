@@ -113,9 +113,12 @@ async function main() {
     withWeights.length === 0, withWeights.join(', '))
   check('profile.ts tidak lagi mengekspor adapter scorer lama',
     !/export function toScoringBrand|export function toEligibility/.test(profileSrc))
-  check('profile.ts membaca what_matters, company_website dan brand_values',
-    /what_matters/.test(profileSrc) && /company_website/.test(profileSrc)
-    && /brand_values/.test(profileSrc))
+  check('profile.ts membaca what_matters dan company_website',
+    /what_matters/.test(profileSrc) && /company_website/.test(profileSrc))
+  // Brand personality / Brand values dihapus dari profil, dan kolomnya
+  // (brand_personality, brand_values) sudah di-drop oleh migrations/kol/011.
+  check('profile.ts tidak membaca/menulis brand_personality atau brand_values',
+    !/brand_personality|brand_values|brandPersonality|brandValues/.test(noComments(profileSrc)))
 
   /* ── 2. Kosakata: enam What Matters + lima Target Audience ───────────── */
 
@@ -212,10 +215,11 @@ async function main() {
       // migrations/kol/009, which dropped them; the engine no longer reads them.
       const need = [
         'organization_id', 'brand_category', 'gender_majority', 'target_country', 'target_city',
-        'audience_interests', 'brand_personality',
+        'audience_interests',
         // migrations/kol/007 and 008: the criteria Brand Match averages, and the
-        // two fields the form saves but nothing scores.
-        'what_matters', 'company_website', 'brand_values',
+        // website the form saves but nothing scores. brand_personality and
+        // brand_values were dropped by migrations/kol/011.
+        'what_matters', 'company_website',
       ]
       check('kolom yang dibaca engine semuanya ada',
         need.every(c => have.has(c)), need.filter(c => !have.has(c)).join(', ') || 'lengkap')

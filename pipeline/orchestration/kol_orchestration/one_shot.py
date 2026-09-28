@@ -72,6 +72,8 @@ if str(_PROJECT_ROOT) not in sys.path:
 from scheduler_engine import (  # noqa: E402
     POSTS_PER_TARGET,
     PROFILE_TARGET_LIMIT,
+    SCHEDULER_CATEGORY_PROFILE,
+    resolve_batch_limit,
     run_once,
 )
 
@@ -201,32 +203,60 @@ def scrape_once_op(context) -> Output[dict]:
     lewati_post = (os.getenv("SCHEDULER_SKIP_POSTS") or "").strip().lower() in {
         "1", "true", "yes", "y", "on"
     }
+    # Ukuran batch dibaca lewat helper yang sama dengan CLI, jadi aturan
+    # presedensi dan validasinya hanya hidup di satu tempat. Di sini tidak ada
+    # `--limit`, jadi yang berlaku adalah $SCRAPE_BATCH_SIZE, lalu default 1.
+    # Nilai tidak sah melempar ValueError SEBELUM actor dipanggil.
+    batas = resolve_batch_limit()
     hasil_semua = run_once(
         platform=os.getenv("SCHEDULER_PLATFORM") or None,
         with_posts=not lewati_post,
+        limit=batas,
     )
 
     metadata: dict = {}
     ringkas: dict = {}
+    # Satu batch menghasilkan BANYAK baris berkategori 'profile'. Kunci
+    # metadata diberi nomor urut supaya target ke-7 tidak menimpa target ke-6 —
+    # dengan satu target, penomorannya tidak muncul dan tampilannya sama
+    # seperti sebelum batch ada.
+    per_kategori: dict = {}
     for h in hasil_semua:
-        metadata[f"{h.category}.status"] = MetadataValue.text(h.status)
-        metadata[f"{h.category}.username"] = MetadataValue.text(h.username or "-")
-        metadata[f"{h.category}.actor"] = MetadataValue.text(h.actor)
-        metadata[f"{h.category}.targets"] = MetadataValue.int(h.targets)
-        metadata[f"{h.category}.profiles_processed"] = MetadataValue.int(h.profiles_processed)
-        metadata[f"{h.category}.posts_fetched"] = MetadataValue.int(h.posts_fetched)
-        metadata[f"{h.category}.posts_saved"] = MetadataValue.int(h.posts_saved)
-        metadata[f"{h.category}.duplicates_skipped"] = MetadataValue.int(h.duplicates_skipped)
-        metadata[f"{h.category}.duration_seconds"] = MetadataValue.float(h.duration_seconds)
+        per_kategori[h.category] = per_kategori.get(h.category, 0) + 1
+    terlihat: dict = {}
+    for h in hasil_semua:
+        terlihat[h.category] = terlihat.get(h.category, 0) + 1
+        kunci = (
+            h.category if per_kategori[h.category] == 1
+            else f"{h.category}[{terlihat[h.category]}]"
+        )
+        metadata[f"{kunci}.status"] = MetadataValue.text(h.status)
+        metadata[f"{kunci}.username"] = MetadataValue.text(h.username or "-")
+        metadata[f"{kunci}.actor"] = MetadataValue.text(h.actor)
+        metadata[f"{kunci}.targets"] = MetadataValue.int(h.targets)
+        metadata[f"{kunci}.profiles_processed"] = MetadataValue.int(h.profiles_processed)
+        metadata[f"{kunci}.posts_fetched"] = MetadataValue.int(h.posts_fetched)
+        metadata[f"{kunci}.posts_saved"] = MetadataValue.int(h.posts_saved)
+        metadata[f"{kunci}.duplicates_skipped"] = MetadataValue.int(h.duplicates_skipped)
+        metadata[f"{kunci}.duration_seconds"] = MetadataValue.float(h.duration_seconds)
         if h.error_message:
-            metadata[f"{h.category}.error"] = MetadataValue.text(h.error_message)
-        ringkas[h.category] = {
+            metadata[f"{kunci}.error"] = MetadataValue.text(h.error_message)
+        ringkas[kunci] = {
             "run_id": h.run_id,
             "status": h.status,
             "username": h.username,
             "posts_saved": h.posts_saved,
             "duplicates_skipped": h.duplicates_skipped,
         }
+
+    # Ringkasan batch. Dihitung dari `hasil_semua` yang sudah ada — tidak ada
+    # tabel log baru dan tidak ada perubahan skema scheduler_logs.
+    profil = [h for h in hasil_semua if h.category == SCHEDULER_CATEGORY_PROFILE]
+    metadata["batch.requested"] = MetadataValue.int(batas)
+    metadata["batch.selected"] = MetadataValue.int(len(profil))
+    metadata["batch.succeeded"] = MetadataValue.int(sum(1 for h in profil if h.ok))
+    metadata["batch.failed"] = MetadataValue.int(sum(1 for h in profil if not h.ok))
+    metadata["batch.skipped"] = MetadataValue.int(max(0, batas - len(profil)))
 
     if hasil_semua:
         metadata["run_id"] = MetadataValue.text(hasil_semua[0].run_id)

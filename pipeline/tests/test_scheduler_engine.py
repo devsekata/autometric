@@ -782,3 +782,625 @@ class OneShotJobMeneruskanKeGold(unittest.TestCase):
         s = _sumber(PROJECT_ROOT / "run_e2e_once.py")
         self.assertIn("from kol_orchestration.one_shot import", s)
         self.assertIn("jalankan_transform_chain", s)
+
+
+# --- batch ingestion (Phase 5F) ---------------------------------------------
+#
+# Sebelum ini, batasnya struktural: fetchone(), kandidat[0], targets=[profil],
+# dan scrape_batch([satu_username]). Menaikkan PROFILE_TARGET_LIMIT saja tidak
+# pernah cukup. Kelas-kelas di bawah menjaga keempatnya tetap terbuka, dan
+# menjaga default-nya tetap 1 supaya deploy tidak pernah diam-diam membesarkan
+# batch yang berbiaya actor.
+
+
+def _kursor_banyak(rows, sink, batas_terbaca):
+    """Kursor yang menghormati LIMIT seperti Postgres, supaya tes batas jujur."""
+
+    class K(KursorPalsu):
+        def execute(self, query, params=None):
+            super().execute(query, params)
+            # `count_rows` mengirim tuple, query kandidat mengirim dict. Hanya
+            # yang dict yang membawa batas.
+            batas = params.get("batas") if isinstance(params, dict) else None
+            batas_terbaca.append(batas)
+            if batas is not None:
+                self._rows = self._rows[:batas]
+
+    return K(rows, sink)
+
+
+class KoneksiBanyak:
+    """Koneksi palsu yang mengembalikan N baris kandidat per platform."""
+
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.queries = []
+        self.batas_terbaca = []
+
+    def cursor(self):
+        return _kursor_banyak(self.rows, self.queries, self.batas_terbaca)
+
+
+def _baris(n, platform="instagram", mulai=1, followers=None):
+    """N baris kandidat: (kol_id, social_account_id, platform, username, followers)."""
+    keluar = []
+    for i in range(mulai, mulai + n):
+        keluar.append((
+            f"kd-{platform}-{i}", f"sa-{platform}-{i}", platform,
+            f"kol_{platform}_{i:03d}",
+            followers if followers is not None else 1000 - i,
+        ))
+    return keluar
+
+
+class BatasBatchDefault(unittest.TestCase):
+    """Default WAJIB tetap 1: perilaku lama tidak boleh berubah tanpa diminta."""
+
+    def test_default_tanpa_env_dan_tanpa_cli_adalah_satu(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(se.resolve_batch_limit(), 1)
+
+    def test_konstanta_profile_target_limit_tetap_satu(self):
+        self.assertEqual(se.PROFILE_TARGET_LIMIT, 1)
+
+    def test_env_kosong_diperlakukan_sebagai_tidak_diisi(self):
+        with mock.patch.dict("os.environ", {se.BATCH_SIZE_ENV: "   "}, clear=True):
+            self.assertEqual(se.resolve_batch_limit(), 1)
+
+    def test_build_plan_tanpa_limit_memilih_satu(self):
+        conn = KoneksiBanyak(_baris(5))
+        # `count_rows` memakai kursor yang sama; di sini yang diuji pemilihan
+        # target, bukan hitungan baris L0.
+        with mock.patch.object(se, "count_rows", return_value=0):
+            plan = se.build_plan(conn, "instagram")
+        self.assertEqual(len(plan.profile_targets), 1)
+
+    def test_build_plan_dengan_limit_memilih_sebanyak_itu(self):
+        conn = KoneksiBanyak(_baris(40))
+        with mock.patch.object(se, "count_rows", return_value=0):
+            plan = se.build_plan(conn, "instagram", limit=25)
+        self.assertEqual(len(plan.profile_targets), 25)
+        self.assertEqual(len(plan.post_targets), 25)
+
+
+class PresedensiEnvDanCli(unittest.TestCase):
+    def test_env_dipakai_kalau_cli_tidak_ada(self):
+        with mock.patch.dict("os.environ", {se.BATCH_SIZE_ENV: "25"}, clear=True):
+            self.assertEqual(se.resolve_batch_limit(), 25)
+
+    def test_cli_dipakai_kalau_env_tidak_ada(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(se.resolve_batch_limit("25"), 25)
+
+    def test_cli_menang_atas_env(self):
+        with mock.patch.dict("os.environ", {se.BATCH_SIZE_ENV: "5"}, clear=True):
+            self.assertEqual(se.resolve_batch_limit("25"), 25)
+
+    def test_cli_menang_walau_lebih_kecil(self):
+        with mock.patch.dict("os.environ", {se.BATCH_SIZE_ENV: "25"}, clear=True):
+            self.assertEqual(se.resolve_batch_limit("2"), 2)
+
+    def test_argumen_limit_terdaftar_di_cli(self):
+        args = se.parse_args(["--limit", "25"])
+        self.assertEqual(args.limit, "25")
+
+    def test_cli_tanpa_limit_bernilai_none(self):
+        self.assertIsNone(se.parse_args([]).limit)
+
+
+class BatasTidakSahGagalKeras(unittest.TestCase):
+    """Nilai rusak tidak boleh diam-diam jadi 1 - itu biaya actor yang salah."""
+
+    def test_nol_ditolak(self):
+        with self.assertRaises(ValueError):
+            se.resolve_batch_limit("0")
+
+    def test_negatif_ditolak(self):
+        with self.assertRaises(ValueError):
+            se.resolve_batch_limit("-5")
+
+    def test_bukan_angka_ditolak(self):
+        with self.assertRaises(ValueError):
+            se.resolve_batch_limit("dua")
+
+    def test_pecahan_ditolak(self):
+        with self.assertRaises(ValueError):
+            se.resolve_batch_limit("2.5")
+
+    def test_env_rusak_juga_ditolak_bukan_jatuh_ke_satu(self):
+        with mock.patch.dict("os.environ", {se.BATCH_SIZE_ENV: "banyak"}, clear=True):
+            with self.assertRaises(ValueError):
+                se.resolve_batch_limit()
+
+    def test_pesan_menyebut_asal_nilai(self):
+        with self.assertRaises(ValueError) as ctx:
+            se.resolve_batch_limit("0")
+        self.assertIn("--limit", str(ctx.exception))
+        with mock.patch.dict("os.environ", {se.BATCH_SIZE_ENV: "0"}, clear=True):
+            with self.assertRaises(ValueError) as ctx2:
+                se.resolve_batch_limit()
+        self.assertIn(se.BATCH_SIZE_ENV, str(ctx2.exception))
+
+    def test_main_berhenti_sebelum_load_config(self):
+        # Batas rusak harus berhenti SEBELUM apa pun yang berbiaya.
+        with mock.patch.object(se, "load_config") as muat:
+            with mock.patch.dict("os.environ", {}, clear=True):
+                kode = se.main(["--limit", "0"])
+        self.assertEqual(kode, 2)
+        muat.assert_not_called()
+
+
+class BatchMemilihBanyakTarget(unittest.TestCase):
+    def test_limit_25_mengembalikan_25_target(self):
+        conn = KoneksiBanyak(_baris(40))
+        hasil = se.select_profile_targets(conn, limit=25, platform="instagram")
+        self.assertEqual(len(hasil), 25)
+
+    def test_limit_diteruskan_ke_sql_sebagai_parameter(self):
+        conn = KoneksiBanyak(_baris(40))
+        se.select_profile_targets(conn, limit=25, platform="instagram")
+        self.assertIn(25, conn.batas_terbaca)
+
+    def test_kandidat_lebih_sedikit_dari_limit_tidak_dipaksa(self):
+        conn = KoneksiBanyak(_baris(3))
+        hasil = se.select_profile_targets(conn, limit=25, platform="instagram")
+        self.assertEqual(len(hasil), 3)
+
+    def test_tanpa_kandidat_mengembalikan_daftar_kosong(self):
+        hasil = se.select_profile_targets(
+            KoneksiBanyak([]), limit=25, platform="instagram"
+        )
+        self.assertEqual(hasil, [])
+
+    def test_dua_platform_tidak_dibuang_jadi_satu(self):
+        # Regresi langsung atas `kandidat[0]`, yang dulu membuang TikTok.
+        conn = KoneksiBanyak(_baris(5, "instagram") + _baris(5, "tiktok"))
+        hasil = se.select_profile_targets(conn, limit=10)
+        self.assertEqual({t.platform for t in hasil}, {"instagram", "tiktok"})
+
+    def test_tidak_ada_target_kembar_dalam_satu_rencana(self):
+        conn = KoneksiBanyak(_baris(5) + _baris(5))  # sengaja duplikat
+        hasil = se.select_profile_targets(conn, limit=25, platform="instagram")
+        ids = [t.social_account_id for t in hasil]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_batas_tidak_sah_ditolak_sebelum_query(self):
+        conn = KoneksiBanyak(_baris(5))
+        with self.assertRaises(ValueError):
+            se.select_profile_targets(conn, limit=0, platform="instagram")
+        self.assertEqual(conn.queries, [])
+
+
+class UrutanBatchDeterministik(unittest.TestCase):
+    def test_urutan_followers_menurun_lintas_platform(self):
+        conn = KoneksiBanyak([
+            ("kd-1", "sa-1", "instagram", "kecil", 10),
+            ("kd-2", "sa-2", "tiktok", "besar", 900),
+        ])
+        hasil = se.select_profile_targets(conn, limit=2, order="followers")
+        self.assertEqual([t.username for t in hasil], ["besar", "kecil"])
+
+    def test_urutan_username_abjad_lintas_platform(self):
+        conn = KoneksiBanyak([
+            ("kd-1", "sa-1", "instagram", "zulu", 900),
+            ("kd-2", "sa-2", "tiktok", "alfa", 10),
+        ])
+        hasil = se.select_profile_targets(conn, limit=2, order="username")
+        self.assertEqual([t.username for t in hasil], ["alfa", "zulu"])
+
+    def test_hasil_sama_kalau_dipanggil_dua_kali(self):
+        baris = _baris(6, "instagram") + _baris(6, "tiktok")
+        a = se.select_profile_targets(KoneksiBanyak(baris), limit=5)
+        b = se.select_profile_targets(KoneksiBanyak(baris), limit=5)
+        self.assertEqual(
+            [t.social_account_id for t in a], [t.social_account_id for t in b]
+        )
+
+    def test_followers_null_tidak_melempar_dan_turun_ke_belakang(self):
+        conn = KoneksiBanyak([
+            ("kd-1", "sa-1", "instagram", "tanpa_angka", None),
+            ("kd-2", "sa-2", "instagram", "punya_angka", 50),
+        ])
+        hasil = se.select_profile_targets(conn, limit=2, platform="instagram")
+        self.assertEqual([t.username for t in hasil], ["punya_angka", "tanpa_angka"])
+
+    def test_urutan_asing_tetap_ditolak(self):
+        with self.assertRaises(ValueError):
+            se.select_profile_targets(KoneksiBanyak([]), limit=5, order="acak")
+
+
+class PredikatKandidatTidakBerubah(unittest.TestCase):
+    """Batch hanya mengubah BERAPA, tidak pernah SIAPA."""
+
+    def _query(self, **kw):
+        conn = KoneksiBanyak(_baris(3))
+        se.select_profile_targets(conn, limit=25, platform="instagram", **kw)
+        return _teks_query(conn)
+
+    def test_masih_lewat_kol_social_account(self):
+        self.assertIn("kol_social_account", self._query())
+
+    def test_masih_tidak_menjodohkan_username(self):
+        q = self._query()
+        self.assertNotIn("k.username = s.username", q)
+        self.assertNotIn("JOIN public.social_account s ON s.username", q)
+
+    def test_masih_menuntut_belum_ada_profil_dan_post(self):
+        q = self._query()
+        self.assertEqual(q.count("NOT EXISTS"), 2)
+        self.assertIn("l0_raw.ig_profile_apify", q)
+
+    def test_masih_mengecualikan_aamandazahra(self):
+        conn = KoneksiBanyak(_baris(3))
+        se.select_profile_targets(conn, limit=25, platform="instagram")
+        params = [p for _, p in conn.queries][0]
+        self.assertIn("aamandazahra", params["dikecualikan"])
+
+    def test_masih_menolak_username_kosong(self):
+        self.assertIn("btrim(k.username) <> ''", self._query())
+
+    def test_scrape_status_tetap_tidak_dipakai(self):
+        self.assertNotIn("scrape_status", self._query())
+
+    def test_username_terkunci_tetap_diverifikasi(self):
+        self.assertIn("= %(username)s", self._query(username="Kol_X"))
+
+
+class KeamananBiayaBatch(unittest.TestCase):
+    def test_max_retries_tetap_nol(self):
+        self.assertEqual(se.MAX_RETRIES, 0)
+
+    def test_retry_missing_tetap_false_untuk_kedua_platform(self):
+        for plat in se.PLATFORMS:
+            with self.subTest(plat=plat):
+                s = se._build_scraper(plat, CFG)
+                self.assertFalse(s.retry_missing)
+                self.assertEqual(s._max_retries, 0)
+
+    def test_tidak_ada_retry_otomatis_baru(self):
+        s = _sumber(se)
+        self.assertNotIn("for percobaan in range", s)
+        self.assertNotIn("while gagal", s)
+
+    def test_scrape_batch_tetap_satu_username_per_panggilan(self):
+        # Batch N target = N panggilan actor berurutan, BUKAN satu panggilan
+        # raksasa berisi N username: klasifikasi error dan scheduler_logs
+        # keduanya beralamat per akun.
+        self.assertIn("scrape_batch([target.username]", _sumber(se))
+
+    def test_tidak_ada_concurrency_yang_ditambahkan(self):
+        s = _sumber(se)
+        for jejak in ("ThreadPool", "asyncio", "concurrent.futures", "multiprocessing"):
+            self.assertNotIn(jejak, s)
+
+
+class EksekusiBatchBerurutan(unittest.TestCase):
+    """run_once memproses tiap target; kegagalan satu tidak menghentikan sisanya."""
+
+    def _jalankan(self, gagal_pada=()):
+        targets = [
+            se.KolTarget(f"kd-{i}", f"sa-{i}", "instagram", f"kol_{i}")
+            for i in range(1, 4)
+        ]
+        plan = se.ExecutionPlan(run_id="r", profile_targets=targets, post_targets=[])
+        urutan = []
+
+        def scrape_palsu(cfg, target):
+            urutan.append(target.username)
+            if target.username in gagal_pada:
+                raise RuntimeError("actor meledak")
+            return ([{"u": target.username}], [], None)
+
+        def profile_palsu(cfg, conn, target, run_id, **kw):
+            return (
+                se.JobResult(
+                    run_id=run_id, category=se.SCHEDULER_CATEGORY_PROFILE,
+                    platform=target.platform, actor=target.actor,
+                    started_at=se._now(), finished_at=se._now(),
+                    status=se.SUCCESS, username=target.username,
+                ),
+                None, None,
+            )
+
+        with mock.patch.object(se, "scrape_target", scrape_palsu), \
+             mock.patch.object(se, "run_profile_job", profile_palsu), \
+             mock.patch.object(se, "connect", mock.MagicMock()), \
+             mock.patch.object(se, "write_log", mock.Mock()):
+            hasil = se.run_once(CFG, plan=plan, log=False)
+        return urutan, hasil
+
+    def test_semua_target_diproses(self):
+        urutan, hasil = self._jalankan()
+        self.assertEqual(urutan, ["kol_1", "kol_2", "kol_3"])
+        self.assertEqual(len(hasil), 3)
+
+    def test_berurutan_sesuai_urutan_rencana(self):
+        urutan, _ = self._jalankan()
+        self.assertEqual(urutan, sorted(urutan))
+
+    def test_kegagalan_di_tengah_tidak_menghentikan_sisanya(self):
+        urutan, hasil = self._jalankan(gagal_pada={"kol_2"})
+        self.assertEqual(urutan, ["kol_1", "kol_2", "kol_3"])
+        self.assertEqual(len(hasil), 3)
+
+    def test_satu_actor_per_target(self):
+        urutan, _ = self._jalankan()
+        self.assertEqual(len(urutan), len(set(urutan)))
+
+    def test_tanpa_kandidat_tidak_melempar(self):
+        plan = se.ExecutionPlan(run_id="r", profile_targets=[], post_targets=[])
+        with mock.patch.object(se, "connect", mock.MagicMock()), \
+             mock.patch.object(se, "write_log", mock.Mock()):
+            hasil = se.run_once(CFG, plan=plan, log=False)
+        self.assertEqual(hasil, [])
+
+
+class RencanaKompatibelKeBelakang(unittest.TestCase):
+    def test_profile_target_lama_tetap_diterima(self):
+        plan = se.ExecutionPlan(run_id="r", profile_target=IG_TARGET, post_targets=[])
+        self.assertEqual(plan.profile_targets, [IG_TARGET])
+        self.assertIs(plan.profile_target, IG_TARGET)
+
+    def test_profile_targets_baru_mengisi_yang_lama(self):
+        plan = se.ExecutionPlan(
+            run_id="r", profile_targets=[IG_TARGET, TT_TARGET], post_targets=[]
+        )
+        self.assertIs(plan.profile_target, IG_TARGET)
+
+    def test_actor_runs_menghitung_akun_unik_lintas_batch(self):
+        plan = se.ExecutionPlan(
+            run_id="r", profile_targets=[IG_TARGET, TT_TARGET],
+            post_targets=[IG_TARGET, TT_TARGET],
+        )
+        self.assertEqual(plan.actor_runs, 2)
+
+    def test_rencana_kosong_tidak_melempar(self):
+        plan = se.ExecutionPlan(run_id="r")
+        self.assertEqual(plan.profile_targets, [])
+        self.assertIsNone(plan.profile_target)
+
+
+class PlanOnlyTidakMemanggilActor(unittest.TestCase):
+    def test_plan_only_berhenti_sebelum_run_once(self):
+        with mock.patch.object(se, "load_config", return_value=CFG), \
+             mock.patch.object(se, "connect", mock.MagicMock()), \
+             mock.patch.object(se, "build_plan") as bangun, \
+             mock.patch.object(se, "run_once") as jalan:
+            bangun.return_value = se.ExecutionPlan(
+                run_id="r",
+                profile_targets=[
+                    se.KolTarget(f"kd-{i}", f"sa-{i}", "instagram", f"kol_{i}")
+                    for i in range(25)
+                ],
+                post_targets=[],
+            )
+            kode = se.main(["--plan-only", "--limit", "25"])
+        self.assertEqual(kode, 0)
+        jalan.assert_not_called()
+        self.assertEqual(bangun.call_args.kwargs["limit"], 25)
+
+    def test_plan_only_menampilkan_jumlah_platform_dan_username(self):
+        import io
+        from contextlib import redirect_stdout
+        plan = se.ExecutionPlan(
+            run_id="r", profile_targets=[IG_TARGET, TT_TARGET], post_targets=[]
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            se.print_plan(plan)
+        keluar = buf.getvalue()
+        self.assertIn("2 target", keluar)
+        self.assertIn("kol_ig", keluar)
+        self.assertIn("kol_tt", keluar)
+        self.assertIn("instagram", keluar)
+        self.assertIn("tiktok", keluar)
+
+    def test_plan_only_tidak_menyentuh_apify(self):
+        s = _sumber(se)
+        blok = s[s.index("if args.plan_only"):s.index("print_results(hasil)")]
+        self.assertNotIn("scrape_target", blok)
+
+
+# --- logging durabel per target (Phase 5F.4) --------------------------------
+#
+# Pilot 5F.2 kehilangan seluruh jejaknya: tiga target gagal, prosesnya
+# dimatikan di target ke-4, dan `scheduler_logs` tetap 39 baris karena semua
+# `write_log` menunggu sampai batch selesai. Kelas-kelas di bawah mengunci
+# perilaku baru: satu hasil = satu baris, ditulis saat itu juga.
+
+
+class _Rekam:
+    """Mencatat urutan kejadian: scrape, log, dan kapan masing-masing terjadi."""
+
+    def __init__(self):
+        self.peristiwa = []
+
+    @property
+    def log_calls(self):
+        return [e for e in self.peristiwa if e[0] == "log"]
+
+    @property
+    def scrape_calls(self):
+        return [e for e in self.peristiwa if e[0] == "scrape"]
+
+
+def _jalankan_batch(usernames, gagal_scrape=(), gagal_simpan=(), henti_setelah=None,
+                    log=True, with_posts=False):
+    """Jalankan run_once atas target palsu, rekam scrape dan write_log.
+
+    `henti_setelah` mensimulasikan proses yang dimatikan: setelah N target,
+    scrape berikutnya melempar KeyboardInterrupt — persis bentuk terminasi yang
+    menghapus bukti pada pilot 5F.2.
+    """
+    targets = [
+        se.KolTarget(f"kd-{i}", f"sa-{i}", "instagram", u)
+        for i, u in enumerate(usernames, start=1)
+    ]
+    plan = se.ExecutionPlan(
+        run_id="r", profile_targets=targets,
+        post_targets=list(targets) if with_posts else [],
+    )
+    rek = _Rekam()
+
+    def scrape_palsu(cfg, target):
+        if henti_setelah is not None and len(rek.scrape_calls) >= henti_setelah:
+            raise KeyboardInterrupt("proses dimatikan")
+        rek.peristiwa.append(("scrape", target.username))
+        if target.username in gagal_scrape:
+            raise RuntimeError("actor meledak")
+        return ([{"u": target.username}], [], None)
+
+    def profile_palsu(cfg, conn, target, run_id, **kw):
+        if target.username in gagal_simpan:
+            raise RuntimeError("gagal menyimpan")
+        return (
+            se.JobResult(
+                run_id=run_id, category=se.SCHEDULER_CATEGORY_PROFILE,
+                platform=target.platform, actor=target.actor,
+                started_at=se._now(), finished_at=se._now(),
+                status=se.SUCCESS, username=target.username,
+            ),
+            None, None,
+        )
+
+    def post_palsu(cfg, conn, targets_, run_id, **kw):
+        return se.JobResult(
+            run_id=run_id, category=se.SCHEDULER_CATEGORY_POST,
+            platform="instagram", actor="a", started_at=se._now(),
+            finished_at=se._now(), status=se.SUCCESS,
+        )
+
+    def log_palsu(cfg, hasil):
+        rek.peristiwa.append(("log", hasil.username, hasil.category, hasil.status))
+        return True
+
+    with mock.patch.object(se, "scrape_target", scrape_palsu), \
+         mock.patch.object(se, "run_profile_job", profile_palsu), \
+         mock.patch.object(se, "run_post_job", post_palsu), \
+         mock.patch.object(se, "connect", mock.MagicMock()), \
+         mock.patch.object(se, "write_log", log_palsu):
+        try:
+            hasil = se.run_once(CFG, plan=plan, log=log)
+        except KeyboardInterrupt:
+            # Simulasi terminasi: `KeyboardInterrupt` adalah BaseException, jadi
+            # ia memang MENEMBUS `except Exception` di run_once — persis seperti
+            # proses yang dimatikan. Yang diuji adalah apa yang sudah sempat
+            # ditulis sebelum itu, bukan apakah run_once bisa menahannya.
+            hasil = []
+    return rek, hasil
+
+
+class LogDitulisPerTarget(unittest.TestCase):
+    def test_A_satu_target_sukses_satu_baris(self):
+        rek, hasil = _jalankan_batch(["a"])
+        self.assertEqual(len(rek.log_calls), 1)
+        self.assertEqual(len(hasil), 1)
+
+    def test_B_satu_target_gagal_satu_baris(self):
+        rek, hasil = _jalankan_batch(["a"], gagal_simpan={"a"})
+        self.assertEqual(len(rek.log_calls), 1)
+        self.assertEqual(rek.log_calls[0][3], se.FAILED)
+
+    def test_B2_scrape_gagal_tetap_satu_baris(self):
+        rek, _ = _jalankan_batch(["a"], gagal_scrape={"a"})
+        self.assertEqual(len(rek.log_calls), 1)
+
+    def test_C_tiga_target_dengan_satu_gagal(self):
+        rek, hasil = _jalankan_batch(["a", "b", "c"], gagal_simpan={"b"})
+        self.assertEqual(len(rek.log_calls), 3)
+        self.assertEqual(len(hasil), 3)
+        # target 3 tetap dikerjakan setelah target 2 gagal
+        self.assertEqual([e[1] for e in rek.scrape_calls], ["a", "b", "c"])
+        self.assertEqual(rek.log_calls[1][3], se.FAILED)
+        self.assertEqual(rek.log_calls[2][3], se.SUCCESS)
+
+    def test_E_tidak_ada_baris_ganda(self):
+        rek, hasil = _jalankan_batch(["a", "b", "c"])
+        self.assertEqual(len(rek.log_calls), len(hasil))
+        nama = [e[1] for e in rek.log_calls]
+        self.assertEqual(len(nama), len(set(nama)))
+
+    def test_log_ditulis_SEBELUM_target_berikutnya_di_scrape(self):
+        # Inti perbaikannya: urutannya harus scrape(a), log(a), scrape(b), ...
+        rek, _ = _jalankan_batch(["a", "b"])
+        jenis = [e[0] for e in rek.peristiwa]
+        self.assertEqual(jenis, ["scrape", "log", "scrape", "log"])
+
+    def test_post_job_juga_dicatat(self):
+        rek, hasil = _jalankan_batch(["a"], with_posts=True)
+        kategori = [e[2] for e in rek.log_calls]
+        self.assertIn(se.SCHEDULER_CATEGORY_POST, kategori)
+        self.assertEqual(len(rek.log_calls), len(hasil))
+
+    def test_log_false_tidak_menulis_apa_pun(self):
+        rek, hasil = _jalankan_batch(["a", "b"], log=False)
+        self.assertEqual(rek.log_calls, [])
+        self.assertEqual(len(hasil), 2)
+
+
+class InterupsiTidakMenghapusBukti(unittest.TestCase):
+    """D: proses dimatikan setelah target 2 -> baris 1 dan 2 sudah mendarat."""
+
+    def test_D_dua_target_selesai_sebelum_interupsi_tetap_tercatat(self):
+        # Inilah perbaikannya. Nilai kembalian run_once IKUT HILANG saat proses
+        # dimatikan — dan memang itu sebabnya log harus sudah mendarat lebih
+        # dulu. Yang diuji: baris a dan b sudah ditulis sebelum interupsi,
+        # bukan bahwa fungsinya sempat mengembalikan sesuatu.
+        rek, hasil = _jalankan_batch(["a", "b", "c"], henti_setelah=2)
+        self.assertEqual([e[1] for e in rek.log_calls], ["a", "b"])
+        self.assertEqual(hasil, [])  # hilang bersama prosesnya
+
+    def test_D2_target_yang_terinterupsi_tidak_mengarang_hasil(self):
+        _, hasil = _jalankan_batch(["a", "b", "c"], henti_setelah=2)
+        self.assertNotIn("c", [h.username for h in hasil])
+
+    def test_D3_interupsi_di_target_pertama_tidak_menulis_baris_palsu(self):
+        rek, hasil = _jalankan_batch(["a", "b"], henti_setelah=0)
+        # Tidak ada target yang selesai; handler luar mencatat SATU baris
+        # kegagalan eksekusi, bukan satu baris per target yang tidak dijalankan.
+        self.assertLessEqual(len(rek.log_calls), 1)
+        self.assertLessEqual(len(hasil), 1)
+        for h in hasil:
+            self.assertEqual(h.status, se.FAILED)
+
+
+class TidakAdaPenulisanGandaDiSumber(unittest.TestCase):
+    def test_write_log_tidak_lagi_dipanggil_setelah_loop(self):
+        s = _sumber(se)
+        # Pola lama: "if log:\n        for hasil in hasil_semua:"
+        self.assertNotIn("for hasil in hasil_semua:", s)
+
+    def test_write_log_dipanggil_lewat_catat(self):
+        s = _sumber(se)
+        self.assertIn("def catat(", s)
+        # Satu-satunya pemanggilan write_log di run_once ada di dalam `catat`.
+        badan = s[s.index("def run_once("):s.index("# --- CLI ---")]
+        self.assertEqual(badan.count("write_log(cfg_terpakai, hasil)"), 1)
+
+
+class DefaultDanPlanOnlyTidakBerubah(unittest.TestCase):
+    def test_F_default_limit_tetap_satu(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(se.resolve_batch_limit(), 1)
+        self.assertEqual(se.PROFILE_TARGET_LIMIT, 1)
+
+    def test_F2_satu_target_menghasilkan_satu_baris_seperti_sebelumnya(self):
+        rek, hasil = _jalankan_batch(["a"])
+        self.assertEqual(len(hasil), 1)
+        self.assertEqual(len(rek.log_calls), 1)
+
+    def test_G_plan_only_tidak_menulis_apa_pun(self):
+        with mock.patch.object(se, "load_config", return_value=CFG), \
+             mock.patch.object(se, "connect", mock.MagicMock()), \
+             mock.patch.object(se, "build_plan") as bangun, \
+             mock.patch.object(se, "run_once") as jalan, \
+             mock.patch.object(se, "write_log") as tulis:
+            bangun.return_value = se.ExecutionPlan(
+                run_id="r",
+                profile_targets=[se.KolTarget("kd", "sa", "instagram", "a")],
+                post_targets=[],
+            )
+            kode = se.main(["--plan-only", "--limit", "25"])
+        self.assertEqual(kode, 0)
+        jalan.assert_not_called()
+        tulis.assert_not_called()

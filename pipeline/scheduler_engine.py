@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -95,8 +96,13 @@ logger = logging.getLogger("scheduler_engine")
 
 # --- batas eksekusi ---------------------------------------------------------
 
-#: Profil yang di-scrape per eksekusi. Uji tahap ini: satu.
+#: Profil yang di-scrape per eksekusi KALAU tidak ada yang menentukan lain.
+#: Tetap 1: menaikkan angka ini tidak boleh terjadi diam-diam lewat deploy.
+#: Batch yang lebih besar diminta SECARA SADAR lewat `--limit` atau
+#: `SCRAPE_BATCH_SIZE` — lihat `resolve_batch_limit`.
 PROFILE_TARGET_LIMIT = 1
+#: Nama environment variable untuk ukuran batch.
+BATCH_SIZE_ENV = "SCRAPE_BATCH_SIZE"
 #: Post terbaru per target.
 POSTS_PER_TARGET = 10
 #: Retry actor otomatis DIMATIKAN — actor berbiaya, kegagalan dicatat lalu selesai.
@@ -123,6 +129,49 @@ PLATFORM_TABLES = {
         "posted_at_key": "createTimeISO",
     },
 }
+
+
+def resolve_batch_limit(cli_limit: int | None = None) -> int:
+    """Berapa profil yang boleh diambil satu eksekusi.
+
+    PRESEDENSI, dari yang paling kuat:
+
+        1. `--limit` (argumen CLI / parameter `cli_limit`)
+        2. environment `SCRAPE_BATCH_SIZE`
+        3. `PROFILE_TARGET_LIMIT` (= 1)
+
+    CLI menang atas environment DENGAN SENGAJA: environment adalah setelan
+    mesin yang bisa terbawa dari deploy sebelumnya, sedangkan `--limit`
+    diketik orang yang sedang menjalankan perintah itu. Yang paling dekat
+    dengan keputusan manusia yang menang.
+
+    Nilai tidak sah GAGAL KERAS, tidak pernah diam-diam jatuh ke 1. Batch yang
+    salah baca berarti panggilan actor berbayar yang tidak diminta, jadi
+    "0", "-5", "dua", dan "2.5" semuanya melempar `ValueError` — termasuk
+    ketika datang dari environment, di mana salah ketik paling mudah lolos.
+    """
+    if cli_limit is not None:
+        return _batas_sah(cli_limit, "--limit")
+
+    mentah = os.getenv(BATCH_SIZE_ENV)
+    if mentah is None or mentah.strip() == "":
+        return PROFILE_TARGET_LIMIT
+    return _batas_sah(mentah, BATCH_SIZE_ENV)
+
+
+def _batas_sah(nilai, asal: str) -> int:
+    """Integer >= 1, atau `ValueError` yang menyebut asal nilainya."""
+    if isinstance(nilai, bool):  # bool adalah int di Python; bukan batas yang sah
+        raise ValueError(f"{asal} harus bilangan bulat >= 1, dapat {nilai!r}")
+    try:
+        angka = int(str(nilai).strip())
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{asal} harus bilangan bulat >= 1, dapat {nilai!r}"
+        ) from None
+    if angka < 1:
+        raise ValueError(f"{asal} harus bilangan bulat >= 1, dapat {angka}")
+    return angka
 
 
 def actor_for(platform: str) -> str:
@@ -254,6 +303,114 @@ CANDIDATE_ORDERS = {
 }
 
 
+def select_profile_targets(
+    conn,
+    limit: int = PROFILE_TARGET_LIMIT,
+    platform: str | None = None,
+    order: str = "followers",
+    username: str | None = None,
+) -> list[KolTarget]:
+    """Pilih SAMPAI `limit` kandidat profil, berangkat dari `public.kol_directory`.
+
+    Syarat kandidat sama persis dengan `select_profile_target` di bawah — yang
+    berubah hanya BERAPA BANYAK yang dikembalikan, bukan SIAPA yang memenuhi
+    syarat. Predikat WHERE tidak disentuh.
+
+    KENAPA `limit` DIPAKAI DUA KALI
+    ===============================
+    Query per platform mengambil `limit` baris, lalu gabungannya dipotong lagi
+    jadi `limit`. Dua platform berarti sampai `2 x limit` baris terbaca sebelum
+    dipotong — itu disengaja. Memotong per platform saja akan membagi jatah
+    setengah-setengah dan memaksa komposisi 50:50 yang tidak diminta siapa pun;
+    memotong di akhir membiarkan urutan yang dipilih (`order`) yang menentukan
+    komposisinya. Baris berlebih hanya dibaca, tidak pernah di-scrape.
+
+    `followers_count` ikut diambil HANYA untuk pengurutan gabungan itu. Tanpa
+    kolomnya, dua daftar yang masing-masing sudah urut tidak bisa digabung
+    dengan benar dan `order='followers'` akan bohong di tingkat batch.
+
+    Hasilnya deterministik dan bebas duplikat: satu `social_account_id` tidak
+    pernah muncul dua kali dalam satu rencana.
+    """
+    batas = _batas_sah(limit, "limit")
+    if platform is not None and platform not in PLATFORM_TABLES:
+        raise ValueError(f"platform '{platform}' tidak dikenal, pilih {PLATFORMS}")
+    if order not in CANDIDATE_ORDERS:
+        raise ValueError(
+            f"order '{order}' tidak dikenal, pilih {sorted(CANDIDATE_ORDERS)}"
+        )
+
+    kunci = normalize_username(username) if username else None
+    if username and not kunci:
+        raise ValueError(f"username '{username}' tidak valid")
+
+    daftar = [platform] if platform else list(PLATFORMS)
+    kandidat: list[tuple[int, KolTarget]] = []
+
+    for plat in daftar:
+        profile_table = table_for(plat, "profile_table")
+        post_table = table_for(plat, "post_table")
+        filter_username = (
+            "\n              AND ltrim(lower(btrim(split_part(k.username, '?', 1))), '@') "
+            "= %(username)s"
+            if kunci
+            else ""
+        )
+        query = f"""
+            SELECT k.id::text, s.id::text, p.key, k.username, k.followers_count
+            {_DARI_DIREKTORI}
+            WHERE p.key = %(platform)s
+              AND k.username IS NOT NULL
+              AND btrim(k.username) <> ''
+              AND lower(btrim(k.username)) <> ALL(%(dikecualikan)s){filter_username}
+              AND NOT EXISTS (SELECT 1 FROM {profile_table} pr
+                              WHERE pr.social_account_id = s.id)
+              AND NOT EXISTS (SELECT 1 FROM {post_table} po
+                              WHERE po.social_account_id = s.id)
+            ORDER BY {CANDIDATE_ORDERS[order]}
+            LIMIT %(batas)s
+        """
+        params = {
+            "platform": plat,
+            "dikecualikan": sorted(EXCLUDED_USERNAMES),
+            "batas": batas,
+        }
+        if kunci:
+            params["username"] = kunci
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall() or []
+        for row in rows:
+            pengikut = row[4] if len(row) > 4 and row[4] is not None else -1
+            kandidat.append((
+                int(pengikut),
+                KolTarget(
+                    kol_directory_id=row[0],
+                    social_account_id=row[1],
+                    platform=row[2],
+                    username=normalize_username(row[3]) or row[3],
+                ),
+            ))
+
+    # Urutan gabungan mengikuti `order` yang diminta; `username` tetap pemecah
+    # seri, sama seperti CANDIDATE_ORDERS di SQL.
+    if order == "followers":
+        kandidat.sort(key=lambda p: (-p[0], p[1].username))
+    else:
+        kandidat.sort(key=lambda p: p[1].username)
+
+    terpilih: list[KolTarget] = []
+    sudah: set[str] = set()
+    for _, target in kandidat:
+        if target.social_account_id in sudah:
+            continue
+        sudah.add(target.social_account_id)
+        terpilih.append(target)
+        if len(terpilih) >= batas:
+            break
+    return terpilih
+
+
 def select_profile_target(
     conn,
     platform: str | None = None,
@@ -292,64 +449,14 @@ def select_profile_target(
                               yang ternyata tidak mengembalikan data profil.
         'username'            urut abjad.
     Keduanya deterministik: `username` selalu jadi pemecah seri.
+    Implementasi tunggal ada di `select_profile_targets`; fungsi ini hanya
+    mengambil yang pertama. Dipertahankan supaya pemanggil lama tidak perlu
+    ikut berubah hanya karena batch ditambahkan.
     """
-    if platform is not None and platform not in PLATFORM_TABLES:
-        raise ValueError(f"platform '{platform}' tidak dikenal, pilih {PLATFORMS}")
-    if order not in CANDIDATE_ORDERS:
-        raise ValueError(
-            f"order '{order}' tidak dikenal, pilih {sorted(CANDIDATE_ORDERS)}"
-        )
-
-    kunci = normalize_username(username) if username else None
-    if username and not kunci:
-        raise ValueError(f"username '{username}' tidak valid")
-
-    daftar = [platform] if platform else list(PLATFORMS)
-    kandidat: list[KolTarget] = []
-
-    for plat in daftar:
-        profile_table = table_for(plat, "profile_table")
-        post_table = table_for(plat, "post_table")
-        filter_username = (
-            "\n              AND ltrim(lower(btrim(split_part(k.username, '?', 1))), '@') "
-            "= %(username)s"
-            if kunci
-            else ""
-        )
-        query = f"""
-            SELECT k.id::text, s.id::text, p.key, k.username
-            {_DARI_DIREKTORI}
-            WHERE p.key = %(platform)s
-              AND k.username IS NOT NULL
-              AND btrim(k.username) <> ''
-              AND lower(btrim(k.username)) <> ALL(%(dikecualikan)s){filter_username}
-              AND NOT EXISTS (SELECT 1 FROM {profile_table} pr
-                              WHERE pr.social_account_id = s.id)
-              AND NOT EXISTS (SELECT 1 FROM {post_table} po
-                              WHERE po.social_account_id = s.id)
-            ORDER BY {CANDIDATE_ORDERS[order]}
-            LIMIT {PROFILE_TARGET_LIMIT}
-        """
-        params = {"platform": plat, "dikecualikan": sorted(EXCLUDED_USERNAMES)}
-        if kunci:
-            params["username"] = kunci
-        with conn.cursor() as cur:
-            cur.execute(query, params)
-            row = cur.fetchone()
-        if row:
-            kandidat.append(
-                KolTarget(
-                    kol_directory_id=row[0],
-                    social_account_id=row[1],
-                    platform=row[2],
-                    username=normalize_username(row[3]) or row[3],
-                )
-            )
-
-    if not kandidat:
-        return None
-    kandidat.sort(key=lambda t: (t.platform, t.username))
-    return kandidat[0]
+    terpilih = select_profile_targets(
+        conn, limit=1, platform=platform, order=order, username=username
+    )
+    return terpilih[0] if terpilih else None
 
 
 # --- pemanggilan actor ------------------------------------------------------
@@ -706,10 +813,30 @@ class ExecutionPlan:
     """Apa yang AKAN dikerjakan. Ditampilkan sebelum actor dipanggil."""
 
     run_id: str
-    profile_target: KolTarget | None
-    post_targets: list[KolTarget]
+    #: Target pertama. Dipertahankan supaya pemanggil dan tes lama yang menulis
+    #: `ExecutionPlan(profile_target=...)` tetap jalan tanpa diubah.
+    profile_target: KolTarget | None = None
+    post_targets: list[KolTarget] = field(default_factory=list)
+    #: Baris profil L0 milik target pertama, sebelum eksekusi.
     profile_rows_before: int = 0
     post_rows_before: dict = field(default_factory=dict)
+    #: Seluruh target batch. Inilah yang dibaca `run_once`.
+    profile_targets: list[KolTarget] = field(default_factory=list)
+    #: `social_account_id` -> jumlah baris profil L0 sebelum eksekusi.
+    profile_rows_before_by_id: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Jaga `profile_target` dan `profile_targets` selalu sepakat.
+
+        Satu rencana boleh dibangun dari salah satu sisi: jalur lama mengisi
+        `profile_target`, jalur batch mengisi `profile_targets`. Yang kosong
+        diturunkan dari yang terisi, jadi tidak ada rencana yang setengah jadi
+        dan tidak ada pembaca yang perlu tahu lewat mana ia dibuat.
+        """
+        if not self.profile_targets and self.profile_target is not None:
+            self.profile_targets = [self.profile_target]
+        elif self.profile_targets and self.profile_target is None:
+            self.profile_target = self.profile_targets[0]
 
     @property
     def actor_runs(self) -> int:
@@ -720,8 +847,7 @@ class ExecutionPlan:
         pekerjaan post lewat `prescraped`.
         """
         ids = {t.social_account_id for t in self.post_targets}
-        if self.profile_target:
-            ids.add(self.profile_target.social_account_id)
+        ids.update(t.social_account_id for t in self.profile_targets)
         return len(ids)
 
 
@@ -731,23 +857,33 @@ def build_plan(
     with_posts: bool = True,
     order: str = "followers",
     username: str | None = None,
+    limit: int = PROFILE_TARGET_LIMIT,
 ) -> ExecutionPlan:
     """Susun rencana eksekusi dan buktikan kondisi awalnya lewat COUNT nyata.
 
     Target post adalah PROFIL YANG SAMA, bukan daftar akun lain. Karena mode
     `details` Instagram sudah membawa `latestPosts`, pekerjaan post tidak
     memanggil actor lagi — lihat `run_once`.
+
+    `limit` default 1, jadi memanggil `build_plan` tanpa menyebutnya memberi
+    rencana yang identik dengan sebelum batch ada.
     """
     run_id = str(uuid.uuid4())
-    profil = select_profile_target(conn, platform, order=order, username=username)
-    targets = [profil] if (with_posts and profil) else []
+    profil = select_profile_targets(
+        conn, limit=limit, platform=platform, order=order, username=username
+    )
+    targets = list(profil) if with_posts else []
 
-    plan = ExecutionPlan(run_id=run_id, profile_target=profil, post_targets=targets)
-    if profil:
+    plan = ExecutionPlan(run_id=run_id, profile_targets=profil, post_targets=targets)
+    for t in profil:
         # Verifikasi kedua: jangan percaya pada NOT EXISTS saja.
-        plan.profile_rows_before = count_rows(
-            conn, table_for(profil.platform, "profile_table"), profil.social_account_id
+        plan.profile_rows_before_by_id[t.social_account_id] = count_rows(
+            conn, table_for(t.platform, "profile_table"), t.social_account_id
         )
+    if profil:
+        plan.profile_rows_before = plan.profile_rows_before_by_id[
+            profil[0].social_account_id
+        ]
     for t in targets:
         plan.post_rows_before[t.social_account_id] = count_rows(
             conn, table_for(t.platform, "post_table"), t.social_account_id
@@ -763,31 +899,84 @@ def run_once(
     write: bool = True,
     log: bool = True,
     plan: ExecutionPlan | None = None,
+    limit: int = PROFILE_TARGET_LIMIT,
 ) -> list[JobResult]:
-    """Jalankan SATU eksekusi: pekerjaan profile lalu pekerjaan post.
+    """Jalankan SATU eksekusi: pekerjaan profile untuk tiap target, lalu post.
 
     Tidak pernah melempar. Setiap pekerjaan berakhir sebagai satu baris
-    `public.scheduler_logs`, sukses maupun gagal. Tidak ada eksekusi kedua dan
-    tidak ada retry — kalau actor gagal, kegagalannya dicatat lalu selesai.
+    `public.scheduler_logs`, sukses maupun gagal. Tidak ada retry — kalau actor
+    gagal, kegagalannya dicatat lalu lanjut ke target berikutnya.
+
+    BERURUTAN, SATU ACTOR PER TARGET
+    ================================
+    Target diproses satu per satu, dan tiap target memakai `scrape_target` yang
+    sudah ada — tidak ada panggilan paralel, dan `scrape_batch` TIDAK dijadikan
+    satu panggilan raksasa berisi N username. Alasannya bukan kehati-hatian
+    umum: `post_errors` mengklasifikasikan kegagalan per akun dan
+    `scheduler_logs` menyimpan satu baris per akun, jadi menggabungkan N
+    username ke satu run membuat `private_unavailable` atau `rate_limit`
+    kehilangan alamat — kita tahu batch-nya gagal, tapi tidak tahu siapa.
+
+    KEGAGALAN SATU TARGET TIDAK MENGHENTIKAN BATCH
+    ==============================================
+    Tiap target dibungkus penanganannya sendiri. Target ke-3 yang gagal tidak
+    boleh membuat target ke-4 sampai ke-25 tidak pernah dicoba, karena target
+    yang gagal tetap memenuhi syarat kandidat (`NOT EXISTS` di L0) dan akan
+    terpilih lagi di batch berikutnya — itulah retry-nya, tanpa satu pun
+    panggilan actor tambahan di eksekusi ini.
+
+    LOG DITULIS SAAT ITU JUGA, BUKAN DI AKHIR BATCH
+    ===============================================
+    Dulu seluruh `write_log` menunggu sampai batch selesai. Dengan satu target
+    itu tidak kelihatan; dengan 25 target artinya satu proses yang dimatikan di
+    target ke-4 menghapus jejak tiga target yang SUDAH selesai. Itu benar-benar
+    terjadi pada pilot 5F.2: tiga kegagalan nyata, `scheduler_logs` tetap 39
+    baris, dan buktinya hanya tersisa di stdout.
+
+    `write_log` sudah menulis satu baris per `JobResult` lewat `ScrapeLogger`
+    yang autocommit, jadi memindahkan panggilannya ke dalam loop tidak menambah
+    mekanisme apa pun — hanya memindahkan kapan barisnya mendarat. Kegagalan
+    menulis log tetap ditelan di dalam `write_log` sendiri, jadi database yang
+    sedang tidak bisa dihubungi tidak akan menjatuhkan batch yang berbiaya
+    actor.
     """
     hasil_semua: list[JobResult] = []
     cfg_terpakai = cfg
+
+    def catat(hasil: JobResult) -> None:
+        """Simpan hasil satu pekerjaan, lalu langsung tulis barisnya.
+
+        Ditulis sebagai closure supaya pasangan "append + write_log" tidak
+        diulang di tiga tempat dan tidak bisa lepas sinkron — satu hasil selalu
+        berarti satu baris, dan tidak pernah dua.
+        """
+        hasil_semua.append(hasil)
+        if log:
+            write_log(cfg_terpakai, hasil)
+
     try:
         if cfg_terpakai is None:
             cfg_terpakai = load_config()
         with connect(cfg_terpakai.postgres) as conn:
-            rencana = plan or build_plan(conn, platform, with_posts)
+            rencana = plan or build_plan(conn, platform, with_posts, limit=limit)
             run_id = rencana.run_id
 
             prescraped: dict = {}
             mulai_actor = None
             detik_actor = None
-            if rencana.profile_target:
-                target = rencana.profile_target
-                # Actor dipanggil TEPAT SEKALI di sini. Hasilnya — berhasil
+            if not rencana.profile_targets:
+                logger.warning("Tidak ada kandidat profil; pekerjaan profile dilewati")
+            for urutan, target in enumerate(rencana.profile_targets, start=1):
+                logger.info(
+                    "Target %d/%d: %s (%s)",
+                    urutan, len(rencana.profile_targets), target.username, target.platform,
+                )
+                # Actor dipanggil TEPAT SEKALI per target. Hasilnya — berhasil
                 # maupun berisi item error — dipakai kedua pekerjaan. Kegagalan
                 # menyimpan profil TIDAK boleh memicu panggilan actor kedua.
-                mulai_actor = _now()
+                mulai_target = _now()
+                if mulai_actor is None:
+                    mulai_actor = mulai_target
                 try:
                     scraped = scrape_target(cfg_terpakai, target)
                 except Exception as exc:  # noqa: BLE001
@@ -799,19 +988,38 @@ def run_once(
                     prescraped[target.social_account_id] = (scraped[1], scraped[2])
                 # Diukur di sini, bukan di dalam pekerjaan: run actor terjadi
                 # SEBELUM keduanya dan merupakan bagian paling lambat.
-                detik_actor = round((_now() - mulai_actor).total_seconds(), 3)
-                logger.info("Run actor selesai dalam %.2fs", detik_actor)
+                detik_target = round((_now() - mulai_target).total_seconds(), 3)
+                detik_actor = detik_target
+                logger.info("Run actor selesai dalam %.2fs", detik_target)
 
-                hasil, _, _ = run_profile_job(
-                    cfg_terpakai, conn, target, run_id, write=write, scraped=scraped,
-                    started_at=mulai_actor, actor_seconds=detik_actor,
-                )
-                hasil_semua.append(hasil)
-            else:
-                logger.warning("Tidak ada kandidat profil; pekerjaan profile dilewati")
+                try:
+                    hasil, _, _ = run_profile_job(
+                        cfg_terpakai, conn, target, run_id, write=write, scraped=scraped,
+                        started_at=mulai_target, actor_seconds=detik_target,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Menyimpan hasil satu target gagal. Dicatat sebagai baris
+                    # log target itu sendiri, lalu batch lanjut.
+                    _, pesan = classify_exception(exc)
+                    logger.exception(
+                        "Pekerjaan profile gagal untuk %s: %s", target.username, pesan
+                    )
+                    hasil = JobResult(
+                        run_id=run_id,
+                        category=SCHEDULER_CATEGORY_PROFILE,
+                        platform=target.platform,
+                        actor=target.actor,
+                        started_at=mulai_target,
+                        finished_at=_now(),
+                        status=FAILED,
+                        error_message=pesan,
+                        username=target.username,
+                        kol_directory_id=target.kol_directory_id,
+                    )
+                catat(hasil)
 
             if rencana.post_targets:
-                hasil_semua.append(
+                catat(
                     run_post_job(
                         cfg_terpakai,
                         conn,
@@ -827,7 +1035,7 @@ def run_once(
         _, pesan = classify_exception(exc)
         logger.exception("Eksekusi gagal sebelum pekerjaan selesai: %s", pesan)
         if not hasil_semua:
-            hasil_semua.append(
+            catat(
                 JobResult(
                     run_id=str(uuid.uuid4()),
                     category=SCHEDULER_CATEGORY_PROFILE,
@@ -840,9 +1048,8 @@ def run_once(
                 )
             )
 
-    if log:
-        for hasil in hasil_semua:
-            write_log(cfg_terpakai, hasil)
+    # TIDAK ADA penulisan log di sini. Semua baris sudah ditulis oleh `catat`
+    # saat hasilnya lahir; mengulanginya di sini akan menggandakan setiap baris.
     return hasil_semua
 
 
@@ -859,6 +1066,12 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="urutan kandidat profil (default: %(default)s)")
     p.add_argument("--username", default=None,
                    help="kunci ke satu kandidat; syarat 'belum ada di L0' tetap berlaku")
+    p.add_argument("--limit", type=str, default=None,
+                   help=(
+                       "berapa profil diambil satu eksekusi. Menang atas "
+                       f"${BATCH_SIZE_ENV}; tanpa keduanya: {PROFILE_TARGET_LIMIT}. "
+                       "Harus bilangan bulat >= 1"
+                   ))
     p.add_argument("--no-posts", action="store_true",
                    help="pekerjaan profile saja, jangan simpan post")
     p.add_argument("--plan-only", action="store_true",
@@ -874,17 +1087,20 @@ def print_plan(plan: ExecutionPlan) -> None:
     print("RENCANA EKSEKUSI (satu kali, tanpa retry)")
     print("=" * 72)
     print(f"run_id : {plan.run_id}")
-    t = plan.profile_target
-    print("\n-- PROFILE TEST --")
-    if t is None:
+    print(f"\n-- PROFILE TARGET -- {len(plan.profile_targets)} target")
+    if not plan.profile_targets:
         print("   (tidak ada kandidat)")
-    else:
-        print(f"   kol_directory_id : {t.kol_directory_id}")
-        print(f"   social_account_id: {t.social_account_id}")
-        print(f"   platform         : {t.platform}")
-        print(f"   username         : {t.username}")
-        print(f"   actor            : {t.actor}")
-        print(f"   baris profil L0  : {plan.profile_rows_before}  (harus 0)")
+    per_platform_profil: dict = {}
+    for i, t in enumerate(plan.profile_targets, start=1):
+        per_platform_profil[t.platform] = per_platform_profil.get(t.platform, 0) + 1
+        sebelum = plan.profile_rows_before_by_id.get(t.social_account_id, 0)
+        print(f"   [{i}] {t.platform:10s} {t.username}")
+        print(f"       kol_directory_id : {t.kol_directory_id}")
+        print(f"       social_account_id: {t.social_account_id}")
+        print(f"       actor            : {t.actor}")
+        print(f"       baris profil L0  : {sebelum}  (harus 0)")
+    for plat in sorted(per_platform_profil):
+        print(f"   total {plat:10s}: {per_platform_profil[plat]}")
     print(
         f"\n-- POST TARGET -- {len(plan.post_targets)} target "
         f"(profil yang sama), maks {POSTS_PER_TARGET} post terbaru"
@@ -929,6 +1145,15 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s | %(message)s")
     args = parse_args(argv)
 
+    # Batas diselesaikan SEBELUM apa pun yang berbiaya — termasuk sebelum
+    # koneksi dibuka. Nilai tidak sah harus berhenti di sini, bukan setengah
+    # jalan dengan sebagian target sudah di-scrape.
+    try:
+        batas = resolve_batch_limit(args.limit)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 2
+
     try:
         cfg = load_config()
     except ConfigError as exc:
@@ -938,7 +1163,7 @@ def main(argv=None) -> int:
     with connect(cfg.postgres) as conn:
         plan = build_plan(
             conn, args.platform, with_posts=not args.no_posts,
-            order=args.order, username=args.username,
+            order=args.order, username=args.username, limit=batas,
         )
     print_plan(plan)
 
@@ -953,6 +1178,7 @@ def main(argv=None) -> int:
         write=not args.no_write,
         log=not args.no_log,
         plan=plan,
+        limit=batas,
     )
     print_results(hasil)
     return 0 if all(h.ok for h in hasil) else 1

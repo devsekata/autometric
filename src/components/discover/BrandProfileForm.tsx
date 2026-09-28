@@ -11,11 +11,10 @@
  *
  * ── What this form does NOT contain, and why ───────────────────────────────
  *
- *   **Brand Values.** Absent from Brand Identity by design. The engine's Values
- *   Match scores against a creator-values column that does not exist on the KOL
- *   server, so the whole Brand Personality component is N/A for every creator
- *   and renormalises away. A field that cannot move any score is a field that
- *   wastes the user's time and implies a precision the product does not have.
+ *   **Brand personality and Brand values.** Removed from Brand Identity, and
+ *   from every score: no Brand Match, What Matters or Brand Fit code reads
+ *   either, and `migrations/kol/011` dropped their columns
+ *   (`brand_personality`, `brand_values`) from `brand_profile`.
  *
  *   **Weights, sliders, priorities, totals, reset.** No control here sets how
  *   much a signal is worth. The brand says what it wants; the system decides
@@ -32,7 +31,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Btn, Chip, PJ, Spinner, ErrorState, TOKENS as T } from './ui'
 import type { BrandProfile, GenderMajority } from '@/lib/discover/brandMatch/profile'
-import { creatorPersonalityFor } from '@/lib/discover/brandFit/personalityMap'
 
 interface Payload {
   profile: BrandProfile
@@ -76,29 +74,6 @@ const PLATFORMS = [{ id: 'instagram', label: 'Instagram' }, { id: 'tiktok', labe
 const CONTENT_STYLES = [
   'Tutorial', 'Review', 'Vlog', 'Storytelling', 'Comedy', 'Educational',
   'Unboxing', 'Behind the scenes', 'Testimonial', 'Livestream',
-]
-
-/**
- * The form's original ten, then the Brand Personality words of
- * `scripts/brand-match/vocabulary.mjs` that it lacked. Brand Fit compares each
- * against a creator personality label through `BRAND_TO_CREATOR_PERSONALITY`;
- * a word with no entry there is kept and shown, but not scored.
- */
-const PERSONALITIES = [
-  'Playful', 'Premium', 'Warm', 'Bold', 'Minimal', 'Energetic',
-  'Trustworthy', 'Youthful', 'Confident', 'Down-to-earth',
-  'Professional', 'Innovative', 'Friendly', 'Educational', 'Authentic', 'Caring', 'Modern',
-]
-
-/**
- * Brand Values, as the product prototype lists them. Saved to
- * `brand_profile.brand_values` (migrations/kol/008) together with any custom
- * value typed below them. Stored and shown only — no Brand Match, What Matters
- * or Brand Fit code reads it, and the hint under the field says so.
- */
-const BRAND_VALUES = [
-  'Innovation', 'Trust', 'Authenticity', 'Creativity', 'Community', 'Sustainability',
-  'Inclusivity', 'Quality', 'Transparency', 'Accessibility', 'Empowerment',
 ]
 
 /**
@@ -179,80 +154,23 @@ const inputCls = 'w-full rounded-lg border text-[12px] px-2.5 h-9 outline-none f
 const inputStyle = { borderColor: T.outline, color: T.t1, background: T.surface }
 
 /**
- * A free-text list, edited as chips.
- *
- * Comma and Enter both commit, because people paste comma-separated lists and
- * type one term at a time, and a field that only honours one of those gets one
- * long keyword with commas in it.
+ * Target age bounds, the same 0–120 `saveBrandProfile` enforces. An empty box
+ * is `null` — no age target, so Audience Age is not selected — never 0, which
+ * would be a real (and nonsensical) bound.
  */
-function TagInput({
-  value, onChange, placeholder, disabled, max = 25,
-}: {
-  value: string[]; onChange: (v: string[]) => void
-  placeholder: string; disabled?: boolean; max?: number
-}) {
-  const [draft, setDraft] = useState('')
-
-  const commit = (raw: string) => {
-    const parts = raw.split(',').map(s => s.trim()).filter(Boolean)
-    if (!parts.length) return
-    const seen = new Set(value.map(v => v.toLowerCase()))
-    const next = [...value]
-    for (const p of parts) {
-      if (seen.has(p.toLowerCase()) || next.length >= max) continue
-      seen.add(p.toLowerCase())
-      next.push(p)
-    }
-    onChange(next)
-    setDraft('')
-  }
-
-  return (
-    <div>
-      <div className="flex flex-wrap gap-1.5 mb-1.5">
-        {value.map(v => (
-          <span
-            key={v}
-            style={{ ...PJ, background: '#f0f7fa', borderColor: '#A7C8D4', color: T.primaryDeep }}
-            className="inline-flex items-center gap-1 rounded-full border text-[11px] font-bold px-2.5 h-[24px]"
-          >
-            {v}
-            {!disabled && (
-              <button
-                type="button"
-                onClick={() => onChange(value.filter(x => x !== v))}
-                className="material-symbols-outlined text-[13px] cursor-pointer opacity-60 hover:opacity-100"
-                aria-label={`Remove ${v}`}
-              >
-                close
-              </button>
-            )}
-          </span>
-        ))}
-        {!value.length && (
-          <span className="text-[11px] italic" style={{ color: T.t4 }}>None yet</span>
-        )}
-      </div>
-      {!disabled && (
-        <input
-          className={inputCls}
-          style={inputStyle}
-          placeholder={value.length >= max ? `Limit of ${max} reached` : placeholder}
-          disabled={value.length >= max}
-          value={draft}
-          onChange={e => {
-            if (e.target.value.includes(',')) commit(e.target.value)
-            else setDraft(e.target.value)
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter') { e.preventDefault(); commit(draft) }
-            if (e.key === 'Backspace' && !draft && value.length) onChange(value.slice(0, -1))
-          }}
-          onBlur={() => commit(draft)}
-        />
-      )}
-    </div>
-  )
+const AGE_MIN = 0
+const AGE_MAX = 120
+const ageInput = (raw: string): number | null => {
+  if (raw.trim() === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? Math.round(n) : null
+}
+/** Client-side notice only; the server still rejects the same cases with a 400. */
+function ageWarning(min: number | null, max: number | null): string | null {
+  const out = (v: number | null) => v !== null && (v < AGE_MIN || v > AGE_MAX)
+  if (out(min) || out(max)) return `Age must be between ${AGE_MIN} and ${AGE_MAX}.`
+  if (min !== null && max !== null && min > max) return 'Min age cannot be greater than Max age.'
+  return null
 }
 
 function Section({
@@ -303,7 +221,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
     setSaved(null)
   }
 
-  const toggle = (key: 'brandPersonality' | 'brandValues' | 'audienceInterests'
+  const toggle = (key: 'audienceInterests'
     | 'preferredCategories' | 'preferredPlatforms' | 'preferredTiers' | 'contentStyles'
     | 'whatMatters', v: string) => {
     setDraft(d => {
@@ -403,7 +321,7 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
           style={{ borderColor: '#fecaca', background: '#fef2f2', color: '#991b1b' }}>{error}</p>
       )}
 
-      {/* ── Brand Identity ── Brand Values is deliberately not here. ── */}
+      {/* ── Brand Identity ── */}
       <Section
         icon="storefront"
         title="Brand Identity"
@@ -456,50 +374,6 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
             onChange={e => set('companyWebsite', e.target.value || null)}
           />
         </Field>
-
-        <Field
-          label="Brand personality"
-          hint="Scored in Brand Fit's Values component against the creator personality tags in the KOL database. Each word is compared with one creator label (e.g. Playful → Entertaining); a word with no creator equivalent is saved but not scored."
-        >
-          <div className="flex flex-wrap gap-1.5">
-            {PERSONALITIES.map(p => (
-              <Chip
-                key={p} label={p} on={draft.brandPersonality.includes(p)}
-                onClick={() => { if (!ro) toggle('brandPersonality', p) }}
-              />
-            ))}
-          </div>
-          {(() => {
-            const unscored = draft.brandPersonality.filter(p => creatorPersonalityFor(p) === null)
-            return unscored.length > 0 && (
-              <p className="text-[10.5px] leading-snug mt-1.5" style={{ color: T.t4 }}>
-                Not scored in Brand Fit (no creator equivalent): {unscored.join(', ')}.
-              </p>
-            )
-          })()}
-        </Field>
-
-        <Field
-          label="Brand values"
-          hint="Stored and shown only (migrations/kol/008). No Brand Match, What Matters or Brand Fit code reads it — it is here because it is real brand configuration, not because it changes a score."
-        >
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {BRAND_VALUES.map(v => (
-              <Chip
-                key={v} label={v} on={draft.brandValues.includes(v)}
-                onClick={() => { if (!ro) toggle('brandValues', v) }}
-              />
-            ))}
-          </div>
-          {/* Custom values: anything saved that is not one of the prototype's. */}
-          <TagInput
-            value={draft.brandValues.filter(v => !BRAND_VALUES.includes(v))} disabled={ro}
-            onChange={custom => set('brandValues', [
-              ...draft.brandValues.filter(v => BRAND_VALUES.includes(v)), ...custom,
-            ])}
-            placeholder="Add another value and press Enter"
-          />
-        </Field>
       </Section>
 
       {/*
@@ -540,6 +414,33 @@ export default function BrandProfileForm({ orgId }: { orgId: string }) {
               value={draft.targetCity ?? ''} placeholder="e.g. Jakarta"
               onChange={e => set('targetCity', e.target.value)}
             />
+          </Field>
+          <Field
+            label="Age range"
+            hint="Compared against the follower age distribution; leave it empty if age doesn't matter."
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min={AGE_MIN} max={AGE_MAX} inputMode="numeric"
+                aria-label="Minimum age" placeholder="Min"
+                className={inputCls} style={inputStyle} disabled={ro}
+                value={draft.targetAgeMin ?? ''}
+                onChange={e => set('targetAgeMin', ageInput(e.target.value))}
+              />
+              <span className="text-[12px]" style={{ color: T.t4 }}>–</span>
+              <input
+                type="number" min={AGE_MIN} max={AGE_MAX} inputMode="numeric"
+                aria-label="Maximum age" placeholder="Max"
+                className={inputCls} style={inputStyle} disabled={ro}
+                value={draft.targetAgeMax ?? ''}
+                onChange={e => set('targetAgeMax', ageInput(e.target.value))}
+              />
+            </div>
+            {ageWarning(draft.targetAgeMin, draft.targetAgeMax) && (
+              <p role="alert" className="text-[10.5px] leading-snug mt-1" style={{ color: '#b45309' }}>
+                {ageWarning(draft.targetAgeMin, draft.targetAgeMax)}
+              </p>
+            )}
           </Field>
         </div>
 

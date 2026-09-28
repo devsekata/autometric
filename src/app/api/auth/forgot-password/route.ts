@@ -9,7 +9,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 })
     }
 
-    await forgotPassword(email)
+    const result = await forgotPassword(email)
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: result.status ?? 400 })
+    }
 
     return NextResponse.json({ success: true })
   } catch (err) {

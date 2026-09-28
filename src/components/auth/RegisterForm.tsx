@@ -72,8 +72,12 @@ export default function RegisterForm({ onSwitch }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Failed to send OTP.')
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      // 409 is "email already registered" and belongs under the email field;
+      // anything else (e.g. 503 when the OTP email could not be sent) is general.
+      throw Object.assign(new Error(data.error || 'Failed to send OTP.'), { status: res.status })
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -92,7 +96,7 @@ export default function RegisterForm({ onSwitch }: Props) {
       setStep('otp')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.'
-      if (message.toLowerCase().includes('email')) {
+      if ((err as { status?: number }).status === 409) {
         setErrors(prev => ({ ...prev, email: message }))
       } else {
         setApiError(message)
@@ -122,7 +126,10 @@ export default function RegisterForm({ onSwitch }: Props) {
             password: form.password,
             redirect: false,
           })
-          if (!result?.error) router.push('/')
+          if (result?.error) {
+            throw new Error('Your account was created, but signing in failed. Please sign in with your email and password.')
+          }
+          router.push('/')
         }}
       />
     )

@@ -59,12 +59,9 @@ export interface BrandProfile {
   companyWebsite: string | null
   /** One of `CANONICAL_CATEGORIES`, or null while the profile is incomplete. */
   brandCategory: string | null
-  brandPersonality: string[]
-  /**
-   * Brand Values (migrations/kol/008). Stored and shown only: no Brand Match,
-   * What Matters or Brand Fit code reads it.
-   */
-  brandValues: string[]
+  // Brand personality and Brand values were removed from the profile, and
+  // `migrations/kol/011` dropped their columns (`brand_personality`,
+  // `brand_values`) from `brand_profile`.
 
   /* Target Audience — each filled-in field selects one Brand Match criterion.
    * See `@/lib/discover/whatMatters/audienceMatch`: an empty field is not
@@ -116,8 +113,6 @@ export function emptyProfile(organizationId: string): BrandProfile {
     brandDescription: null,
     companyWebsite: null,
     brandCategory: null,
-    brandPersonality: [],
-    brandValues: [],
     genderMajority: 'Any',
     targetCountry: null,
     targetCity: null,
@@ -160,8 +155,6 @@ interface Row {
   brand_description: string | null
   company_website: string | null
   brand_category: string | null
-  brand_personality: string[]
-  brand_values: string[] | null
   gender_majority: string
   target_country: string | null
   target_city: string | null
@@ -178,10 +171,10 @@ interface Row {
 
 const COLUMNS = `
   organization_id, brand_id, brand_name, brand_description, brand_category,
-  brand_personality, gender_majority, target_country, target_city, audience_interests,
+  gender_majority, target_country, target_city, audience_interests,
   target_age_min, target_age_max,
   preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-  what_matters, updated_at, company_website, brand_values`
+  what_matters, updated_at, company_website`
 
 function fromRow(r: Row): BrandProfile {
   return {
@@ -191,8 +184,6 @@ function fromRow(r: Row): BrandProfile {
     brandDescription: r.brand_description,
     companyWebsite: r.company_website,
     brandCategory: r.brand_category,
-    brandPersonality: r.brand_personality ?? [],
-    brandValues: r.brand_values ?? [],
     genderMajority: (GENDER_MAJORITIES as readonly string[]).includes(r.gender_majority)
       ? r.gender_majority as GenderMajority : 'Any',
     targetCountry: r.target_country,
@@ -386,9 +377,6 @@ export async function saveBrandProfile(
     brandDescription: has('brandDescription') ? str(input.brandDescription) : current.brandDescription,
     companyWebsite: website,
     brandCategory: category,
-    brandPersonality: has('brandPersonality') ? cleanList(input.brandPersonality) : current.brandPersonality,
-    // Prototype vocabulary plus custom values, cleaned like the other free lists.
-    brandValues: has('brandValues') ? cleanList(input.brandValues) : current.brandValues,
     genderMajority: gender,
     targetCountry: has('targetCountry') ? str(input.targetCountry) : current.targetCountry,
     targetCity: has('targetCity') ? str(input.targetCity) : current.targetCity,
@@ -413,17 +401,16 @@ export async function saveBrandProfile(
   const { rows } = await kolDbWrite().query<Row>(`
     INSERT INTO public.brand_profile (
       organization_id, brand_id, brand_name, brand_description, brand_category,
-      brand_personality, gender_majority, target_country, target_city, audience_interests,
+      gender_majority, target_country, target_city, audience_interests,
       target_age_min, target_age_max,
       preferred_categories, preferred_platforms, preferred_tiers, content_styles,
-      what_matters, updated_by, company_website, brand_values, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+      what_matters, updated_by, company_website, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
     ON CONFLICT (organization_id) DO UPDATE SET
       brand_id = EXCLUDED.brand_id,
       brand_name = EXCLUDED.brand_name,
       brand_description = EXCLUDED.brand_description,
       brand_category = EXCLUDED.brand_category,
-      brand_personality = EXCLUDED.brand_personality,
       gender_majority = EXCLUDED.gender_majority,
       target_country = EXCLUDED.target_country,
       target_city = EXCLUDED.target_city,
@@ -437,15 +424,14 @@ export async function saveBrandProfile(
       what_matters = EXCLUDED.what_matters,
       updated_by = EXCLUDED.updated_by,
       company_website = EXCLUDED.company_website,
-      brand_values = EXCLUDED.brand_values,
       updated_at = NOW()
     RETURNING ${COLUMNS}`,
   [
     organizationId, next.brandId, next.brandName, next.brandDescription, next.brandCategory,
-    next.brandPersonality, next.genderMajority, next.targetCountry, next.targetCity,
+    next.genderMajority, next.targetCountry, next.targetCity,
     next.audienceInterests, next.targetAgeMin, next.targetAgeMax,
     next.preferredCategories, next.preferredPlatforms, next.preferredTiers, next.contentStyles,
-    next.whatMatters, updatedBy, next.companyWebsite, next.brandValues,
+    next.whatMatters, updatedBy, next.companyWebsite,
   ])
 
   return fromRow(rows[0])

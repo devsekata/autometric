@@ -26,18 +26,57 @@ import type { DiscoverSummaryPayload, NamedCount } from '@/lib/discover/summary'
 
 const PALETTE = ['#285D6E', '#4E96AC', '#e0a458', '#5fa783', '#8b7fc7', '#d97a7a', '#7DB4C6']
 
-function useSummary(orgId: string) {
-  const [data, setData] = useState<DiscoverSummaryPayload | null>(null)
-  const [error, setError] = useState<string | null>(null)
+/**
+ * The summary's load state. `unavailable` is its own state, not an error: on the
+ * KOL-only product `/discover/summary` answers 503 `feature_unavailable` by
+ * design, because its data lives on the analytics warehouse. Same handling as
+ * `DiscoverSettings`, which reads the same endpoint.
+ */
+type Summary =
+  | { status: 'loading' }
+  | { status: 'ready'; data: DiscoverSummaryPayload }
+  | { status: 'unavailable'; message: string }
+  | { status: 'error'; message: string }
+
+async function loadSummary(orgId: string): Promise<Summary> {
+  try {
+    const r = await fetch(`/api/organizations/${orgId}/discover/summary`)
+    if (r.ok) return { status: 'ready', data: (await r.json()) as DiscoverSummaryPayload }
+    const body = await r.json().catch(() => null) as { error?: string; code?: string } | null
+    if (r.status === 503 && body?.code === 'feature_unavailable') {
+      return { status: 'unavailable', message: body.error ?? 'Sementara tidak tersedia.' }
+    }
+    return { status: 'error', message: `HTTP ${r.status}` }
+  } catch (e) {
+    return { status: 'error', message: String((e as Error).message ?? e) }
+  }
+}
+
+function useSummary(orgId: string): Summary {
+  const [summary, setSummary] = useState<Summary>({ status: 'loading' })
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/organizations/${orgId}/discover/summary`)
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: DiscoverSummaryPayload) => { if (!cancelled) setData(d) })
-      .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
+    setSummary({ status: 'loading' })
+    loadSummary(orgId).then(s => { if (!cancelled) setSummary(s) })
     return () => { cancelled = true }
   }, [orgId])
-  return { data, error }
+  return summary
+}
+
+/**
+ * Everything below the header is built from the summary, so when it is not
+ * ready this stands in for all of it. `unavailable` shows no numbers: KPIs of 0
+ * would read as "no views", which is not what a switched-off source means.
+ */
+function SummaryState({ summary }: { summary: Exclude<Summary, { status: 'ready' }> }) {
+  if (summary.status === 'loading') return <Spinner />
+  if (summary.status === 'error') return <ErrorState message={summary.message} />
+  return (
+    <Card>
+      <EmptyState icon="cloud_off" title={summary.message}
+        body="Data ringkasan ini belum tersedia di database KOL, jadi halaman ini sengaja tidak menampilkan angka." />
+    </Card>
+  )
 }
 
 function Kpi({ label, value, sub, icon }: { label: string; value: string; sub?: string; icon: string }) {
@@ -67,19 +106,23 @@ const toBars = (items: NamedCount[], metric: (n: NamedCount) => number, fmt: (n:
 export function DiscoverAudience({
   orgId, embedded = false,
 }: { orgId: string; embedded?: boolean }) {
-  const { data, error } = useSummary(orgId)
-  if (error) return <div className={embedded ? '' : 'p-5'}><ErrorState message={error} /></div>
-  if (!data) return <div className={embedded ? '' : 'p-5'}><Spinner /></div>
-
-  const engagementOf = (n: NamedCount) => n.likes + n.comments
-
+  const summary = useSummary(orgId)
   return (
     <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Audience Insights"
         subtitle="Di mana audiens Discover kamu berada dan konten seperti apa yang mereka respons — dari post brand dan kompetitor."
       />
+      {summary.status === 'ready' ? <AudienceBody data={summary.data} /> : <SummaryState summary={summary} />}
+    </div>
+  )
+}
 
+function AudienceBody({ data }: { data: DiscoverSummaryPayload }) {
+  const engagementOf = (n: NamedCount) => n.likes + n.comments
+
+  return (
+    <>
       <div className="grid grid-cols-4 gap-3.5 mb-4">
         <Kpi label="Total views" value={fmtNum(data.totals.views)} icon="visibility" />
         <Kpi label="Total likes" value={fmtNum(data.totals.likes)} icon="favorite" />
@@ -135,7 +178,7 @@ export function DiscoverAudience({
           </div>
         </Card>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -144,19 +187,26 @@ export function DiscoverAudience({
 export function DiscoverReports({
   orgId, embedded = false,
 }: { orgId: string; embedded?: boolean }) {
-  const { data, error } = useSummary(orgId)
-  if (error) return <div className={embedded ? '' : 'p-5'}><ErrorState message={error} /></div>
-  if (!data) return <div className={embedded ? '' : 'p-5'}><Spinner /></div>
-
-  const labels = data.timeline.map(t => t.month.slice(5))
-
+  const summary = useSummary(orgId)
   return (
     <div className={embedded ? '' : 'p-5 max-w-[1500px] mx-auto'}>
       <DiscoverHeader
         title="Discover Reports"
-        subtitle={`Ringkasan performa ${data.totals.posts} konten brand dan kompetitor.`}
+        // The count only when there is one to state — never a 0 standing in for "unknown".
+        subtitle={summary.status === 'ready'
+          ? `Ringkasan performa ${summary.data.totals.posts} konten brand dan kompetitor.`
+          : 'Ringkasan performa konten brand dan kompetitor.'}
       />
+      {summary.status === 'ready' ? <ReportsBody data={summary.data} /> : <SummaryState summary={summary} />}
+    </div>
+  )
+}
 
+function ReportsBody({ data }: { data: DiscoverSummaryPayload }) {
+  const labels = data.timeline.map(t => t.month.slice(5))
+
+  return (
+    <>
       <div className="grid grid-cols-4 gap-3.5 mb-4">
         <Kpi label="Konten" value={String(data.totals.posts)} icon="grid_view" />
         <Kpi label="Views" value={fmtNum(data.totals.views)} icon="visibility" />
@@ -227,6 +277,6 @@ export function DiscoverReports({
           </div>
         </Card>
       </div>
-    </div>
+    </>
   )
 }

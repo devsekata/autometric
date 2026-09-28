@@ -43,6 +43,7 @@ import { useSavedFilters } from './useSavedFilters'
 import { tabHref } from '@/lib/discover/tabs'
 import type {
   KolDataStatus, KolDirectoryFacets, KolDirectoryMeasured, KolDirectoryPayload, KolDirectoryRow,
+  ProfileEligibility,
 } from '@/lib/discover/kolDirectory'
 // From `matchSort`, not `kolDirectory`: a VALUE import of the latter pulls
 // `pg` into the browser bundle. Same function, re-exported there.
@@ -376,6 +377,8 @@ export default function KolDirectoryPage({
    * ride the list request. Null until the first response.
    */
   const [measured, setMeasured] = useState<KolDirectoryMeasured | null>(null)
+  /** The saved Brand Profile eligibility the server narrowed this list by, if any. */
+  const [profileEligibility, setProfileEligibility] = useState<ProfileEligibility | null>(null)
   /**
    * Brand Match for the creators on this page, from the ONE engine
    * (`@/lib/discover/whatMatters/brandMatch`).
@@ -516,6 +519,12 @@ export default function KolDirectoryPage({
      * whole list fail whenever the second one could not be answered.
      */
     params.set('measured', '1')
+    /**
+     * The saved Brand Profile's Ideal Creator Profile (preferred platforms,
+     * tiers, categories) is the base of this list. The server reads it fresh
+     * on every request, so a profile saved in Settings applies on the next load.
+     */
+    params.set('brandProfile', '1')
 
     let cancelled = false
     setLoading(true)
@@ -534,6 +543,7 @@ export default function KolDirectoryPage({
         setRows(d.rows)
         setTotal(d.total)
         setMeasured(d.measured ?? null)
+        setProfileEligibility(d.profileEligibility ?? null)
         if (d.facets) { setFacets(d.facets); facetsFor.current = filters.platform }
       })
       .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
@@ -962,6 +972,12 @@ export default function KolDirectoryPage({
           <NoBrandProfileNotice href={`${tabHref(orgSlug, 'settings')}&view=discover`} />
         )}
 
+        {/* Why the list is smaller than the database: the saved Ideal Creator
+            Profile is applied as a base filter, and says so. */}
+        {profileEligibility && (
+          <ProfileEligibilityNotice e={profileEligibility} href={`${tabHref(orgSlug, 'settings')}&view=discover`} />
+        )}
+
         {/* ── page head ── */}
         <div className="flex items-center justify-between gap-x-4 gap-y-2 flex-wrap mb-3">
           <div className="min-w-0">
@@ -1379,11 +1395,12 @@ export default function KolDirectoryPage({
                 {view === 'card' ? (
                   /* Columns follow the width the grid actually has — the app
                      sidebar makes the viewport a poor guide. Every column is an
-                     equal 1fr; a card never goes below 264px (the width its
-                     action row and four metric boxes need), and the row never
-                     holds more than four cards (three beside the open panel). */
-                  <div className="grid gap-4" style={{
-                    gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, max(264px, calc((100% - ${
+                     equal 1fr; a card never goes below 300px (the width its
+                     header, badge row and four metric boxes need side by side),
+                     and the row never holds more than four cards (three beside
+                     the open panel). Below 300px the grid is one column wide. */
+                  <div className="grid gap-4 items-start" style={{
+                    gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, max(300px, calc((100% - ${
                       (filtPanel ? 2 : 3) * 16}px) / ${filtPanel ? 3 : 4}))), 1fr))`,
                   }}>
                     {ordered.map(r => <CreatorCard key={r.id} {...cardProps(r)} />)}
@@ -1569,195 +1586,224 @@ function CreatorCard({
 }) {
   const st = statusOf(c.status)
   const banner = gradOf(bannerFor(c.id))
+  const platformLabel = c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null
   /**
    * The handle joins the subtitle only when the real name has taken the title
-   * line, so the card never prints the same string twice.
+   * line, so the card never prints the same string twice. Location moved to the
+   * detail row below, beside the audience readings it is read with.
    */
-  const subtitle = [
-    c.displayName ? `@${c.username}` : null,
-    c.platform ? PLATFORM_LABEL[c.platform] ?? c.platform : null,
-    c.city,
-  ].filter(Boolean).join(' · ')
+  const subtitle = [c.displayName ? `@${c.username}` : null, platformLabel].filter(Boolean).join(' · ')
 
   return (
     <article onClick={onOpen}
-      className="relative flex flex-col h-full min-w-0 rounded-[18px] border overflow-hidden bg-white transition-all hover:-translate-y-[3px]"
+      className="@container relative flex flex-col min-w-0 rounded-[18px] border bg-white p-4 transition-all hover:-translate-y-[3px]"
       style={{ borderColor: T.outline, boxShadow: T.shadow, cursor: 'pointer' }}
       title="Lihat insight singkat creator ini"
     >
-      <div className="h-14 flex-shrink-0 relative overflow-hidden" style={{ background: banner }}>
-        <span className="absolute rounded-full" style={{ width: 90, height: 90, top: -40, right: 20, background: 'rgba(255,255,255,.16)' }} />
-        <span className="absolute rounded-full" style={{ width: 50, height: 50, bottom: -24, right: 90, background: 'rgba(255,255,255,.16)' }} />
-        <div className="absolute top-2 right-2 flex items-center gap-1 z-[3]">
-          <IconToggle on={fav} onClick={onFav} icon="favorite" title="Favorite" activeColor={T.accent} filled />
-          <IconToggle on={inCompare} onClick={onCompare} icon={inCompare ? 'check' : 'add'} title="Add to compare"
-            activeColor={T.primary} solid />
-          <IconToggle on={inCart} onClick={onCart} icon={inCart ? 'shopping_cart_checkout' : 'add_shopping_cart'}
-            title={inCart ? 'In cart' : 'Add to cart'} activeColor="#3d8a5f" solid />
-          {/* The two organization-wide states, beside the personal ones. Save
-              puts the creator in My Creators without copying them out of the
-              database; Track starts monitoring and is what fills Tracked
-              Accounts — neither happens merely by the creator existing here. */}
-          <IconToggle on={inRoster} onClick={linkBusy ? () => {} : onRoster}
-            icon={inRoster ? 'folder_shared' : 'create_new_folder'}
-            title={inRoster ? 'Di My Creators — klik untuk mengeluarkan' : 'Add to My Creators'}
-            activeColor={T.primaryDeep} solid />
-          <IconToggle on={tracking !== 'none'} onClick={linkBusy ? () => {} : onTracking}
-            icon={tracking === 'active' ? 'monitor_heart' : tracking === 'paused' ? 'pause_circle' : 'radar'}
-            title={
-              tracking === 'active' ? 'Dipantau — klik untuk menjeda'
-                : tracking === 'paused' ? 'Pemantauan dijeda — klik untuk melanjutkan'
-                : 'Start Tracking'
-            }
-            activeColor={tracking === 'paused' ? '#b5761f' : '#3d8a5f'} solid />
-          {/* Find Similar sits with the other per-row actions rather than inside
-              the opened profile, so "more like this one" is answerable while
-              scanning the list — which is when the thought occurs. */}
-          {onSimilar && (
-            <IconToggle on={false} onClick={onSimilar} icon="auto_awesome"
-              title="Find similar creators" activeColor="#6b5bb5" solid />
+      {/* ── Header: who, then how well they answer the brief. Actions live in
+          the footer, so nothing sits on top of the photo. ── */}
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="w-12 h-12 flex-shrink-0 rounded-[14px] flex items-center justify-center relative overflow-hidden"
+          style={{ background: banner }}>
+          <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[18px]" />
+          {/* Connected — the creator linked the account through OAuth. Not the
+              platform's blue tick: that badge was dropped from Discovery, so the
+              glyph is a link rather than a check to avoid reading as one. */}
+          {c.connected && (
+            <span title="Connected" aria-label="Connected"
+              className="absolute bottom-0 right-0 w-[18px] h-[18px] rounded-full border-2 border-white flex items-center justify-center"
+              style={{ background: T.primary }}>
+              <span className="material-symbols-outlined fill text-[10px]! text-white">link</span>
+            </span>
           )}
         </div>
-      </div>
 
-      <div className="w-[60px] h-[60px] flex-shrink-0 rounded-[17px] border-4 border-white -mt-[34px] ml-4 flex items-center justify-center relative overflow-hidden"
-        style={{ background: banner, boxShadow: T.shadow }}>
-        <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[22px]" />
-        {/* Connected — the creator linked the account through OAuth. Not the
-            platform's blue tick: that badge was dropped from Discovery, so the
-            glyph is a link rather than a check to avoid reading as one. */}
-        {c.connected && (
-          <span title="Connected" aria-label="Connected"
-            className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-[2.5px] border-white flex items-center justify-center"
-            style={{ background: T.primary }}>
-            <span className="material-symbols-outlined fill text-[11px] text-white">link</span>
-          </span>
+        <div className="min-w-0 flex-1 pt-0.5">
+          {/* The real name leads when the roster has one — 3.463 creators carry a
+              name that differs from their handle, and BE-03 made those searchable,
+              so a result found by name has to show that name. Falls back to the
+              handle, which is the only identity the other 4.257 have. */}
+          <div style={{ ...PJ, color: T.t1 }} className="text-[15px] leading-[1.25] font-extrabold truncate"
+            title={c.displayName ? `${c.displayName} · @${c.username}` : `@${c.username}`}>
+            {c.displayName ?? `@${c.username}`}
+          </div>
+          <div className="flex items-center gap-1 mt-0.5 min-w-0 text-[11.5px]" style={{ color: T.t4 }}>
+            {c.platform && (
+              <span className="material-symbols-outlined text-[13px]! flex-shrink-0" aria-hidden
+                style={{ color: T.primaryDeep }}>
+                {PLATFORM_ICON[c.platform] ?? 'public'}
+              </span>
+            )}
+            <span className="truncate" title={subtitle || undefined}>{subtitle || '—'}</span>
+          </div>
+        </div>
+
+        {/* The percentage, and nothing standing in for it. There is no band
+            here — no Moderate, no Strong: the number is the mean of the
+            criteria this workspace chose, and naming a tier would assert a
+            judgement the model never made. Hovering gives the breakdown, and
+            says which chosen criteria this creator could not be measured on. */}
+        {match && (
+          <div className="flex-shrink-0 [&_.material-symbols-outlined]:text-[12px]!">
+            <MatchBadge m={match} size="sm" />
+          </div>
         )}
       </div>
 
-      {/* The score sits over the banner rather than in the body: when the list is
-          ranked, "how well does this answer my question" is the first thing to
-          read, before the name. */}
-      {match && (
-        <div className="absolute top-[9px] left-[9px] z-[3] rounded-lg"
-          style={{ background: 'rgba(255,255,255,.92)', boxShadow: T.shadow }}>
-          {/* The percentage, and nothing standing in for it. There is no band
-              here — no Moderate, no Strong: the number is the mean of the
-              criteria this workspace chose, and naming a tier would assert a
-              judgement the model never made. Hovering gives the breakdown, and
-              says which chosen criteria this creator could not be measured on. */}
-          <MatchBadge m={match} size="sm" />
+      {/* ── Classification: category, tier, then the two or three claims of
+          `creatorBadges`, measured ones first. One size, wrapping. ── */}
+      <div className="flex flex-wrap gap-1 mt-3 min-w-0">
+        <span className="inline-flex items-center gap-1 rounded-full px-2 h-[20px] text-[10px] font-bold max-w-full min-w-0"
+          style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+          title={c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'}>
+          <span className="material-symbols-outlined text-[11px]! flex-shrink-0">category</span>
+          <span className="truncate">{c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'}</span>
+        </span>
+        <span className="inline-flex items-center rounded-full px-2 h-[20px] text-[10px] font-bold whitespace-nowrap"
+          style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}>
+          {c.tier ?? 'Untiered'}
+        </span>
+        {badges.map(b => (
+          <span key={b.id} style={{
+            ...PJ,
+            background: b.weight === 'strong' ? T.surfaceVariant : '#f3f4f6',
+            color: b.weight === 'strong' ? T.primaryDeep : T.t3,
+          }} className="inline-flex items-center gap-1 rounded-full px-2 h-[20px] text-[10px] font-bold whitespace-nowrap">
+            <span className="material-symbols-outlined text-[11px]!">{b.icon}</span>
+            {b.label}
+          </span>
+        ))}
+      </div>
+
+      {/* ── Metrics: two columns on a narrow card, four once it has room. ── */}
+      <div className="grid grid-cols-2 @[18rem]:grid-cols-4 gap-1.5 mt-3 [&_.material-symbols-outlined]:text-[12px]!">
+        <Stat label="Followers" value={followersLabel(c.followers)} />
+        {/* Measured, unlike the growth figure that used to sit in the row
+            below: this one comes from l2_gold and is '—' when the pipeline
+            has only ever seen this account once. */}
+        <Stat label="Growth" value={growthLabel(c.growthPct)} />
+        <Stat label="Eng. Rate" value={<ErValue row={c} />} />
+        <Stat label="Est. Reach" value={reachLabel(c)} />
+      </div>
+
+      {/* ── Detail: the intelligence row plus location. Modelled readings, so
+          they are set in the quieter type. ── */}
+      {(signals || c.city) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2.5 min-w-0 text-[10.5px]" style={{ color: T.t4 }}>
+          {signals && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap" title="Skor kualitas audiens (estimasi)">
+              <span className="material-symbols-outlined text-[12px]!">verified_user</span>
+              {signals.audienceQuality}
+            </span>
+          )}
+          {c.city && (
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-full" title="Lokasi creator">
+              <span className="material-symbols-outlined text-[12px]! flex-shrink-0">location_on</span>
+              <span className="truncate">{c.city}</span>
+            </span>
+          )}
+          {/* The generated fallback that used to sit here is gone. When a
+              creator has no growth reading the card now shows nothing in this
+              slot, because most of the roster was scraped once and a number
+              invented to fill the gap is worse than the gap. */}
+          {signals?.topAudience && (
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-full" title="Kota audiens terbesar yang terukur">
+              <span className="material-symbols-outlined text-[12px]! flex-shrink-0">groups</span>
+              <span className="truncate">{signals.topAudience}</span>
+            </span>
+          )}
         </div>
       )}
 
-      <div className="flex flex-col flex-1 min-w-0 px-3.5 pt-2 pb-[15px]">
-        {/* The real name leads when the roster has one — 3.463 creators carry a
-            name that differs from their handle, and BE-03 made those searchable,
-            so a result found by name has to show that name. Falls back to the
-            handle, which is the only identity the other 4.257 have. */}
-        <div style={{ ...PJ, color: T.t1 }} className="text-[15px] font-extrabold truncate"
-          title={c.displayName ? `${c.displayName} · @${c.username}` : `@${c.username}`}>
-          {c.displayName ?? `@${c.username}`}
-        </div>
-        <div className="text-[11.5px] mt-px truncate" style={{ color: T.t4 }}>{subtitle || '—'}</div>
-
-        {/* Two or three claims, measured ones first — see `creatorBadges`. */}
-        {badges.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {badges.map(b => (
-              <span key={b.id} style={{
-                ...PJ,
-                background: b.weight === 'strong' ? T.surfaceVariant : '#f3f4f6',
-                color: b.weight === 'strong' ? T.primaryDeep : T.t3,
-              }} className="inline-flex items-center gap-1 rounded-full px-1.5 h-[19px] text-[9.5px] font-bold">
-                <span className="material-symbols-outlined text-[11px]">{b.icon}</span>
-                {b.label}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <span className="self-start inline-flex items-center gap-1.5 mt-[9px] rounded-lg px-[9px] py-[3px] text-[10.5px] font-bold max-w-full"
-          style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}>
-          <span className="material-symbols-outlined text-[12px]">category</span>
-          <span className="truncate">{c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'}</span>
-        </span>
-
-        <div className="grid grid-cols-4 gap-1 mt-[13px]">
-          <Stat label="Followers" value={followersLabel(c.followers)} />
-          {/* Measured, unlike the growth figure that used to sit in the row
-              below: this one comes from l2_gold and is '—' when the pipeline
-              has only ever seen this account once. */}
-          <Stat label="Growth" value={growthLabel(c.growthPct)} />
-          <Stat label="Eng. Rate" value={<ErValue row={c} />} />
-          <Stat label="Est. Reach" value={reachLabel(c)} />
-        </div>
-
-        {/* The intelligence row. Modelled throughout, so it is set in the
-            quieter type and the panel behind the card carries the badge. */}
-        {signals && (
-          <div className="flex items-center gap-2 mt-2 text-[10px]" style={{ color: T.t4 }}>
-            <span className="inline-flex items-center gap-0.5" title="Skor kualitas audiens (estimasi)">
-              <span className="material-symbols-outlined text-[12px]">verified_user</span>
-              {signals.audienceQuality}
-            </span>
-            {/* The generated fallback that used to sit here is gone. When a
-                creator has no growth reading the card now shows nothing in this
-                slot, because most of the roster was scraped once and a number
-                invented to fill the gap is worse than the gap. */}
-            {signals.topAudience && (
-              <>
-                <span style={{ color: '#d1d5db' }}>·</span>
-                <span className="truncate" title="Kota audiens terbesar yang terukur">
-                  {signals.topAudience}
-                </span>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Status and footer ride the bottom of the card, so cards of one row
-            end on the same line whatever their badges took above. */}
-        <div className="mt-auto pt-2.5 flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold min-w-0 truncate"
+      {/* ── Footer: sync status and price, then the actions. Each card is as
+          tall as its own content; the grid does not stretch them to match. ── */}
+      <div className="mt-3 pt-3 border-t" style={{ borderColor: T.outlineSoft }}>
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <span className="inline-flex items-center gap-1 rounded-[7px] px-2 py-[3px] text-[9.5px] font-extrabold min-w-0"
             style={{ ...PJ, background: st.bg, color: st.fg }}
             title={`Data ${c.status.toLowerCase()} · last synced ${sinceLabel(c.lastRefreshedAt)}`}>
-            <span className="material-symbols-outlined text-[12px]">{st.icon}</span>
-            {c.status} · {sinceLabel(c.lastRefreshedAt)}
+            <span className="material-symbols-outlined text-[12px]! flex-shrink-0">{st.icon}</span>
+            <span className="truncate">{c.status} · {sinceLabel(c.lastRefreshedAt)}</span>
           </span>
 
           {/* The source puts its brand-fit "% match" here. That score has no
               source in this roster, but the creator's own price does, and it is
               the number a buyer scanning the grid actually acts on. */}
           {c.rateFrom !== null && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold whitespace-nowrap"
+            <span className="inline-flex items-center gap-1 text-[10.5px] font-extrabold whitespace-nowrap flex-shrink-0"
               style={{ ...PJ, color: T.primaryDeep }}
               title={`Rate card creator: mulai Rp${c.rateFrom.toLocaleString('id-ID')}`
                 + (c.rateCount > 1 ? ` · ${c.rateCount} deliverable` : '')}>
-              <span className="material-symbols-outlined text-[12px]">sell</span>
+              <span className="material-symbols-outlined text-[12px]!">sell</span>
               {idrShort(c.rateFrom)}
             </span>
           )}
         </div>
 
-        <div className="flex items-center justify-between mt-[13px]">
-          <div className="flex gap-1.5">
-            {c.platform && (
-              <span title={c.platform} className="w-[22px] h-[22px] rounded-md flex items-center justify-center"
-                style={{ background: T.surfaceVariant }}>
-                <span className="material-symbols-outlined text-[12px]" style={{ color: T.primaryDeep }}>
-                  {PLATFORM_ICON[c.platform] ?? 'public'}
-                </span>
-              </span>
+        {/* Actions: the personal ones on the left, the two organization-wide
+            states and Find Similar on the right. Save puts the creator in My
+            Creators without copying them out of the database; Track starts
+            monitoring and is what fills Tracked Accounts — neither happens
+            merely by the creator existing here. */}
+        <div className="flex items-center justify-between gap-2 mt-2.5">
+          <div className="flex items-center gap-1.5">
+            <IconToggle on={fav} onClick={onFav} icon="favorite"
+              title={fav ? 'Favorited — click to remove' : 'Favorite'} activeColor={T.accent} filled />
+            <IconToggle on={inCompare} onClick={onCompare} icon={inCompare ? 'check' : 'compare_arrows'}
+              title={inCompare ? 'In compare — click to remove' : 'Add to compare'} activeColor={T.primary} solid />
+            <IconToggle on={inCart} onClick={onCart} icon={inCart ? 'shopping_cart_checkout' : 'add_shopping_cart'}
+              title={inCart ? 'In cart' : 'Add to cart'} activeColor="#3d8a5f" solid />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <IconToggle on={inRoster} onClick={linkBusy ? () => {} : onRoster}
+              icon={inRoster ? 'folder_shared' : 'create_new_folder'}
+              title={inRoster ? 'Di My Creators — klik untuk mengeluarkan' : 'Add to My Creators'}
+              activeColor={T.primaryDeep} solid />
+            <IconToggle on={tracking !== 'none'} onClick={linkBusy ? () => {} : onTracking}
+              icon={tracking === 'active' ? 'monitor_heart' : tracking === 'paused' ? 'pause_circle' : 'radar'}
+              title={
+                tracking === 'active' ? 'Dipantau — klik untuk menjeda'
+                  : tracking === 'paused' ? 'Pemantauan dijeda — klik untuk melanjutkan'
+                  : 'Start Tracking'
+              }
+              activeColor={tracking === 'paused' ? '#b5761f' : '#3d8a5f'} solid />
+            {/* Find Similar sits with the other per-row actions rather than inside
+                the opened profile, so "more like this one" is answerable while
+                scanning the list — which is when the thought occurs. */}
+            {onSimilar && (
+              <IconToggle on={false} onClick={onSimilar} icon="auto_awesome"
+                title="Find similar creators" activeColor="#6b5bb5" solid />
             )}
           </div>
-          <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
-            className="rounded-lg px-[9px] py-[3px] text-[10px] font-bold">
-            {c.tier ?? 'Untiered'}
-          </span>
         </div>
       </div>
     </article>
+  )
+}
+
+/**
+ * States the Brand Profile eligibility the Creator Database is following. Values
+ * only — the list itself is already narrowed server-side.
+ */
+function ProfileEligibilityNotice({ e, href }: { e: ProfileEligibility; href: string }) {
+  const parts = [
+    e.tiers?.length ? `Tier: ${e.tiers.join(', ')}` : null,
+    e.platforms?.length ? `Platform: ${e.platforms.map(p => PLATFORM_LABEL[p] ?? p).join(', ')}` : null,
+    e.categoryKeys?.length ? `Category: ${e.categoryKeys.join(', ')}` : null,
+  ].filter(Boolean)
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border px-3 py-2 mb-3 min-w-0"
+      style={{ borderColor: '#A7C8D4', background: '#f0f7fa' }}>
+      <span className="material-symbols-outlined text-[16px]! flex-shrink-0" style={{ color: T.primary }}>tune</span>
+      <div className="flex-1 min-w-0 text-[11.5px] leading-snug" style={{ color: T.t2 }}>
+        <span style={{ ...PJ, color: T.primaryDeep }} className="font-bold">Mengikuti Brand Profile</span>
+        <span style={{ color: T.t3 }}> — {parts.join(' · ')}</span>
+      </div>
+      <a href={href} onClick={ev => ev.stopPropagation()}
+        className="flex-shrink-0 text-[11px] font-bold whitespace-nowrap hover:underline" style={{ ...PJ, color: T.primary }}>
+        Ubah di Settings
+      </a>
+    </div>
   )
 }
 
@@ -1944,13 +1990,11 @@ function Check({ on, onClick, title }: { on: boolean; onClick: () => void; title
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="min-w-0 flex flex-col items-center justify-center rounded-[11px] border px-0.5 py-2 text-center"
+    <div className="min-w-0 flex flex-col items-center justify-center rounded-[11px] border px-1 py-2 text-center"
       style={{ background: T.surfaceLow, borderColor: T.outlineSoft }}>
-      <div style={{ ...PJ, color: T.t1 }} className="max-w-full truncate text-[12px] leading-[1.2] tracking-[-0.01em] font-extrabold tabular-nums">{value}</div>
-      {/* Two-line slot for every label, so one that wraps ("ENG. RATE") does
-          not make its box taller than the box beside it. */}
-      <div className="mt-0.5 min-h-[2.3em] flex items-center text-[8.5px] leading-[1.15] uppercase tracking-[.02em] font-semibold"
-        style={{ color: T.t4 }}>{label}</div>
+      <div style={{ ...PJ, color: T.t1 }} className="max-w-full truncate text-[13px] leading-[1.2] tracking-[-0.01em] font-extrabold tabular-nums">{value}</div>
+      <div className="mt-1 max-w-full truncate text-[9px] leading-[1.15] uppercase tracking-[.03em] font-semibold"
+        style={{ color: T.t4 }} title={label}>{label}</div>
     </div>
   )
 }
@@ -1983,15 +2027,15 @@ function IconToggle({
   activeColor: string; solid?: boolean; filled?: boolean
 }) {
   return (
-    <button type="button" title={title} aria-pressed={on}
+    <button type="button" title={title} aria-label={title} aria-pressed={on}
       onClick={e => { e.stopPropagation(); onClick() }}
-      className="w-[26px] h-[26px] flex-shrink-0 rounded-[8px] border flex items-center justify-center transition-colors"
+      className="w-[30px] h-[30px] flex-shrink-0 rounded-[9px] border flex items-center justify-center transition-colors hover:brightness-95"
       style={{
-        background: on && solid ? activeColor : 'rgba(255,255,255,.9)',
-        borderColor: on && solid ? activeColor : 'rgba(255,255,255,.6)',
+        background: on && solid ? activeColor : '#fff',
+        borderColor: on && solid ? activeColor : T.outline,
         color: on ? (solid ? '#fff' : activeColor) : T.t3,
       }}>
-      <span className={`material-symbols-outlined text-[14px] leading-none ${on && filled ? 'fill' : ''}`}>{icon}</span>
+      <span className={`material-symbols-outlined text-[15px]! leading-none ${on && filled ? 'fill' : ''}`}>{icon}</span>
     </button>
   )
 }

@@ -66,9 +66,6 @@ function brand(over: Partial<BrandFitBrand> = {}): BrandFitBrand {
     brandId: 'b0000000-0000-0000-0000-000000000001',
     brandName: 'Fixture Brand',
     category: 'Fashion',
-    // Brand words, mapped by ./personalityMap to Entertaining, Premium,
-    // Creative, Educational — the creator side below speaks creator labels.
-    attributes: ['Playful', 'Premium', 'Bold', 'Educational'],
     audience: {
       gender: 'Female', ageMin: 18, ageMax: 34,
       country: 'ID', city: 'Jakarta', interests: ['beauty'],
@@ -84,8 +81,6 @@ function creator(over: Partial<BrandFitCreator> = {}): BrandFitCreator {
     platformId: 'p0000000-0000-0000-0000-000000000001',
     username: 'fixture',
     categories: ['Fashion'],
-    attributes: ['Entertaining', 'Premium'],
-    hasAttributeMapping: true,
     audience: {
       femalePct: 80, malePct: 20, genderKnownPct: 60,
       ageBuckets: { '18-24': 50, '25-34': 50 },
@@ -233,70 +228,20 @@ console.log('\nB. Audience overlap')
   check('brand tanpa target audiens → NULL, bukan 0', noTarget.audience_overlap_pct === null)
 }
 
-/* ── C. Values ────────────────────────────────────────────────────────────── */
+/* ── C. Values dihapus ───────────────────────────────────────────────────── */
 
-console.log('\nC. Values alignment')
+console.log('\nC. Values (brand personality / brand values) tidak lagi dihitung')
 {
-  // 2 dari 4 atribut brand dimiliki creator.
-  const half = analyseBrandFit({ brand: brand(), creator: creator() })
-  check('matched ÷ brand attributes × 100', half.sub_scores.values_alignment.score === 50,
-    String(half.sub_scores.values_alignment.score))
-
-  const all = analyseBrandFit({
-    brand: brand(),
-    creator: creator({ attributes: ['Entertaining', 'Premium', 'Creative', 'Educational'] }),
-  })
-  check('semua atribut cocok → 100', all.sub_scores.values_alignment.score === 100)
-
-  const none = analyseBrandFit({
-    brand: brand(), creator: creator({ attributes: ['Reviewer', 'Humorous'] }),
-  })
-  check('creator ter-mapping tapi tidak ada yang cocok → 0, BUKAN null',
-    none.sub_scores.values_alignment.score === 0)
-
-  const unmapped = analyseBrandFit({
-    brand: brand(), creator: creator({ attributes: [], hasAttributeMapping: false }),
-  })
-  check('creator belum pernah di-mapping → NULL, BUKAN 0',
-    unmapped.sub_scores.values_alignment.score === null)
-  check('alasan values NULL menyebut kol_attribute_map',
-    unmapped.meta.notes.some(n => n.includes('kol_attribute_map')))
-
-  const noBrandAttrs = analyseBrandFit({
-    brand: brand({ attributes: [] }), creator: creator(),
-  })
-  check('brand tanpa atribut → NULL, bukan 0',
-    noBrandAttrs.sub_scores.values_alignment.score === null)
-
-  const cased = analyseBrandFit({
-    brand: brand({ attributes: ['PLAYFUL', 'premium'] }),
-    creator: creator({ attributes: ['entertaining', 'Premium'] }),
-  })
-  check('pencocokan atribut case-insensitive', cased.sub_scores.values_alignment.score === 100)
-
-  const duped = analyseBrandFit({
-    brand: brand({ attributes: ['Playful', 'playful', 'Premium'] }),
-    creator: creator({ attributes: ['Entertaining'] }),
-  })
-  check('atribut brand di-dedup sebelum jadi pembagi',
-    duped.sub_scores.values_alignment.score === 50,
-    String(duped.sub_scores.values_alignment.score))
-
-  const withUnmapped = analyseBrandFit({
-    brand: brand({ attributes: ['Playful', 'Warm'] }),
-    creator: creator({ attributes: ['Entertaining'] }),
-  })
-  check('personality brand tanpa padanan creator tidak jadi pembagi',
-    withUnmapped.sub_scores.values_alignment.score === 100
-      && withUnmapped.meta.notes.some(n => n.includes('Warm')),
-    String(withUnmapped.sub_scores.values_alignment.score))
-
-  const onlyUnmapped = analyseBrandFit({
-    brand: brand({ attributes: ['Warm', 'Youthful'] }),
-    creator: creator({ attributes: ['Entertaining'] }),
-  })
-  check('semua personality brand tanpa padanan → NULL, bukan 0',
-    onlyUnmapped.sub_scores.values_alignment.score === null)
+  const a = analyseBrandFit({ brand: brand(), creator: creator() })
+  check('tidak ada sub-score values_alignment', !('values_alignment' in a.sub_scores),
+    Object.keys(a.sub_scores).join(','))
+  check('tidak ada rekomendasi values_*', !a.recommendations.some(r => r.code.startsWith('values_')),
+    a.recommendations.map(r => r.code).join(','))
+  check('tidak ada catatan Values / personality', !a.meta.notes.some(n => /^Values:|personality/i.test(n)))
+  check('bobot hanya category/audience/performance',
+    Object.keys(COMPONENT_WEIGHTS).join(',') === 'category,audience,performance',
+    Object.keys(COMPONENT_WEIGHTS).join(','))
+  check('status hanya tiga komponen', Object.keys(a.meta.status).join(',') === 'category,audience,performance')
 }
 
 /* ── D. Past performance ──────────────────────────────────────────────────── */
@@ -361,44 +306,46 @@ function stripComments(src: string): string {
 console.log('\nE. Partnership score')
 {
   const subs = (o: Partial<Record<ComponentKey, Score>>): Record<ComponentKey, Score> => ({
-    category: null, audience: null, values: null, performance: null, ...o,
+    category: null, audience: null, performance: null, ...o,
   })
 
   check('seluruh komponen NULL → partnership NULL',
     partnershipScore(subs({})) === null)
 
-  check('satu komponen tersedia → dinormalisasi, bukan dibagi 4',
+  check('satu komponen tersedia → dinormalisasi, bukan dibagi 3',
     partnershipScore(subs({ category: 80 })) === 80)
 
   check('dua komponen → rata-rata keduanya',
-    partnershipScore(subs({ category: 80, values: 40 })) === 60)
+    partnershipScore(subs({ category: 80, audience: 40 })) === 60)
 
-  check('tiga komponen → dinormalisasi terhadap bobot yang tersedia',
-    partnershipScore(subs({ category: 90, values: 60, performance: 30 })) === 60)
+  check('dua dari tiga → dinormalisasi terhadap bobot yang tersedia',
+    partnershipScore(subs({ category: 90, performance: 30 })) === 60)
 
-  check('empat komponen → rata-rata berbobot penuh',
-    partnershipScore(subs({ category: 100, audience: 50, values: 50, performance: 0 })) === 50)
+  check('tiga komponen → rata-rata berbobot penuh',
+    partnershipScore(subs({ category: 90, audience: 60, performance: 30 })) === 60)
 
   check('komponen NULL tidak menarik skor ke bawah',
     partnershipScore(subs({ category: 100 })) === 100)
 
   check('partnership_score dalam 0-100',
-    inRange(partnershipScore(subs({ category: 100, audience: 100, values: 100, performance: 100 })))
-    && partnershipScore(subs({ category: 100, audience: 100, values: 100, performance: 100 })) === 100)
+    inRange(partnershipScore(subs({ category: 100, audience: 100, performance: 100 })))
+    && partnershipScore(subs({ category: 100, audience: 100, performance: 100 })) === 100)
 
   // Ini yang mengikat dua implementasi supaya tidak diam-diam berbeda.
   const equalWeights = new Set(Object.values(COMPONENT_WEIGHTS)).size === 1
   if (equalWeights) {
     const cases: Partial<Record<ComponentKey, Score>>[] = [
       { category: 80 },
-      { category: 80, values: 40 },
-      { category: 90, audience: 60, values: 30 },
-      { category: 100, audience: 50, values: 50, performance: 0 },
+      { category: 80, audience: 40 },
+      { category: 90, audience: 60, performance: 30 },
+      { category: 100, audience: 50, performance: 0 },
     ]
     const agree = cases.every(c => {
       const s = subs(c)
       return partnershipScore(s) === calcPartnership(
-        { category: s.category, audience: s.audience, values: s.values, performance: s.performance },
+        // The POC calculator keeps the workbook's Values slot; it is never
+        // measured now, which is exactly how the engine treats it.
+        { category: s.category, audience: s.audience, values: null, performance: s.performance },
         MIN_COMPONENTS)
     })
     check('bobot sama → identik dengan rata-rata calculator POC (48 golden cases)', agree)
@@ -411,8 +358,8 @@ console.log('\nE. Partnership score')
       ? partnershipScore(subs({ category: 50 })) === 50
       : partnershipScore(subs({ category: 50 })) === null)
 
-  check('total bobot = 100',
-    Object.values(COMPONENT_WEIGHTS).reduce((a, b) => a + b, 0) === 100)
+  check('bobot seragam (25 per komponen)',
+    Object.values(COMPONENT_WEIGHTS).every(w => w === 25))
 }
 
 /* ── F. Bentuk output ─────────────────────────────────────────────────────── */
@@ -421,15 +368,15 @@ console.log('\nF. Output — enam kolom feature.brand_fit_analysis')
 {
   const full = analyseBrandFit({ brand: brand(), creator: creator() })
   const empty = analyseBrandFit({
-    brand: brand({ category: null, attributes: [], performanceTargets: {},
+    brand: brand({ category: null, performanceTargets: {},
       audience: { gender: 'Any', ageMin: null, ageMax: null, country: null, city: null, interests: [] } }),
-    creator: creator({ categories: [], attributes: [], hasAttributeMapping: false, audience: null }),
+    creator: creator({ categories: [], audience: null }),
   })
 
   check('partnership_score ada', 'partnership_score' in full && inRange(full.partnership_score))
-  check('sub_scores punya empat komponen',
+  check('sub_scores punya tiga komponen',
     Object.keys(full.sub_scores).join(',')
-      === 'category_matching,audience_overlap,values_alignment,past_performance')
+      === 'category_matching,audience_overlap,past_performance')
   check('audience_overlap_pct ada', inRange(full.audience_overlap_pct))
   check('category_fit_tags array', Array.isArray(full.category_fit_tags))
   check('recommendations array', Array.isArray(full.recommendations))
@@ -465,7 +412,7 @@ console.log('\nF. Output — enam kolom feature.brand_fit_analysis')
 
   check('tidak ada komponen di luar 0-100',
     [full.sub_scores.category_matching.score, full.audience_overlap_pct,
-      full.sub_scores.values_alignment.score, full.sub_scores.past_performance.score]
+      full.sub_scores.past_performance.score]
       .every(inRange))
 }
 
@@ -581,17 +528,16 @@ async function integrationChecks(): Promise<void> {
       check('performance dibaca sebagai angka atau null, tidak pernah string',
         creators.every(c => Object.values(c.performance)
           .every(v => v === null || typeof v === 'number')))
-      check('hasAttributeMapping konsisten dengan kol_attribute_map',
-        creators.every(c => c.hasAttributeMapping === (c.attributes.length > 0)))
+      check('creator tidak lagi membawa atribut personality',
+        creators.every(c => !('attributes' in c) && !('hasAttributeMapping' in c)))
 
       // Analisis end-to-end memakai creator NYATA dan brand fixture, tanpa
       // menulis apa pun. Membuktikan alur baca → hitung → bentuk output jalan.
       const analysis = analyseBrandFit({ brand: brand(), creator: creators[0] })
       check('analyseBrandFit() jalan di atas creator nyata',
         inRange(analysis.partnership_score) && Array.isArray(analysis.recommendations))
-      check('creator nyata tanpa atribut → values NULL, bukan 0',
-        creators[0].hasAttributeMapping
-        || analysis.sub_scores.values_alignment.score === null)
+      check('analisis creator nyata tanpa values_alignment',
+        !('values_alignment' in analysis.sub_scores))
     }
 
     // Runs loadBrand's real SQL against the live schema: a dropped column
@@ -665,18 +611,18 @@ async function endToEndInTransaction(): Promise<void> {
 
     await client.query(
       `INSERT INTO public.brand_profile
-         (organization_id, brand_id, brand_name, brand_category, brand_personality,
+         (organization_id, brand_id, brand_name, brand_category,
           gender_majority, target_age_min, target_age_max,
           target_country, target_city, audience_interests)
        VALUES (gen_random_uuid(), $1, '__verify_brand_fit__', 'Fashion',
-               ARRAY['Modern','Authentic'], 'Female', 18, 34,
+               'Female', 18, 34,
                'ID', 'Jakarta', ARRAY['beauty'])`,
       [brandId])
 
     const loaded = await loadBrand(brandId, client)
     check('loadBrand() menemukan brand + profile yang baru dihubungkan', loaded !== null)
-    check('brand_personality terbaca sebagai atribut brand',
-      loaded!.attributes.join(',') === 'Modern,Authentic', loaded!.attributes.join(','))
+    check('brand_personality tidak lagi dibaca sebagai input',
+      !('attributes' in loaded!))
     check('target_age_min/max terbaca',
       loaded!.audience.ageMin === 18 && loaded!.audience.ageMax === 34)
     check('tanpa kolom target (dihapus 009) → performanceTargets kosong, bukan angka karangan',
