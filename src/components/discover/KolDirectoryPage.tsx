@@ -149,13 +149,24 @@ export function shouldDefaultToMatch(
   return scoreable && !userPicked && current !== 'match'
 }
 
+/**
+ * Categories as shown on a card or row, with the classification's subcategory
+ * after them when the server sent one ("Food › Culinary Review"). Null when the
+ * creator carries no category, so each caller keeps its own empty label.
+ */
+function categoryLabel(r: KolDirectoryRow): string | null {
+  if (!r.categories.length) return null
+  const cats = r.categories.join(' · ')
+  return r.subcategory ? `${cats} › ${r.subcategory}` : cats
+}
+
 /** Optional table columns — the source's COLDEFS. */
 const COLDEFS: Record<string, { label: string; get: (r: KolDirectoryRow) => string; sort?: SortKey }> = {
   tier: { label: 'Tier', get: r => r.tier ?? '—' },
   growth: { label: 'Growth', get: r => growthLabel(r.growthPct), sort: 'growth' },
   reach: { label: 'Est. Reach', get: r => reachLabel(r) },
   platform: { label: 'Platform', get: r => (r.platform ? PLATFORM_LABEL[r.platform] ?? r.platform : '—') },
-  category: { label: 'Category', get: r => (r.categories.length ? r.categories.join(' · ') : '—') },
+  category: { label: 'Category', get: r => categoryLabel(r) ?? '—' },
   updated: { label: 'Updated', get: r => sinceLabel(r.lastRefreshedAt), sort: 'recent' },
   // The source's `agency` and `rate` columns. Both were dropped from this port
   // as unbacked; both are in fact backed — see `attachRosterExtras`.
@@ -1655,9 +1666,9 @@ function CreatorCard({
       <div className="flex flex-wrap gap-1 mt-3 min-w-0">
         <span className="inline-flex items-center gap-1 rounded-full px-2 h-[20px] text-[10px] font-bold max-w-full min-w-0"
           style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
-          title={c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'}>
+          title={categoryLabel(c) ?? 'Belum berkategori'}>
           <span className="material-symbols-outlined text-[11px]! flex-shrink-0">category</span>
-          <span className="truncate">{c.categories.length ? c.categories.join(' · ') : 'Belum berkategori'}</span>
+          <span className="truncate">{categoryLabel(c) ?? 'Belum berkategori'}</span>
         </span>
         <span className="inline-flex items-center rounded-full px-2 h-[20px] text-[10px] font-bold whitespace-nowrap"
           style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}>
@@ -1894,7 +1905,7 @@ function DirectoryTable({
                       </div>
                       <div className="text-[10.5px] truncate max-w-[220px]" style={{ color: T.t4 }}>
                         {[r.displayName ? `@${r.username}` : null,
-                          r.categories.length ? r.categories.join(' · ') : null,
+                          categoryLabel(r),
                         ].filter(Boolean).join(' · ') || '—'}
                       </div>
                     </div>
