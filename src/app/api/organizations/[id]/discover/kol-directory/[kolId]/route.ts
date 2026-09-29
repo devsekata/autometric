@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: Params) {
     const access = await requireOrgMemberById(orgId)
     if (!access) return NextResponse.json({ error: 'Not authorized for this organization.' }, { status: 401 })
 
-    const data = await getKolCreator(kolId)
+    const data = await getKolCreator(kolId, access.orgId)
     if (!data) return NextResponse.json({ error: 'Creator tidak ditemukan di roster.' }, { status: 404 })
 
     // A harvested post's cover is served through this org's own cover route

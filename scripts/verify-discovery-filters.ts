@@ -71,12 +71,15 @@ const ER_OK = `kd.engagement_rate > 0 AND kd.engagement_rate <= 100`
 /** Sama dengan escaping filter: `%`, `_` dan `\` dicari sebagai huruf biasa. */
 const lit = (s: string) => s.replace(/[\\%_]/g, c => `\\${c}`)
 /** Kolom yang dicari keyword search (BE-03), `$n` sudah di-escape. */
-const SEARCH = (n: number) => `(
+// The label is tenant data: it is searched only for the viewing agency's own
+// active link (`$v`). Without a viewer, no label matches at all.
+const SEARCH = (n: number, v?: number) => `(
      kd.username ILIKE '%' || $${n} || '%'
   OR kd.username_normalized ILIKE '%' || $${n} || '%'
   OR kd.bio ILIKE '%' || $${n} || '%'
-  OR EXISTS (SELECT 1 FROM public.kol_categories kc WHERE kc.id = ANY (${CAT_IDS}) AND kc.name ILIKE '%' || $${n} || '%')
-  OR EXISTS (SELECT 1 FROM public.agency_kol_accounts a WHERE a.kol_account_id = kd.id AND a.label ILIKE '%' || $${n} || '%'))`
+  OR EXISTS (SELECT 1 FROM public.kol_categories kc WHERE kc.id = ANY (${CAT_IDS}) AND kc.name ILIKE '%' || $${n} || '%')${v ? `
+  OR EXISTS (SELECT 1 FROM public.agency_kol_accounts a WHERE a.kol_account_id = kd.id
+               AND a.agency_id = $${v}::uuid AND a.is_active IS TRUE AND a.label ILIKE '%' || $${n} || '%')` : ''})`
 const PLATFORM = (n: number) => `kd.platform_id = (SELECT pl.id FROM public.platforms pl WHERE pl.key = $${n})`
 
 async function main() {
@@ -149,32 +152,36 @@ async function main() {
   const searchTotal = async (q: string) => count(SEARCH(1), [lit(q)])
 
   // Nama tampilan (label agency) yang BERBEDA dari username — dipilih dari data
-  // dengan aturan displayName yang sama: label terbaru dari agency yang aktif.
-  const { rows: [named] } = await db.query<{ id: string; username: string; label: string }>(`
-    SELECT kd.id, kd.username, trim(l.label) AS label
+  // dengan aturan displayName yang sama: label dari link AKTIF milik agency yang
+  // melihat. Label adalah data tenant, jadi pencarian dan tampilannya diuji
+  // dari sudut agency pemilik link itu.
+  const { rows: [named] } = await db.query<{ id: string; username: string; label: string; agency_id: string }>(`
+    SELECT kd.id, kd.username, trim(a.label) AS label, a.agency_id::text AS agency_id
       FROM public.kol_directory kd
-      JOIN LATERAL (
-        SELECT a.label FROM public.agency_kol_accounts a
-          JOIN public.agencies ag ON ag.id = a.agency_id AND ag.deleted_at IS NULL
-         WHERE a.kol_account_id = kd.id
-         ORDER BY a.created_at DESC NULLS LAST LIMIT 1) l ON TRUE
-     WHERE kd.directory_status = 'active' AND l.label IS NOT NULL
-       AND lower(trim(l.label)) <> lower(kd.username)
-       AND position(lower(trim(l.label)) IN lower(kd.username)) = 0
-       AND length(trim(l.label)) >= 4 AND trim(l.label) ~ ' '
-     ORDER BY kd.id LIMIT 1`)
+      JOIN public.agency_kol_accounts a ON a.kol_account_id = kd.id AND a.is_active IS TRUE
+      JOIN public.agencies ag ON ag.id = a.agency_id AND ag.deleted_at IS NULL
+     WHERE kd.directory_status = 'active' AND a.label IS NOT NULL
+       AND lower(trim(a.label)) <> lower(kd.username)
+       AND position(lower(trim(a.label)) IN lower(kd.username)) = 0
+       AND length(trim(a.label)) >= 4 AND trim(a.label) ~ ' '
+     ORDER BY kd.id, a.agency_id LIMIT 1`)
   ok('ada creator dengan nama tampilan berbeda dari username untuk diuji', !!named)
   if (named) {
-    const byLabel = await listKolDirectory({ q: named.label, pageSize: 1 })
-    eq(`q="${named.label}" (nama tampilan) = SQL`, byLabel.total, await searchTotal(named.label))
+    const viewerAgencyId = named.agency_id
+    const byLabel = await listKolDirectory({ q: named.label, viewerAgencyId, pageSize: 1 })
+    eq(`q="${named.label}" (nama tampilan, agency pemilik) = SQL`, byLabel.total,
+      await count(SEARCH(1, 2), [lit(named.label), viewerAgencyId]))
     eq(`q nama tampilan menemukan @${named.username}`,
-      (await listKolDirectory({ q: named.label, ids: [named.id], pageSize: 1 })).total, 1)
+      (await listKolDirectory({ q: named.label, ids: [named.id], viewerAgencyId, pageSize: 1 })).total, 1)
     eq('q tidak peka huruf besar/kecil',
-      (await listKolDirectory({ q: named.label.toUpperCase(), ids: [named.id], pageSize: 1 })).total, 1)
-    // displayName ikut terisi, karena hasil yang bisa dicari lewat nama harus bisa
-    // menampilkan nama itu.
-    const row = (await listKolDirectory({ ids: [named.id], pageSize: 1 })).rows[0]
-    eq('displayName terisi dari agency_kol_accounts.label', row?.displayName ?? null, named.label)
+      (await listKolDirectory({ q: named.label.toUpperCase(), ids: [named.id], viewerAgencyId, pageSize: 1 })).total, 1)
+    // Tanpa agency yang melihat, label tidak dicari sama sekali.
+    eq(`q="${named.label}" tanpa viewer = SQL tanpa label`,
+      (await listKolDirectory({ q: named.label, pageSize: 1 })).total, await searchTotal(named.label))
+    // displayName ikut terisi untuk agency pemilik, karena hasil yang bisa dicari
+    // lewat nama harus bisa menampilkan nama itu.
+    const row = (await listKolDirectory({ ids: [named.id], viewerAgencyId, pageSize: 1 })).rows[0]
+    eq('displayName terisi dari label milik agency yang melihat', row?.displayName ?? null, named.label)
   }
 
   // Potongan username (partial match), dari username nyata.

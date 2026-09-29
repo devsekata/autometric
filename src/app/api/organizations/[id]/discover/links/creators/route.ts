@@ -31,10 +31,10 @@ type Params = { params: Promise<{ id: string }> }
  */
 const ID_BATCH = 60
 
-async function rosterRows(ids: string[]): Promise<Map<string, KolDirectoryRow>> {
+async function rosterRows(ids: string[], viewerAgencyId: string): Promise<Map<string, KolDirectoryRow>> {
   const out = new Map<string, KolDirectoryRow>()
   for (let i = 0; i < ids.length; i += ID_BATCH) {
-    const { rows } = await listKolDirectory({ ids: ids.slice(i, i + ID_BATCH) })
+    const { rows } = await listKolDirectory({ ids: ids.slice(i, i + ID_BATCH), viewerAgencyId })
     for (const r of rows) out.set(r.id, r)
   }
   return out
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const rosterLinks = wanted.filter(l => l.source === 'roster')
     if (rosterLinks.length) {
       try {
-        const rows = await rosterRows(rosterLinks.map(l => l.id))
+        const rows = await rosterRows(rosterLinks.map(l => l.id), access.orgId)
         for (const l of rosterLinks) {
           const row = rows.get(l.id)
           // A link whose creator is no longer in the active directory is kept in

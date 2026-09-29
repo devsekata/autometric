@@ -28,6 +28,7 @@
     "verify:kol-persistence": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-persistence.ts",
     "verify:kol-tenant": "dotenv -e .env.local -- npx tsx --tsconfig scripts/test/tsconfig.json scripts/verify-kol-tenant-isolation.ts",
     "verify:nav-roles": "npx tsx scripts/verify-nav-roles.ts",
+    "verify:tenant-metadata": "dotenv -e .env.local -- npx tsx scripts/verify-tenant-metadata.ts",
     "verify:links": "dotenv -e .env.local -- npx tsx scripts/verify-creator-links.ts",
     "taxonomy:fetch": "dotenv -e .env.local -- node scripts/fetch-kol-categories.mjs",
     "brandmatch:fetch": "dotenv -e .env.local -- node scripts/brand-match/roster-fetch.mjs",

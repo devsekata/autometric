@@ -120,7 +120,9 @@ export interface KolDirectoryRow {
    * to leave out. They were left out because the roster row has no column for
    * them — which was true of EMV, authenticity, growth and brand fit, and is
    * still true. It was never true of the agency name, which the agency tables
-   * carry.
+   * carry — as tenant data: `agency` is the requesting agency's own name when it
+   * holds an active link to the creator (`viewerAgencyId`), otherwise null.
+   * Another agency's link is never read.
    *
    * The rate card has answered with different numbers over time, so check the
    * table before trusting any figure. The roster-derived prices that once filled
@@ -138,10 +140,12 @@ export interface KolDirectoryRow {
    */
   agency: string | null
   /**
-   * The creator's real name, from `agency_kol_accounts.label`.
-   * Null when absent or when it merely repeats the username, the same rule
-   * `getKolCreator` already applies. Attached by `attachRosterExtras`, which was
-   * already reading this table for the agency name.
+   * The creator's real name, from `agency_kol_accounts.label` — the requesting
+   * agency's own active link only (`viewerAgencyId`), like `agency`. Null when
+   * that agency holds no such link, has no label, or the label merely repeats
+   * the username, the same rule `getKolCreator` already applies. Attached by
+   * `attachRosterExtras`, which was already reading this table for the agency
+   * name.
    */
   displayName: string | null
   /** Cheapest priced deliverable, in IDR. Null when the creator has no rate card. */
@@ -286,6 +290,16 @@ export interface KolDirectoryQuery {
    * by a route that has already checked the caller's membership of it.
    */
   agencyId?: string | null
+  /**
+   * The requesting agency, whose OWN active `agency_kol_accounts` link is the
+   * only source of the tenant fields on a row — `agency`, `displayName` (the
+   * link's `label`) — and of the label half of `?q=`. Another agency's link
+   * never reaches this caller. Unlike `agencyId` it filters nothing: the global
+   * roster stays whole. Null (the default) means no tenant metadata at all, so
+   * a caller that forgets it leaks nothing. Only ever set by a route that has
+   * already checked the caller's membership of it.
+   */
+  viewerAgencyId?: string | null
   q?: string | null
   platform?: string | null
   /**
@@ -525,6 +539,11 @@ const CONNECTED = `EXISTS (
  *
  * Categories are read from `b.categories`, the array the existing LATERAL in
  * `BASE` already built — no second join for them.
+ *
+ * The label is tenant data: only the requesting agency's own active link
+ * (`$30`, `viewerAgencyId`) is searched, so another agency's label can neither
+ * surface a creator nor lift one in `RELEVANCE`. With `$30` null nothing
+ * matches on a label at all.
  */
 const SEARCH_MATCH = `(
         b.username            ILIKE '%' || $1 || '%'
@@ -534,6 +553,8 @@ const SEARCH_MATCH = `(
                  WHERE cn ILIKE '%' || $1 || '%')
      OR EXISTS (SELECT 1 FROM public.agency_kol_accounts a
                  WHERE a.kol_account_id = b.id
+                   AND a.agency_id = $30::uuid
+                   AND a.is_active IS TRUE
                    AND a.label ILIKE '%' || $1 || '%')
       )`
 
@@ -551,6 +572,8 @@ const RELEVANCE = `CASE
         WHEN b.username ILIKE $1 || '%'                              THEN 1
         WHEN EXISTS (SELECT 1 FROM public.agency_kol_accounts a
                       WHERE a.kol_account_id = b.id
+                        AND a.agency_id = $30::uuid
+                        AND a.is_active IS TRUE
                         AND a.label ILIKE '%' || $1 || '%')          THEN 2
         WHEN EXISTS (SELECT 1 FROM unnest(COALESCE(b.categories, '{}'::text[])) cn
                       WHERE cn ILIKE '%' || $1 || '%')               THEN 3
@@ -655,8 +678,14 @@ const BASE = `
  * Mutates in place and returns nothing: the caller has already built the row
  * objects, and rebuilding them to attach two fields would be the more confusing
  * of the two shapes.
+ *
+ * `agency` and `displayName` are tenant data. They come only from
+ * `viewerAgencyId`'s own active link — the same rows My Creators counts as
+ * this agency's — never from whichever agency linked the creator last. A
+ * creator this agency holds no active link to gets neither, and a null
+ * `viewerAgencyId` gets neither for every row.
  */
-async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
+async function attachRosterExtras(rows: KolDirectoryRow[], viewerAgencyId: string | null): Promise<void> {
   const ids = rows.map(r => r.id)
   if (!ids.length) return
 
@@ -671,8 +700,10 @@ async function attachRosterExtras(rows: KolDirectoryRow[]): Promise<void> {
          FROM public.agency_kol_accounts a
          JOIN public.agencies ag ON ag.id = a.agency_id AND ag.deleted_at IS NULL
         WHERE a.kol_account_id = ANY($1::uuid[])
+          AND a.agency_id = $2::uuid
+          AND a.is_active IS TRUE
         ORDER BY a.kol_account_id, a.created_at DESC NULLS LAST`,
-      [ids],
+      [ids, viewerAgencyId],
     ),
     db.query<{ kol_id: string; min_fee: string | null; n: number }>(
       `SELECT ksa.kol_id,
@@ -906,6 +937,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       query.profileEligibility?.platforms?.length ? query.profileEligibility.platforms : null,
       query.profileEligibility?.tiers?.length ? query.profileEligibility.tiers : null,
       query.profileEligibility?.categoryKeys?.length ? query.profileEligibility.categoryKeys : null,
+      query.viewerAgencyId || null,
     ],
     q !== null,
   )
@@ -936,7 +968,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       rateCount: 0,
   }))
 
-  await attachRosterExtras(mapped)
+  await attachRosterExtras(mapped, query.viewerAgencyId || null)
 
   return {
     rows: mapped,
@@ -1165,8 +1197,14 @@ export interface KolCreatorPayload {
 /**
  * Returns null rather than throwing when the id is unknown or archived, so the
  * route can answer 404 instead of 500.
+ *
+ * `viewerAgencyId` scopes the tenant fields (`agency`, `displayName`) exactly
+ * as `KolDirectoryQuery.viewerAgencyId` does for the list: only that agency's
+ * own active link, never another agency's; null means neither.
  */
-export async function getKolCreator(id: string): Promise<KolCreatorPayload | null> {
+export async function getKolCreator(
+  id: string, viewerAgencyId: string | null = null,
+): Promise<KolCreatorPayload | null> {
   const db = kolDb()
 
   const { rows } = await db.query<{
@@ -1181,17 +1219,20 @@ export async function getKolCreator(id: string): Promise<KolCreatorPayload | nul
     WITH base AS (${BASE})
     SELECT b.*, aka.label AS display_name, ag.name AS agency
       FROM base b
-      -- One row per creator in practice; DISTINCT ON guards the join anyway so a
-      -- duplicate agency link could never fan the creator out into two rows.
+      -- The requesting agency's own active link only ($2): another agency's
+      -- label or name never reaches this caller. LIMIT 1 keeps the creator one
+      -- row even if a duplicate link for the same pair ever exists.
       LEFT JOIN LATERAL (
         SELECT a.label, a.agency_id
           FROM public.agency_kol_accounts a
          WHERE a.kol_account_id = b.id
+           AND a.agency_id = $2::uuid
+           AND a.is_active IS TRUE
          ORDER BY a.created_at DESC NULLS LAST
          LIMIT 1
       ) aka ON TRUE
       LEFT JOIN public.agencies ag ON ag.id = aka.agency_id AND ag.deleted_at IS NULL
-     WHERE b.id = $1`, [id])
+     WHERE b.id = $1`, [id, viewerAgencyId])
 
   const r = rows[0]
   if (!r) return null

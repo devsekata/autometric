@@ -123,7 +123,9 @@ function fromRow(r: KolDirectoryRow, source: CandidateSource): SimilarReference 
  * narrowed to the agency; `roster` is any creator in the database.
  */
 async function loadReference(orgId: string, id: string, source: CandidateSource): Promise<SimilarReference | null> {
-  const { rows } = await listKolDirectory({ ids: [id], agencyId: source === 'creator' ? orgId : null })
+  const { rows } = await listKolDirectory({
+    ids: [id], agencyId: source === 'creator' ? orgId : null, viewerAgencyId: orgId,
+  })
   const r = rows[0]
   return r ? fromRow(r, source) : null
 }
@@ -401,6 +403,9 @@ export async function findSimilarCreators(
     minFollowers: reference.followers ? Math.round(reference.followers * 0.5) : null,
     maxRate,
     agencyId,
+    // Display name and agency from this agency's own links only, on both the
+    // My Creators pass and the whole-database pass.
+    viewerAgencyId: orgId,
     pageSize: 60,
     sort: 'followers',
     dir: reference.followers ? 'asc' : 'desc',

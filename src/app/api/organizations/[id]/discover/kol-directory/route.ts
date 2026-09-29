@@ -114,6 +114,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     const data = await listKolDirectory({
       ids,
       profileEligibility,
+      // Tenant fields (agency, display name, label search) come from this
+      // agency's own links only; the roster itself stays global.
+      viewerAgencyId: access.orgId,
       q: sp.get('q'),
       platform,
       categories: list('category'),
