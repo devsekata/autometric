@@ -6,6 +6,7 @@ import { HBars } from './charts'
 import DashboardChrome from './DashboardChrome'
 import { PILLAR_COLORS } from './data'
 import type { PillarsPayload } from '@/lib/dashboard/pillars'
+import { fmtPct } from '@/lib/dashboard/format'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -164,7 +165,7 @@ function PillarsBody({ orgId, brandId }: { orgId: string; brandId: string }) {
               <div className="px-4 pb-5 pt-3 flex-1 flex flex-col justify-center">
                 {comparison.some(c => c.posts > 0) ? (
                   <HBars items={comparison.map(c => ({
-                    label: `${c.name} · ${c.posts} posts`, value: c.er, display: `${c.er.toFixed(1)}%`, color: c.color,
+                    label: `${c.name} · ${c.posts} posts`, value: c.er, display: fmtPct(c.er), color: c.color,
                   }))} />
                 ) : (
                   <p className="text-center text-[12.5px] text-[#9ca3af] py-10">Belum ada data performa untuk pillar brand ini.</p>

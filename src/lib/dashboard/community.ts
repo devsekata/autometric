@@ -1,5 +1,6 @@
 import pool from '@/lib/db'
 import { windowsFromRange, type CustomRange } from './range'
+import { fmtPct, fmtSignedPct } from './format'
 import type { OverviewKpi, TrendSeries, DashPlatform, ContributorRow } from '@/components/dashboard/data'
 
 /**
@@ -41,9 +42,9 @@ function fmtNum(n: number): string {
 }
 const ratio = (num: number, den: number) => (den > 0 ? num / den : 0)
 function deltaStr(cur: number, prev: number): { delta: string; good: boolean } {
-  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0%', good: cur >= 0 }
+  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0.00%', good: cur >= 0 }
   const d = ((cur - prev) / prev) * 100
-  return { delta: `${d >= 0 ? '+' : ''}${d.toFixed(d >= 10 || d <= -10 ? 0 : 1)}%`, good: d >= 0 }
+  return { delta: fmtSignedPct(d), good: d >= 0 }
 }
 function initials(name: string): string {
   const parts = name.replace(/[@_.]/g, ' ').trim().split(/\s+/).filter(Boolean)
@@ -179,7 +180,7 @@ async function commentByHour(orgId: string, platform: PlatformParam, w: Window, 
   const primeFrom = best.from, primeTo = best.from + 3
   const pad = (h: number) => String(h).padStart(2, '0')
   const insight = total > 0
-    ? `Komentar memuncak ${pad(primeFrom)}:00–${pad(primeTo + 1)}:00 WIB (${Math.round((best.sum / total) * 100)}% dari total). Merespons di window ini memperdalam thread balasan.`
+    ? `Komentar memuncak ${pad(primeFrom)}:00–${pad(primeTo + 1)}:00 WIB (${fmtPct((best.sum / total) * 100)} dari total). Merespons di window ini memperdalam thread balasan.`
     : 'Belum ada data aktivitas komentar per jam pada periode ini.'
   return { commentByHour: hours, primeFrom, primeTo, primeInsight: insight }
 }

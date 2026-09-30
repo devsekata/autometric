@@ -1,5 +1,6 @@
 import pool from '@/lib/db'
 import { windowsFromRange, type CustomRange } from './range'
+import { fmtPct, fmtSignedPct, fmtPts, round2 } from './format'
 import type { OverviewKpi } from '@/components/dashboard/data'
 
 /**
@@ -40,14 +41,14 @@ function fmtNum(n: number): string {
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0)
 function deltaStr(cur: number, prev: number, lowerIsGood = false): { delta: string; good: boolean; dir: 'up' | 'down' } {
   const dir = (cur >= prev ? 'up' : 'down') as 'up' | 'down'
-  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0%', good: lowerIsGood ? cur <= 0 : cur >= 0, dir }
+  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0.00%', good: lowerIsGood ? cur <= 0 : cur >= 0, dir }
   const d = ((cur - prev) / prev) * 100
   const up = d >= 0
-  return { delta: `${up ? '+' : ''}${d.toFixed(d >= 10 || d <= -10 ? 0 : 1)}%`, good: lowerIsGood ? !up : up, dir }
+  return { delta: fmtSignedPct(d), good: lowerIsGood ? !up : up, dir }
 }
 function ptsStr(cur: number, prev: number): { delta: string; good: boolean; dir: 'up' | 'down' } {
   const d = cur - prev
-  return { delta: `${d >= 0 ? '+' : ''}${d.toFixed(1)}pts`, good: d >= 0, dir: (d >= 0 ? 'up' : 'down') }
+  return { delta: fmtPts(d), good: d >= 0, dir: (d >= 0 ? 'up' : 'down') }
 }
 
 interface Window { start: string; end: string }
@@ -128,13 +129,12 @@ async function dailySparks(orgId: string, w: Window, brandId: string | null) {
       GROUP BY p.post_date::date ORDER BY p.post_date::date`,
     [orgId, w.start, w.end, brandId],
   )
-  let cum = 0
   return {
     views: rows.map(r => Math.round(r.views)),
     gained: rows.map(r => Math.round(r.gained)),
     lost: rows.map(r => Math.round(r.lost)),
-    netCum: rows.map(r => (cum += r.net, Math.round(cum))),
-    completion: comp.map(r => +(r.c ?? 0).toFixed(1)),
+    net: rows.map(r => Math.round(r.net)),   // daily net change, not cumulative
+    completion: comp.map(r => round2(r.c ?? 0)),
   }
 }
 
@@ -143,8 +143,8 @@ function buildKpis(cur: ChurnTotals, prev: ChurnTotals, complCur: number, complP
     { key: 'tk-views', label: 'Total Video Views', icon: 'play_circle', value: fmtNum(cur.views), ...deltaStr(cur.views, prev.views), spark: s.views.length ? s.views : [0] },
     { key: 'tk-new', label: 'New Followers', icon: 'person_add', value: fmtNum(cur.gained), ...deltaStr(cur.gained, prev.gained), spark: s.gained.length ? s.gained : [0] },
     { key: 'tk-lost', label: 'Lost Followers', icon: 'person_remove', value: fmtNum(cur.lost), ...deltaStr(cur.lost, prev.lost, true), spark: s.lost.length ? s.lost : [0] },
-    { key: 'tk-net', label: 'Net Growth', icon: 'trending_up', value: `${cur.net >= 0 ? '+' : ''}${fmtNum(cur.net)}`, ...deltaStr(cur.net, prev.net), spark: s.netCum.length ? s.netCum : [0] },
-    { key: 'tk-compl', label: 'Avg. Completion Rate', icon: 'check_circle', value: `${Math.round(complCur)}%`, ...ptsStr(complCur, complPrev), spark: s.completion.length ? s.completion : [0] },
+    { key: 'tk-net', label: 'Net Growth', icon: 'trending_up', value: `${cur.net >= 0 ? '+' : ''}${fmtNum(cur.net)}`, ...deltaStr(cur.net, prev.net), spark: s.net.length ? s.net : [0] },
+    { key: 'tk-compl', label: 'Avg. Completion Rate', icon: 'check_circle', value: fmtPct(complCur), ...ptsStr(complCur, complPrev), spark: s.completion.length ? s.completion : [0] },
   ]
 }
 
@@ -173,7 +173,7 @@ async function churnWeekly(orgId: string, w: Window, brandId: string | null) {
     }
   }
   const insight = worst.i >= 0 && worst.jump >= 0.2
-    ? `Volume lost follower melonjak +${Math.round(worst.jump * 100)}% di ${churnWeeks[worst.i].label} — biasanya bertepatan dengan jeda posting; jaga ≥1 post/hari di TikTok.`
+    ? `Volume lost follower melonjak +${fmtPct(worst.jump * 100)} di ${churnWeeks[worst.i].label} — biasanya bertepatan dengan jeda posting; jaga ≥1 post/hari di TikTok.`
     : churnWeeks.length
       ? 'Churn follower relatif stabil antar minggu pada periode ini.'
       : 'Belum ada data churn pada periode ini.'

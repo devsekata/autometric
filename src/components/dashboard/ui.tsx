@@ -3,6 +3,7 @@
 import { Sparkline } from './charts'
 import MetricInfo from '@/components/ui/MetricInfo'
 import type { Kpi, OverviewKpi } from './data'
+import { fmtPct } from '@/lib/dashboard/format'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -23,7 +24,7 @@ export function CardHead({ title, sub, action, metricKey }: {
   metricKey?: string
 }) {
   return (
-    <div className="flex items-start justify-between px-4 pt-3.5 pb-2">
+    <div className="flex items-start justify-between flex-wrap gap-2 px-4 pt-3.5 pb-2">
       <div>
         <h3 style={PJ} className="flex items-center gap-1 text-[12.5px] font-bold text-[#111827] tracking-[-0.01em]">
           {title}
@@ -71,8 +72,17 @@ export function Delta({ delta, good, bare = false }: { delta: number; good: bool
       <span className="material-symbols-outlined text-[12px] leading-none">
         {delta === 0 ? 'remove' : up ? 'arrow_upward' : 'arrow_downward'}
       </span>
-      {Math.abs(delta)}%
+      {fmtPct(Math.abs(delta))}
     </span>
+  )
+}
+
+/* Scorecard row: cards stretch to fill the row, so 2 cards never leave an empty gap. */
+export function KpiGrid({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+      {children}
+    </div>
   )
 }
 
@@ -91,7 +101,7 @@ export function FlexKpiCard({ kpi, color }: { kpi: OverviewKpi; color: string })
       </div>
       <div className="flex items-end justify-between gap-2">
         <span style={PJ} className="text-[24px] font-bold text-[#111827] leading-none tracking-[-0.02em]">{kpi.value}</span>
-        <div className="mb-0.5"><Sparkline data={kpi.spark} color={color} /></div>
+        <div className="mb-0.5"><Sparkline data={kpi.spark} color={color} fmt={kpi.value.endsWith('%') ? fmtPct : undefined} /></div>
       </div>
       <span className="inline-flex items-center gap-0.5 self-start font-bold px-1.5 py-0.5 rounded-md text-[10.5px]"
         style={{ color: c, background: bg }}>

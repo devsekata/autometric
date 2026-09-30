@@ -1,5 +1,6 @@
 import pool from '@/lib/db'
 import { windowsFromRange, type CustomRange } from './range'
+import { fmtPct, fmtSignedPct, round2 } from './format'
 import type {
   OverviewKpi, TrendSeries, DashPlatform, ContributorRow, RelevanceTierRow, UgcPost,
 } from '@/components/dashboard/data'
@@ -34,6 +35,8 @@ export interface AudiencePayload {
   superFanNote: string
   cities: { city: string; value: number }[]
   followerTrend: TrendSeries[]
+  /** weekly net follower change per brand — the "Growth" toggle of Followers Trend */
+  followerGrowthTrend: TrendSeries[]
   followerLabels: string[]
   ugc: UgcPost[]
   ugcInsight: string
@@ -61,9 +64,9 @@ function fmtNum(n: number): string {
 }
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0)
 function deltaStr(cur: number, prev: number): { delta: string; good: boolean } {
-  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0%', good: cur >= 0 }
+  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0.00%', good: cur >= 0 }
   const d = ((cur - prev) / prev) * 100
-  return { delta: `${d >= 0 ? '+' : ''}${d.toFixed(d >= 10 || d <= -10 ? 0 : 1)}%`, good: d >= 0 }
+  return { delta: fmtSignedPct(d), good: d >= 0 }
 }
 function initials(name: string): string {
   const parts = name.replace(/[@_.]/g, ' ').trim().split(/\s+/).filter(Boolean)
@@ -155,7 +158,7 @@ async function ageDistribution(orgId: string, platform: PlatformParam, brandId: 
   const r = rows[0] ?? {}
   const total = AGE_LABELS.reduce((s, [col]) => s + (r[col] ?? 0), 0)
   const age = AGE_LABELS.map(([col, label], i) => ({
-    bucket: label, value: total > 0 ? Math.round(pct(r[col] ?? 0, total)) : 0, color: PALETTE[i % PALETTE.length],
+    bucket: label, value: total > 0 ? round2(pct(r[col] ?? 0, total)) : 0, color: PALETTE[i % PALETTE.length],
   }))
   const top = age.slice().sort((a, b) => b.value - a.value)[0]
   const insight = total > 0 && top
@@ -188,8 +191,8 @@ async function genderSplit(orgId: string, platform: PlatformParam, brandId: stri
   return rows
     .filter(r => r.f + r.m > 0)
     .map(r => {
-      const female = Math.round(pct(r.f, r.f + r.m))
-      return { platform: r.platform, female, male: 100 - female }
+      const female = round2(pct(r.f, r.f + r.m))
+      return { platform: r.platform, female, male: round2(100 - female) }
     })
 }
 
@@ -213,21 +216,23 @@ async function topCities(orgId: string, platform: PlatformParam, brandId: string
     [orgId, platform, brandId],
   )
   const total = rows.reduce((s, r) => s + r.v, 0)
-  return rows.map(r => ({ city: r.city, value: total > 0 ? Math.round(pct(r.v, total)) : 0 }))
+  return rows.map(r => ({ city: r.city, value: total > 0 ? round2(pct(r.v, total)) : 0 }))
 }
 
-// ── Follower growth trend (per brand, weekly) ─────────────────────────────────
+// ── Followers trend + follower growth (per brand, weekly) ─────────────────────
 async function followerTrend(orgId: string, platform: PlatformParam, w: Window, brandId: string | null) {
-  const { rows } = await pool.query<{ brand: string; wk: string; f: number }>(
+  const { rows } = await pool.query<{ brand: string; wk: string; f: number; net: number }>(
     `WITH daily AS (
-        SELECT b.name brand, bmd.metric_date d, SUM(bmd.follower_count_eod)::float f
+        SELECT b.name brand, bmd.metric_date d,
+               SUM(bmd.follower_count_eod)::float f, SUM(bmd.net_growth_sum)::float net
           FROM l2_gold.brand_metric_daily bmd
           JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
          WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
            AND bmd.metric_date BETWEEN $3 AND $4
            AND ($5::uuid IS NULL OR bmd.brand_id = $5)
          GROUP BY b.name, bmd.metric_date)
-     SELECT brand, to_char(date_trunc('week', d), 'YYYY-MM-DD') wk, AVG(f)::float f
+     SELECT brand, to_char(date_trunc('week', d), 'YYYY-MM-DD') wk,
+            AVG(f)::float f, COALESCE(SUM(net), 0)::float net
        FROM daily GROUP BY brand, date_trunc('week', d)
       ORDER BY wk`,
     [orgId, platform, w.start, w.end, brandId],
@@ -237,12 +242,16 @@ async function followerTrend(orgId: string, platform: PlatformParam, w: Window, 
   const totByBrand = new Map<string, number>()
   for (const r of rows) totByBrand.set(r.brand, Math.max(totByBrand.get(r.brand) ?? 0, r.f))
   const brands = [...totByBrand.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(e => e[0])
-  const series: TrendSeries[] = brands.map((brand, i) => {
+  const build = (field: 'f' | 'net'): TrendSeries[] => brands.map((brand, i) => {
     const data = new Array(weeks.length).fill(0)
-    for (const r of rows) if (r.brand === brand) data[idx.get(r.wk)!] = Math.round(r.f)
+    for (const r of rows) if (r.brand === brand) data[idx.get(r.wk)!] = Math.round(r[field] ?? 0)
     return { name: brand, color: PALETTE[i % PALETTE.length], data }
   })
-  return { followerTrend: series, followerLabels: weeks.length ? weeks.map(fmtDateLabel) : [''] }
+  return {
+    followerTrend: build('f'),
+    followerGrowthTrend: build('net'),
+    followerLabels: weeks.length ? weeks.map(fmtDateLabel) : [''],
+  }
 }
 
 // ── Comment relevance tiers (gold distribution counts + feature/silver samples) ──
@@ -291,13 +300,13 @@ async function commentRelevance(orgId: string, platform: PlatformParam, brandId:
       .map(r => (r.txt ?? '').trim()).filter(Boolean).slice(0, 3)
     return {
       tier: t.tier, range: t.range, count,
-      pct: total > 0 ? Math.round(pct(count, total)) : 0,
+      pct: total > 0 ? round2(pct(count, total)) : 0,
       desc: t.desc, color: t.color, samples,
     }
   })
   const high = tiers[0]
   const signal = total > 0
-    ? `${high.pct}% komentar tergolong relevansi tinggi (>75) — sinyal keterlibatan audiens yang dalam. Optimalkan caption dengan pertanyaan terbuka untuk menaikkan porsi ini.`
+    ? `${fmtPct(high.pct)} komentar tergolong relevansi tinggi (>75) — sinyal keterlibatan audiens yang dalam. Optimalkan caption dengan pertanyaan terbuka untuk menaikkan porsi ini.`
     : 'Belum ada distribusi relevansi komentar pada periode ini (l2_gold.comment_relevance_distribution masih kosong).'
   return { relevanceTiers: tiers, relevanceSignal: signal }
 }
@@ -329,7 +338,7 @@ async function contributors(orgId: string, platform: PlatformParam, days: number
     comments: r.comments,
     likes: r.likes,
     daily: +(r.comments / windowDays).toFixed(1),
-    relevance: Math.round(r.relevance ?? 0),
+    relevance: round2(r.relevance ?? 0),
     score: Math.round(r.score),
     tier: TIER_LABEL[r.tier] ?? 'Casual',
     color: PALETTE[i % PALETTE.length],
@@ -382,7 +391,7 @@ export async function getAudienceData(
   if (!win) {
     return {
       kpis: [], age: [], ageInsight: '', gender: [], relevanceTiers: [], relevanceSignal: '',
-      contributors: [], superFanNote: '', cities: [], followerTrend: [], followerLabels: [''],
+      contributors: [], superFanNote: '', cities: [], followerTrend: [], followerGrowthTrend: [], followerLabels: [''],
       ugc: [], ugcInsight: '', empty: true,
     }
   }

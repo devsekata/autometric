@@ -1,5 +1,6 @@
 import pool from '@/lib/db'
 import { windowsFromRange, type CustomRange } from './range'
+import { fmtPct, fmtSignedPct, fmtPts, round2 } from './format'
 import type {
   OverviewKpi, TrendSeries, TrendMetric, DashPlatform, BrandMatrixRow, ContentAttribute,
 } from '@/components/dashboard/data'
@@ -15,12 +16,14 @@ import type {
  */
 
 export type PlatformParam = 'all' | DashPlatform
+export interface PlatformShareRow { platform: DashPlatform; value: number; pct: number }
 
 export interface OverviewPayload {
   kpis: OverviewKpi[]
   engagementOverTime: Record<TrendMetric, TrendSeries[]>
   trendLabels: string[]
-  platformReachShare: { platform: DashPlatform; value: number }[]
+  /** Platform Share donut, one breakdown per toggle metric. value = raw total, pct = share. */
+  platformShare: Record<TrendMetric, PlatformShareRow[]>
   brandMatrix: BrandMatrixRow[]
   contentAttributes: ContentAttribute[]
   contentAttrFinding: string
@@ -46,10 +49,9 @@ function fmtNum(n: number): string {
 }
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0)
 function deltaStr(cur: number, prev: number): { delta: string; good: boolean } {
-  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0%', good: cur >= 0 }
+  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0.00%', good: cur >= 0 }
   const d = ((cur - prev) / prev) * 100
-  const sign = d >= 0 ? '+' : ''
-  return { delta: `${sign}${d.toFixed(d >= 10 || d <= -10 ? 0 : 1)}%`, good: d >= 0 }
+  return { delta: fmtSignedPct(d), good: d >= 0 }
 }
 
 // platform filter fragment uses $2; queries share param order [orgId, platform, start, end]
@@ -116,13 +118,13 @@ async function dailySparks(orgId: string, platform: PlatformParam, w: Window, br
       GROUP BY bmd.metric_date ORDER BY bmd.metric_date`,
     [orgId, platform, w.start, w.end, brandId],
   )
-  let cum = 0
   return {
     reach: rows.map(r => Math.round(r.reach)),
     eng: rows.map(r => Math.round(r.eng)),
-    er: rows.map(r => +pct(r.eng, r.erden).toFixed(2)),
+    er: rows.map(r => round2(pct(r.eng, r.erden))),
     tkviews: rows.map(r => Math.round(r.tkviews)),
-    netCum: rows.map(r => (cum += r.net, Math.round(cum))),
+    // daily net follower change (not cumulative) so day-to-day spikes stay visible
+    net: rows.map(r => Math.round(r.net)),
   }
 }
 
@@ -132,9 +134,9 @@ function buildKpis(cur: Totals, prev: Totals, s: Awaited<ReturnType<typeof daily
   return [
     { key: 'reach', label: 'Total Reach', icon: 'ads_click', value: fmtNum(cur.reach), ...deltaStr(cur.reach, prev.reach), spark: s.reach.length ? s.reach : [0] },
     { key: 'eng', label: 'Total Engagement', icon: 'favorite', value: fmtNum(cur.eng), ...deltaStr(cur.eng, prev.eng), spark: s.eng.length ? s.eng : [0] },
-    { key: 'er', label: 'Blended Eng. Rate', icon: 'bolt', value: `${erCur.toFixed(2)}%`, delta: `${erDelta >= 0 ? '+' : ''}${erDelta.toFixed(2)}pts`, good: erDelta >= 0, spark: s.er.length ? s.er : [0] },
+    { key: 'er', label: 'Blended Eng. Rate', icon: 'bolt', value: fmtPct(erCur), delta: fmtPts(erDelta), good: erDelta >= 0, spark: s.er.length ? s.er : [0] },
     { key: 'views', label: 'TK Video Views', icon: 'smart_display', value: fmtNum(cur.tkviews), ...deltaStr(cur.tkviews, prev.tkviews), spark: s.tkviews.length ? s.tkviews : [0] },
-    { key: 'growth', label: 'Net Follower Growth', icon: 'group_add', value: `${cur.net >= 0 ? '+' : ''}${fmtNum(cur.net)}`, ...deltaStr(cur.net, prev.net), spark: s.netCum.length ? s.netCum : [0] },
+    { key: 'growth', label: 'Net Follower Growth', icon: 'group_add', value: `${cur.net >= 0 ? '+' : ''}${fmtNum(cur.net)}`, ...deltaStr(cur.net, prev.net), spark: s.net.length ? s.net : [0] },
   ]
 }
 
@@ -208,23 +210,46 @@ async function engagementOverTime(orgId: string, platform: PlatformParam, w: Win
   }
 }
 
-// ── platform reach share ──────────────────────────────────────────────────────
-async function platformReachShare(orgId: string, platform: PlatformParam, w: Window, brandId: string | null) {
-  const { rows } = await pool.query<{ platform: DashPlatform; reach: number }>(
-    `SELECT bmd.platform, SUM(bmd.reach_sum)::float reach
-       FROM l2_gold.brand_metric_daily bmd
-       JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
-      WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
-        AND bmd.metric_date BETWEEN $3 AND $4
-        AND ($5::uuid IS NULL OR bmd.brand_id = $5)
-      GROUP BY bmd.platform`,
-    [orgId, platform, w.start, w.end, brandId],
-  )
-  const total = rows.reduce((s, r) => s + r.reach, 0)
-  return rows
-    .filter(r => r.reach > 0)
-    .map(r => ({ platform: r.platform, value: Math.round(pct(r.reach, total)) }))
-    .sort((a, b) => b.value - a.value)
+// ── platform share (engagement / reach / followers) ──────────────────────────
+async function platformShare(orgId: string, platform: PlatformParam, w: Window, brandId: string | null): Promise<Record<TrendMetric, PlatformShareRow[]>> {
+  const [{ rows: sums }, { rows: fol }] = await Promise.all([
+    pool.query<{ platform: DashPlatform; eng: number; reach: number }>(
+      `SELECT bmd.platform, SUM(bmd.engagement_sum)::float eng, SUM(bmd.reach_sum)::float reach
+         FROM l2_gold.brand_metric_daily bmd
+         JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
+        WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
+          AND bmd.metric_date BETWEEN $3 AND $4
+          AND ($5::uuid IS NULL OR bmd.brand_id = $5)
+        GROUP BY bmd.platform`,
+      [orgId, platform, w.start, w.end, brandId],
+    ),
+    // followers: latest snapshot per account inside the window, summed per platform
+    pool.query<{ platform: DashPlatform; f: number }>(
+      `WITH last_acct AS (
+          SELECT DISTINCT ON (bmd.account_id, bmd.platform) bmd.platform, bmd.follower_count_eod
+            FROM l2_gold.brand_metric_daily bmd
+            JOIN public.brands b ON b.id = bmd.brand_id AND b.deleted_at IS NULL
+           WHERE b.organization_id = $1 AND (${PLAT.replace('{col}', 'bmd')})
+             AND bmd.metric_date BETWEEN $3 AND $4
+             AND bmd.follower_count_eod IS NOT NULL
+             AND ($5::uuid IS NULL OR bmd.brand_id = $5)
+           ORDER BY bmd.account_id, bmd.platform, bmd.metric_date DESC)
+       SELECT platform, SUM(follower_count_eod)::float f FROM last_acct GROUP BY platform`,
+      [orgId, platform, w.start, w.end, brandId],
+    ),
+  ])
+  const share = (items: { platform: DashPlatform; v: number }[]): PlatformShareRow[] => {
+    const total = items.reduce((s, r) => s + r.v, 0)
+    return items
+      .filter(r => r.v > 0)
+      .map(r => ({ platform: r.platform, value: Math.round(r.v), pct: round2(pct(r.v, total)) }))
+      .sort((a, b) => b.value - a.value)
+  }
+  return {
+    Engagement: share(sums.map(r => ({ platform: r.platform, v: r.eng }))),
+    Reach: share(sums.map(r => ({ platform: r.platform, v: r.reach }))),
+    Followers: share(fol.map(r => ({ platform: r.platform, v: r.f }))),
+  }
 }
 
 // ── brand performance matrix ──────────────────────────────────────────────────
@@ -283,7 +308,7 @@ async function brandMatrix(orgId: string, platform: PlatformParam, cur: Window, 
         brand: r.brand, platform: r.platform,
         followers: Math.round(folMap.get(`${r.brand}|${r.platform}`) ?? 0),
         reach: Math.round(r.reach), engagement: Math.round(r.eng),
-        er: +er.toFixed(1), posts: r.posts, trend, score,
+        er: round2(er), posts: r.posts, trend, score,
       }
     })
     .sort((a, b) => b.score - a.score)
@@ -307,7 +332,7 @@ async function contentAttributes(orgId: string, platform: PlatformParam, w: Wind
   const overall = pct(totalEng, totalDen)
 
   const attrs: ContentAttribute[] = rows.map((r, i) => ({
-    label: TAG_LABEL[r.tag] ?? r.tag, count: r.cnt, er: +pct(r.eng, r.erden).toFixed(1),
+    label: TAG_LABEL[r.tag] ?? r.tag, count: r.cnt, er: round2(pct(r.eng, r.erden)),
     color: ATTR_COLORS[i % ATTR_COLORS.length],
   }))
 
@@ -315,7 +340,7 @@ async function contentAttributes(orgId: string, platform: PlatformParam, w: Wind
   const ranked = attrs.filter(a => a.label !== 'Organic' && a.count > 0).sort((a, b) => b.er - a.er)
   const top = ranked[0]
   const finding = top
-    ? `${top.label} mencatat ER tertinggi (${top.er}%), ${overall > 0 ? `${(top.er / overall).toFixed(1)}× di atas rata-rata blended (${overall.toFixed(1)}%)` : 'jauh di atas rata-rata'} — kanal dengan leverage terbesar saat ini.`
+    ? `${top.label} mencatat ER tertinggi (${fmtPct(top.er)}), ${overall > 0 ? `${(top.er / overall).toFixed(1)}× di atas rata-rata blended (${fmtPct(overall)})` : 'jauh di atas rata-rata'} — kanal dengan leverage terbesar saat ini.`
     : 'Belum cukup data atribut konten pada periode ini.'
   return { contentAttributes: attrs, contentAttrFinding: finding }
 }
@@ -372,7 +397,7 @@ export async function getOverviewData(
   const win = await resolveWindows(orgId, platform, days, brandId, custom)
   if (!win) {
     return {
-      kpis: [], trendLabels: [''], platformReachShare: [], brandMatrix: [],
+      kpis: [], trendLabels: [''], platformShare: { Engagement: [], Reach: [], Followers: [] }, brandMatrix: [],
       contentAttributes: [], contentAttrFinding: '', postingHeatmap: [], postingWindowInsight: '',
       engagementOverTime: { Engagement: [], Reach: [], Followers: [] }, empty: true,
     }
@@ -382,7 +407,7 @@ export async function getOverviewData(
     totals(orgId, platform, win.prev, brandId),
     dailySparks(orgId, platform, win.cur, brandId),
     engagementOverTime(orgId, platform, win.cur, brandId),
-    platformReachShare(orgId, platform, win.cur, brandId),
+    platformShare(orgId, platform, win.cur, brandId),
     brandMatrix(orgId, platform, win.cur, win.mid, brandId),
     contentAttributes(orgId, platform, win.cur, brandId),
     postingHeatmap(orgId, platform, brandId),
@@ -391,7 +416,7 @@ export async function getOverviewData(
   return {
     kpis: buildKpis(curT, prevT, sparks),
     ...eot,
-    platformReachShare: share,
+    platformShare: share,
     brandMatrix: matrix,
     ...attrs,
     ...heat,

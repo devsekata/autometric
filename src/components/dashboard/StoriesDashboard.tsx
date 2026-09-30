@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge } from './ui'
+import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge, KpiGrid } from './ui'
 import { HBars, ComboBarLine, MultiLineChart } from './charts'
 import DashboardChrome, { type ChromeState } from './DashboardChrome'
 import { PALETTE, fmtNum, type PlatformFilter, type Period } from './data'
@@ -77,9 +77,9 @@ function StoriesBody({ orgId, brandId, platform, period, start, end }: { orgId: 
   return (
     <>
       <SectionHeader icon="amp_stories" first>Performance</SectionHeader>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <KpiGrid>
         {data.kpis.map((k, i) => <FlexKpiCard key={k.key} kpi={k} color={PALETTE[i % PALETTE.length]} />)}
-      </div>
+      </KpiGrid>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card className="flex flex-col">

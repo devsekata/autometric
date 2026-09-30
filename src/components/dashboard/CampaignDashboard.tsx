@@ -6,6 +6,7 @@ import { HBars, BarChart } from './charts'
 import DashboardChrome, { type ChromeState } from './DashboardChrome'
 import { PILLAR_META, PLATFORM_META, PALETTE, type PlatformFilter } from './data'
 import type { CampaignPostRow, CampaignAnalysis } from '@/lib/dashboard/campaign'
+import { fmtPct } from '@/lib/dashboard/format'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -51,7 +52,7 @@ function PostCard({ post, selected, onToggle }: { post: CampaignPostRow; selecte
         <span className="inline-flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">mode_comment</span>{fmt1(post.comments)}</span>
       </div>
       <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[#6b7280]">
-        <span className="material-symbols-outlined text-[14px] text-[#9ca3af]">bar_chart</span>{post.er}% ER
+        <span className="material-symbols-outlined text-[14px] text-[#9ca3af]">bar_chart</span>{fmtPct(post.er)} ER
       </span>
       {post.hashtags.length > 0 && <p className="text-[11px] text-[#bcc2c9] truncate">{post.hashtags.join(' ')}</p>}
     </button>
@@ -179,7 +180,7 @@ function CampaignBody({ orgId, brandId, platform }: { orgId: string; brandId: st
             <div className="px-4 pb-4 pt-3">
               <HBars items={[...selectedPosts].sort((a, b) => (b.likes + b.comments) - (a.likes + a.comments)).map(p => {
                 const eng = p.likes + p.comments
-                return { label: p.caption.length > 34 ? p.caption.slice(0, 34) + '…' : p.caption, value: eng, display: `${fmt1(eng)} · ${Math.round((eng / totalEng) * 100)}%`, color: pillarMeta(p.pillar).color }
+                return { label: p.caption.length > 34 ? p.caption.slice(0, 34) + '…' : p.caption, value: eng, display: `${fmt1(eng)} · ${fmtPct((eng / totalEng) * 100)}`, color: pillarMeta(p.pillar).color }
               })} />
             </div>
           </Card>

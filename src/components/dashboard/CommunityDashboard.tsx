@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardHead, SectionHeader, FlexKpiCard, Callout } from './ui'
+import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, KpiGrid } from './ui'
 import { MultiLineChart } from './charts'
 import DashboardChrome, { type ChromeState } from './DashboardChrome'
 import { PLATFORM_META, PALETTE, type PlatformFilter, type Period } from './data'
@@ -106,9 +106,9 @@ function CommunityBody({ orgId, brandId, platform, period, start, end }: { orgId
   return (
     <>
       <SectionHeader icon="diversity_3" first>Performance</SectionHeader>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <KpiGrid>
         {data.kpis.map((k, i) => <FlexKpiCard key={k.key} kpi={k} color={PALETTE[i % PALETTE.length]} />)}
-      </div>
+      </KpiGrid>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
         <Card className="flex flex-col">

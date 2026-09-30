@@ -1,5 +1,6 @@
 import pool from '@/lib/db'
 import { windowsFromRange, type CustomRange } from './range'
+import { fmtPct, fmtSignedPct, fmtPts, round2 } from './format'
 import type { OverviewKpi, DashPlatform, TopPostRow } from '@/components/dashboard/data'
 
 /**
@@ -68,13 +69,12 @@ function fmtNum(n: number): string {
 }
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0)
 function deltaStr(cur: number, prev: number): { delta: string; good: boolean } {
-  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0%', good: cur >= 0 }
+  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0.00%', good: cur >= 0 }
   const d = ((cur - prev) / prev) * 100
-  const sign = d >= 0 ? '+' : ''
-  return { delta: `${sign}${d.toFixed(d >= 10 || d <= -10 ? 0 : 1)}%`, good: d >= 0 }
+  return { delta: fmtSignedPct(d), good: d >= 0 }
 }
 const ptsStr = (cur: number, prev: number) => ({
-  delta: `${cur - prev >= 0 ? '+' : ''}${(cur - prev).toFixed(1)}pts`, good: cur - prev >= 0,
+  delta: fmtPts(cur - prev), good: cur - prev >= 0,
 })
 
 // platform filter fragment uses $2; gold queries share param order [orgId, platform, start, end, brandId]
@@ -199,7 +199,7 @@ async function silverKpiDaily(orgId: string, platform: PlatformParam, w: Window,
     ),
   ])
   return {
-    completion: c.rows.map(r => +(r.tkcompl ?? 0).toFixed(1)),
+    completion: c.rows.map(r => round2(r.tkcompl ?? 0)),
     clicks: l.rows.map(r => Math.round(r.fbclicks)),
   }
 }
@@ -212,8 +212,8 @@ function buildKpis(
   const savesCur = pct(curG.igSaves, curG.igErden), savesPrev = pct(prevG.igSaves, prevG.igErden)
   return [
     { key: 'posts', label: 'Total Posts (Period)', icon: 'grid_view', value: fmtNum(curG.posts), ...deltaStr(curG.posts, prevG.posts), spark: sg.posts.length ? sg.posts : [0] },
-    { key: 'saves', label: 'Avg. Saves Rate (IG)', icon: 'bookmark', value: `${savesCur.toFixed(2)}%`, ...ptsStr(savesCur, savesPrev), spark: sg.savesRate.length ? sg.savesRate : [0] },
-    { key: 'compl', label: 'Avg. Completion Rate (TK)', icon: 'smart_display', value: `${Math.round(curS.tkCompl)}%`, ...ptsStr(curS.tkCompl, prevS.tkCompl), spark: ss.completion.length ? ss.completion : [0] },
+    { key: 'saves', label: 'Avg. Saves Rate (IG)', icon: 'bookmark', value: fmtPct(savesCur), ...ptsStr(savesCur, savesPrev), spark: sg.savesRate.length ? sg.savesRate : [0] },
+    { key: 'compl', label: 'Avg. Completion Rate (TK)', icon: 'smart_display', value: fmtPct(curS.tkCompl), ...ptsStr(curS.tkCompl, prevS.tkCompl), spark: ss.completion.length ? ss.completion : [0] },
     { key: 'clicks', label: 'Link Clicks (FB)', icon: 'ads_click', value: fmtNum(curS.fbClicks), ...deltaStr(curS.fbClicks, prevS.fbClicks), spark: ss.clicks.length ? ss.clicks : [0] },
   ]
 }
@@ -271,7 +271,7 @@ async function contentVolume(orgId: string, platform: PlatformParam, w: Window, 
     }
   }
   const insight = worst.i >= 0 && worst.drop >= 0.15
-    ? `${volume[worst.i].label} mengalami penurunan volume posting ${Math.round(worst.drop * 100)}% dibanding minggu sebelumnya — audiens menghukum inkonsistensi, jaga ritme posting.`
+    ? `${volume[worst.i].label} mengalami penurunan volume posting ${fmtPct(worst.drop * 100)} dibanding minggu sebelumnya — audiens menghukum inkonsistensi, jaga ritme posting.`
     : volume.length
       ? 'Volume posting relatif konsisten antar minggu pada periode ini.'
       : 'Belum ada data volume posting pada periode ini.'
@@ -308,7 +308,7 @@ async function topPosts(orgId: string, platform: PlatformParam, w: Window, brand
       format: postFormatLabel(r.format, r.post_type),
       reach: r.reach, views: r.views, likes: r.likes, comments: r.comments,
       shares: r.shares,
-      er: +(r.er ?? 0).toFixed(1),
+      er: round2(r.er ?? 0),
       tag: r.boosted ? 'Boosted' : 'Organic',
     }
   })
@@ -339,12 +339,12 @@ async function completionDist(orgId: string, w: Window, brandId: string | null) 
   const r = rows[0] ?? { b1: 0, b2: 0, b3: 0, b4: 0, total: 0 }
   const t = r.total || 1
   const dist = [
-    { label: '0–25%', value: Math.round(pct(r.b1, t)) },
-    { label: '25–50%', value: Math.round(pct(r.b2, t)) },
-    { label: '50–75%', value: Math.round(pct(r.b3, t)) },
-    { label: '75–100%', value: Math.round(pct(r.b4, t)) },
+    { label: '0–25%', value: round2(pct(r.b1, t)) },
+    { label: '25–50%', value: round2(pct(r.b2, t)) },
+    { label: '50–75%', value: round2(pct(r.b3, t)) },
+    { label: '75–100%', value: round2(pct(r.b4, t)) },
   ]
-  const pastHalf = Math.round(pct(r.b3 + r.b4, t))
+  const pastHalf = round2(pct(r.b3 + r.b4, t))
   const insight = r.total
     ? `${pastHalf}% video ditonton melewati titik tengah${pastHalf >= 50 ? ' — di atas benchmark retensi 50%.' : ', masih di bawah benchmark retensi 50%.'}`
     : 'Belum ada data completion rate TikTok pada periode ini.'
@@ -374,13 +374,13 @@ async function reelWatch(orgId: string, w: Window, brandId: string | null) {
       GROUP BY 1`,
     [orgId, w.start, w.end, brandId],
   )
-  const map = new Map(rows.map(r => [r.bucket, Math.round(r.comp)]))
+  const map = new Map(rows.map(r => [r.bucket, round2(r.comp)]))
   const reel = DUR_BUCKETS.map(b => ({ label: b, value: map.get(b) ?? 0 }))
   const present = reel.filter(r => r.value > 0)
   const best = present.slice().sort((a, b) => b.value - a.value)[0]
   const worst = present.slice().sort((a, b) => a.value - b.value)[0]
   const insight = best
-    ? `Reel ${best.label} menahan rata-rata completion ${best.value}%${worst && worst !== best ? `, sementara ${worst.label} turun ke ${worst.value}%` : ''} — durasi pendek mempertahankan penonton lebih baik.`
+    ? `Reel ${best.label} menahan rata-rata completion ${fmtPct(best.value)}${worst && worst !== best ? `, sementara ${worst.label} turun ke ${fmtPct(worst.value)}` : ''} — durasi pendek mempertahankan penonton lebih baik.`
     : 'Belum ada data watch time reel pada periode ini.'
   return { reelWatch: reel, reelWatchInsight: insight }
 }

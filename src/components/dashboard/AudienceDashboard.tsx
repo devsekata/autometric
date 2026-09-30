@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge } from './ui'
+import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge, KpiGrid } from './ui'
 import { HBars, MultiLineChart } from './charts'
 import DashboardChrome, { type ChromeState } from './DashboardChrome'
 import { PLATFORM_META, PALETTE, fmtNum, type PlatformFilter, type Period } from './data'
 import type { AudiencePayload } from '@/lib/dashboard/audience'
+import { fmtPct } from '@/lib/dashboard/format'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 const FEMALE = '#d23f6f'
@@ -47,6 +48,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
   const [error, setError] = useState<string | null>(null)
   const [cPlatform, setCPlatform] = useState('All Platforms')
   const [cTier, setCTier] = useState('All Tiers')
+  const [followerView, setFollowerView] = useState<'Followers' | 'Growth'>('Followers')
 
   useEffect(() => {
     let cancelled = false
@@ -94,14 +96,16 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
   }
 
   const relevanceTotal = data.relevanceTiers.reduce((s, t) => s + t.count, 0)
+  const hasCities = data.cities.length > 0
+  const followerSeries = followerView === 'Followers' ? data.followerTrend : data.followerGrowthTrend
 
   return (
     <>
       {/* Reach KPIs */}
       <SectionHeader icon="groups" first>Audience</SectionHeader>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <KpiGrid>
         {data.kpis.map((k, i) => <FlexKpiCard key={k.key} kpi={k} color={PALETTE[i % PALETTE.length]} />)}
-      </div>
+      </KpiGrid>
 
       {/* Demographics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
@@ -110,7 +114,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
           <div className="px-4 pb-4 pt-3">
             {data.age.some(a => a.value > 0)
               ? <HBars items={data.age.map(a => ({
-                  label: a.bucket, value: a.value, display: `${a.value}%`, color: a.color,
+                  label: a.bucket, value: a.value, display: fmtPct(a.value), color: a.color,
                 }))} />
               : <div className="py-10 text-center text-[12px] text-[#9ca3af]">Tidak ada data usia audiens.</div>}
           </div>
@@ -134,10 +138,10 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
                 <span className="w-[72px] flex-shrink-0 text-right text-[12.5px] font-medium text-[#374151]">{PLATFORM_META[g.platform].label}</span>
                 <div className="flex-1 flex h-10 rounded-lg overflow-hidden">
                   <div className="flex items-center justify-center" style={{ width: `${g.female}%`, background: FEMALE }}>
-                    <span className="text-[11.5px] font-bold text-white">{g.female}%</span>
+                    <span className="text-[11.5px] font-bold text-white">{fmtPct(g.female)}</span>
                   </div>
                   <div className="flex items-center justify-center" style={{ width: `${g.male}%`, background: MALE }}>
-                    <span className="text-[11.5px] font-bold text-white">{g.male}%</span>
+                    <span className="text-[11.5px] font-bold text-white">{fmtPct(g.male)}</span>
                   </div>
                 </div>
               </div>
@@ -156,7 +160,8 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
         </Card>
       </div>
 
-      {/* Comment relevance */}
+      {/* Comment relevance — hidden entirely until relevance scores exist */}
+      {relevanceTotal > 0 && (<>
       <SectionHeader icon="forum">Comment Relevance Analysis</SectionHeader>
       <Card className="mb-3">
         <div className="flex items-start justify-between px-4 pt-3.5 pb-2 flex-wrap gap-2">
@@ -165,10 +170,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
             <p className="text-[11px] text-[#9ca3af] mt-0.5">Semantic scoring of each comment against its post caption — how contextually invested is the audience?</p>
           </div>
         </div>
-        {relevanceTotal === 0 ? (
-          <div className="px-4 py-10 text-center text-[12.5px] text-[#9ca3af]">Belum ada skor relevansi komentar (feature.comment_relevance_scores masih kosong).</div>
-        ) : (
-          <>
+        <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 px-4 pt-1">
               {data.relevanceTiers.map(t => (
                 <div key={t.tier} className="bg-[#fafbfb] border border-[#eef0f2] rounded-xl px-4 py-3.5">
@@ -178,7 +180,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
                   </div>
                   <div className="flex items-end gap-2">
                     <span style={PJ} className="text-[22px] font-bold text-[#111827] leading-none tabular-nums">{fmtNum(t.count)}</span>
-                    <span className="text-[11.5px] text-[#9ca3af] pb-0.5">{t.pct}% of all comments</span>
+                    <span className="text-[11.5px] text-[#9ca3af] pb-0.5">{fmtPct(t.pct)} of all comments</span>
                   </div>
                 </div>
               ))}
@@ -190,7 +192,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
                   <div key={t.tier}>
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-[12.5px] font-semibold text-[#374151]">{t.tier.replace(' Relevance', '')} ({t.range})</span>
-                      <span style={PJ} className="text-[12.5px] font-bold text-[#111827]">{t.pct}%</span>
+                      <span style={PJ} className="text-[12.5px] font-bold text-[#111827]">{fmtPct(t.pct)}</span>
                     </div>
                     <div className="w-full h-2 rounded-full bg-[#f3f4f6] overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${t.pct}%`, background: t.color }} />
@@ -201,10 +203,8 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
               </div>
             </div>
           </>
-        )}
       </Card>
 
-      {relevanceTotal > 0 && (
         <Card className="mb-1">
           <CardHead title="Sample Comments by Tier" metricKey="comment_relevance.tier" sub="Representative comments from each relevance band" />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-4 pt-1 pb-2">
@@ -227,9 +227,10 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
             <Callout tone="info" emoji="💡" title="Relevance Signal">{data.relevanceSignal}</Callout>
           </div>
         </Card>
-      )}
+      </>)}
 
-      {/* Top contributors */}
+      {/* Top contributors — hidden when the period has no contributor data */}
+      {data.contributors.length > 0 && (<>
       <SectionHeader icon="workspace_premium">Top Community Contributors</SectionHeader>
       <Card className="overflow-hidden">
         <div className="flex items-start justify-between px-4 pt-3.5 pb-2 flex-wrap gap-2">
@@ -263,7 +264,7 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
                 <span className="text-[#374151] tabular-nums">{c.comments}</span>
                 <span className="text-[#374151] tabular-nums">{c.likes}</span>
                 <span className="text-[#374151] tabular-nums">{c.daily}</span>
-                <span className="font-semibold text-[#3d8a5f] tabular-nums">{c.relevance}%</span>
+                <span className="font-semibold text-[#3d8a5f] tabular-nums">{fmtPct(c.relevance)}</span>
                 <span style={PJ} className="font-bold text-[#111827] tabular-nums">{c.score}</span>
                 <span className={`inline-flex items-center justify-center text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${TIER_STYLE[c.tier]}`}>{c.tier}</span>
               </div>
@@ -277,30 +278,42 @@ function AudienceBody({ orgId, brandId, platform, period, start, end }: { orgId:
           <Callout tone="success" title="Super Fan Programme">{data.superFanNote}</Callout>
         </div>
       </Card>
+      </>)}
 
-      {/* Geography + growth */}
-      <SectionHeader icon="public">Geography &amp; Growth</SectionHeader>
+      {/* Geography + followers trend — cities card only when there is city data */}
+      <SectionHeader icon="public">{hasCities ? 'Geography & Growth' : 'Follower Growth'}</SectionHeader>
       <div className="grid grid-cols-12 gap-3 mb-3">
-        <Card span="col-span-12 lg:col-span-5">
-          <CardHead title="Top Audience Cities" metricKey="audience_geo_daily.geo" sub="Share of followers by city" />
-          <div className="px-4 pb-4 pt-3">
-            {data.cities.length
-              ? <HBars items={data.cities.map((c, i) => ({
-                  label: c.city, value: c.value, display: `${c.value}%`, color: PALETTE[i % PALETTE.length],
-                }))} />
-              : <div className="py-10 text-center text-[12px] text-[#9ca3af]">Tidak ada data kota audiens.</div>}
-          </div>
-        </Card>
+        {hasCities && (
+          <Card span="col-span-12 lg:col-span-5">
+            <CardHead title="Top Audience Cities" metricKey="audience_geo_daily.geo" sub="Share of followers by city" />
+            <div className="px-4 pb-4 pt-3">
+              <HBars items={data.cities.map((c, i) => ({
+                label: c.city, value: c.value, display: fmtPct(c.value), color: PALETTE[i % PALETTE.length],
+              }))} />
+            </div>
+          </Card>
+        )}
 
-        <Card span="col-span-12 lg:col-span-7" className="flex flex-col">
-          <CardHead title="Follower Growth Trend" metricKey="brand_metric_daily.follower_count_eod" sub="All brands · weekly" />
+        <Card span={hasCities ? 'col-span-12 lg:col-span-7' : 'col-span-12'} className="flex flex-col">
+          <CardHead title="Followers Trend" metricKey="brand_metric_daily.follower_count_eod"
+            sub={`All brands · weekly ${followerView === 'Followers' ? 'follower count' : 'net follower growth'}`}
+            action={
+              <div className="flex items-center bg-[#f3f4f6] rounded-lg p-0.5">
+                {(['Followers', 'Growth'] as const).map(v => (
+                  <button key={v} onClick={() => setFollowerView(v)} style={PJ}
+                    className={`h-7 px-3 rounded-md text-[11.5px] font-semibold transition-colors ${
+                      followerView === v ? 'bg-white text-[#327488] shadow-sm' : 'text-[#6b7280] hover:text-[#374151]'
+                    }`}>{v}</button>
+                ))}
+              </div>
+            } />
           <div className="px-4 pb-3 pt-3 flex-1">
-            {data.followerTrend.length
-              ? <MultiLineChart series={data.followerTrend} labels={data.followerLabels} height={220} />
+            {followerSeries.length
+              ? <MultiLineChart series={followerSeries} labels={data.followerLabels} height={220} />
               : <div className="h-[220px] flex items-center justify-center text-[12px] text-[#9ca3af]">Tidak ada data follower.</div>}
           </div>
           <div className="flex items-center gap-4 px-4 pb-4 flex-wrap">
-            {data.followerTrend.map(s => (
+            {followerSeries.map(s => (
               <span key={s.name} className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[#6b7280]">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />{s.name}
               </span>

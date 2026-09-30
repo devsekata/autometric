@@ -1,6 +1,7 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useState } from 'react'
+import { fmtPct } from '@/lib/dashboard/format'
 
 /* ---------- helpers ---------- */
 
@@ -18,14 +19,41 @@ function buildPath(data: number[], w: number, h: number, pad: number) {
 
 /* ---------- Sparkline (KPI cards) ---------- */
 
-export function Sparkline({ data, color, width = 96, height = 30 }: {
+export function Sparkline({ data, color, width = 96, height = 30, fmt }: {
   data: number[]; color: string; width?: number; height?: number
+  /** Tooltip formatter — pass the KPI's unit so the hover value matches the scorecard. */
+  fmt?: (n: number) => string
 }) {
-  const d = buildPath(data, width, height, 3)
+  const [hover, setHover] = useState<number | null>(null)
+  const pad = 3
+  const d = buildPath(data, width, height, pad)
+  const min = Math.min(...data), max = Math.max(...data), span = max - min || 1
+  const stepX = (width - pad * 2) / Math.max(1, data.length - 1)
+  const ptX = (i: number) => pad + i * stepX
+  const ptY = (v: number) => pad + (height - pad * 2) * (1 - (v - min) / span)
+  const show = fmt ?? ((n: number) => n.toLocaleString('en-US'))
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const x = ((e.clientX - r.left) / r.width) * width
+    setHover(Math.max(0, Math.min(data.length - 1, Math.round((x - pad) / stepX))))
+  }
+
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
-      <path d={d} fill="none" stroke={color} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div className="relative" style={{ width, height }}>
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible cursor-crosshair"
+        onMouseMove={data.length > 1 ? onMove : undefined} onMouseLeave={() => setHover(null)}>
+        <path d={d} fill="none" stroke={color} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" />
+        {hover !== null && <circle cx={ptX(hover)} cy={ptY(data[hover])} r={3} fill="#fff" stroke={color} strokeWidth={1.75} />}
+      </svg>
+      {hover !== null && (
+        <div className="absolute z-20 -translate-x-1/2 -translate-y-full pointer-events-none whitespace-nowrap flex items-center gap-1.5 bg-white border border-[#e5e7eb] shadow-md rounded-lg px-2 py-1"
+          style={{ left: ptX(hover), top: ptY(data[hover]) - 6 }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+          <span className="text-[11px] font-bold text-[#111827] tabular-nums">{show(data[hover])}</span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -294,7 +322,7 @@ export function Donut({ segments, size = 140, thickness = 18, centerLabel, cente
           <li key={s.label} className="flex items-center gap-2 text-[12px]">
             <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color }} />
             <span className="text-[#374151] flex-1">{s.label}</span>
-            <span className="font-semibold text-[#111827]">{Math.round((s.value / total) * 100)}%</span>
+            <span className="font-semibold text-[#111827]">{fmtPct((s.value / total) * 100)}</span>
           </li>
         ))}
       </ul>
@@ -381,7 +409,7 @@ export function Heatmap({ rows, cols, grid, base = '#285D6E', cellHeight = 34 }:
             <div key={ci} className="flex-1 px-0.5">
               <div className="w-full rounded-[5px]"
                 style={{ height: cellHeight, background: base, opacity: 0.12 + v * 0.88 }}
-                title={`${r} ${cols[ci]} · ${Math.round(v * 100)}%`} />
+                title={`${r} ${cols[ci]} · ${fmtPct(v * 100)}`} />
             </div>
           ))}
         </div>

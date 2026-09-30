@@ -1,5 +1,6 @@
 import pool from '@/lib/db'
 import { windowsFromRange, type CustomRange } from './range'
+import { fmtPct, fmtSignedPct, fmtPts, round2 } from './format'
 import type { OverviewKpi, TrendSeries } from '@/components/dashboard/data'
 
 /**
@@ -41,14 +42,14 @@ function fmtNum(n: number): string {
 }
 const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : 0)
 function deltaStr(cur: number, prev: number): { delta: string; good: boolean } {
-  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0%', good: cur >= 0 }
+  if (prev <= 0) return { delta: cur > 0 ? 'new' : '0.00%', good: cur >= 0 }
   const d = ((cur - prev) / prev) * 100
-  return { delta: `${d >= 0 ? '+' : ''}${d.toFixed(d >= 10 || d <= -10 ? 0 : 1)}%`, good: d >= 0 }
+  return { delta: fmtSignedPct(d), good: d >= 0 }
 }
 // rate delta in points; `lowerIsGood` flips the colour (e.g. exit rate)
 function ptsStr(cur: number, prev: number, lowerIsGood = false) {
   const d = cur - prev
-  return { delta: `${d >= 0 ? '+' : ''}${d.toFixed(1)}pts`, good: lowerIsGood ? d <= 0 : d >= 0, dir: (d >= 0 ? 'up' : 'down') as 'up' | 'down' }
+  return { delta: fmtPts(d), good: lowerIsGood ? d <= 0 : d >= 0, dir: (d >= 0 ? 'up' : 'down') as 'up' | 'down' }
 }
 
 const PLAT = `($2 = 'all' OR {col}.platform = $2)`
@@ -114,8 +115,8 @@ async function dailySparks(orgId: string, platform: PlatformParam, w: Window, br
   return {
     stories: rows.map(r => Math.round(r.stories)),
     avgReach: rows.map(r => Math.round(r.stories > 0 ? r.reach / r.stories : 0)),
-    swipeRate: rows.map(r => +pct(r.swipe, r.reach).toFixed(2)),
-    exitRate: rows.map(r => +pct(r.exits, r.views).toFixed(2)),
+    swipeRate: rows.map(r => round2(pct(r.swipe, r.reach))),
+    exitRate: rows.map(r => round2(pct(r.exits, r.views))),
   }
 }
 
@@ -127,8 +128,8 @@ function buildKpis(cur: Totals, prev: Totals, s: Awaited<ReturnType<typeof daily
   return [
     { key: 's-pub', label: 'Stories Published', icon: 'amp_stories', value: fmtNum(cur.stories), ...deltaStr(cur.stories, prev.stories), spark: s.stories.length ? s.stories : [0] },
     { key: 's-reach', label: 'Avg. Story Reach', icon: 'ads_click', value: fmtNum(avgReachCur), ...deltaStr(avgReachCur, avgReachPrev), spark: s.avgReach.length ? s.avgReach : [0] },
-    { key: 's-swipe', label: 'Swipe-Up Rate', icon: 'swipe_up', value: `${swipeCur.toFixed(1)}%`, ...ptsStr(swipeCur, swipePrev), spark: s.swipeRate.length ? s.swipeRate : [0] },
-    { key: 's-exit', label: 'Exit Rate (avg)', icon: 'logout', value: `${Math.round(exitCur)}%`, ...ptsStr(exitCur, exitPrev, true), spark: s.exitRate.length ? s.exitRate : [0] },
+    { key: 's-swipe', label: 'Swipe-Up Rate', icon: 'swipe_up', value: fmtPct(swipeCur), ...ptsStr(swipeCur, swipePrev), spark: s.swipeRate.length ? s.swipeRate : [0] },
+    { key: 's-exit', label: 'Exit Rate (avg)', icon: 'logout', value: fmtPct(exitCur), ...ptsStr(exitCur, exitPrev, true), spark: s.exitRate.length ? s.exitRate : [0] },
   ]
 }
 
@@ -156,7 +157,7 @@ async function funnel(orgId: string, platform: PlatformParam, w: Window, brandId
   ]
   const fwdRate = pct(r.taps_fwd, t.views)
   const insight = t.views > 0
-    ? `${Math.round(fwdRate)}% tap-forward${fwdRate >= 40 ? ' — story banyak dilewati; perkuat hook di frame pertama atau pendekkan sekuens.' : ' — retensi sekuens sehat.'}`
+    ? `${fmtPct(fwdRate)} tap-forward${fwdRate >= 40 ? ' — story banyak dilewati; perkuat hook di frame pertama atau pendekkan sekuens.' : ' — retensi sekuens sehat.'}`
     : 'Belum ada data story pada periode ini.'
   return { funnel: steps, funnelInsight: insight }
 }

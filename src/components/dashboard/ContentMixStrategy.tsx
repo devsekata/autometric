@@ -5,6 +5,7 @@ import {
   AI_SYNTHESIS, PERFORMANCE_MATRIX, COMMENT_RELEVANCE,
   RELEVANCE_INSIGHT, TOP_CONTRIBUTORS,
 } from './data'
+import { fmtPct } from '@/lib/dashboard/format'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 const fmt = (n: number) => n.toLocaleString('en-US')
@@ -54,7 +55,7 @@ export function PerformanceMatrix() {
               <span className="text-[#374151] tabular-nums">{fmt(r.likes)}</span>
               <span className="text-[#374151] tabular-nums">{fmt(r.comments)}</span>
               <span className={`tabular-nums font-bold ${r.er === MAX_ER ? 'text-[#3d8a5f]' : 'text-[#111827]'}`}>
-                {r.er.toFixed(2)}%
+                {fmtPct(r.er)}
                 {r.er === MAX_ER && <span className="ml-1 text-[9px] font-bold uppercase text-[#3d8a5f]">top</span>}
               </span>
               <span className="text-[12px] italic text-[#6b7280] leading-snug">“{r.insight}”</span>
@@ -136,7 +137,7 @@ export function TopContributors({ span }: { span?: string }) {
                 <div className="flex-1 h-1.5 rounded-full bg-[#f3f4f6] overflow-hidden max-w-[52px]">
                   <div className="h-full rounded-full" style={{ width: `${c.relevancy}%`, background: c.color }} />
                 </div>
-                <span className="text-[12px] font-bold text-[#374151] tabular-nums">{c.relevancy}%</span>
+                <span className="text-[12px] font-bold text-[#374151] tabular-nums">{fmtPct(c.relevancy)}</span>
               </div>
               <span className="text-[12px] italic text-[#6b7280] truncate">“{c.quote}”</span>
             </div>

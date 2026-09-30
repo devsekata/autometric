@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge } from './ui'
+import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge, KpiGrid } from './ui'
 import { DivergingBars, ScatterPlot, HBars } from './charts'
 import DashboardChrome, { type ChromeState } from './DashboardChrome'
 import { PALETTE, fmtNum, type PlatformFilter, type Period } from './data'
@@ -73,9 +73,9 @@ function TikTokBody({ orgId, brandId, platform, period, start, end }: { orgId: s
   return (
     <>
       <SectionHeader icon="music_note" first>Performance</SectionHeader>
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-3">
+      <KpiGrid>
         {data.kpis.map((k, i) => <FlexKpiCard key={k.key} kpi={k} color={PALETTE[i % PALETTE.length]} />)}
-      </div>
+      </KpiGrid>
 
       {/* Follower churn */}
       <SectionHeader icon="sync_alt">Follower Churn Analysis</SectionHeader>

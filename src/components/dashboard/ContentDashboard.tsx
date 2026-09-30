@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge } from './ui'
+import { Card, CardHead, SectionHeader, FlexKpiCard, Callout, Badge, KpiGrid } from './ui'
 import { BarChart, HBars } from './charts'
 import DashboardChrome, { type ChromeState } from './DashboardChrome'
 import { PLATFORM_META, PALETTE, fmtNum, type PlatformFilter, type Period } from './data'
 import type { ContentOverviewPayload } from '@/lib/dashboard/content'
+import { fmtPct } from '@/lib/dashboard/format'
 
 const PJ = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -79,9 +80,9 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
     <>
       {/* Performance KPIs */}
       <SectionHeader icon="monitoring" first>Performance</SectionHeader>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <KpiGrid>
         {data.kpis.map((k, i) => <FlexKpiCard key={k.key} kpi={k} color={PALETTE[i % PALETTE.length]} />)}
-      </div>
+      </KpiGrid>
 
       {/* Post type performance + content volume */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
@@ -159,7 +160,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
                   <span className="font-semibold text-[#111827] tabular-nums">{fmtNum(r.likes)}</span>
                   <span className="text-[#374151] tabular-nums">{fmtNum(r.comments)}</span>
                   <span className="text-[#374151] tabular-nums">{r.shares == null ? '—' : fmtNum(r.shares)}</span>
-                  <span className="font-semibold text-[#3d8a5f] tabular-nums">{r.er}%</span>
+                  <span className="font-semibold text-[#3d8a5f] tabular-nums">{fmtPct(r.er)}</span>
                   <span className={`inline-flex items-center justify-center text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
                     r.tag === 'Boosted' ? 'text-[#b8915a] bg-[#fbf4e8]' : 'text-[#6b7280] bg-[#f3f4f6]'
                   }`}>{r.tag}</span>
@@ -181,7 +182,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
           <div className="px-4 pb-4 pt-3 flex-1 flex items-end">
             {data.completionDist.some(d => d.value > 0)
               ? <BarChart height={200} bars={data.completionDist.map((d, i) => ({
-                  label: d.label, value: d.value, display: `${d.value}%`, color: PALETTE[i % PALETTE.length],
+                  label: d.label, value: d.value, display: fmtPct(d.value), color: PALETTE[i % PALETTE.length],
                 }))} />
               : <div className="w-full py-10 text-center text-[12px] text-[#9ca3af]">Tidak ada data completion TikTok.</div>}
           </div>
@@ -195,7 +196,7 @@ function ContentBody({ orgId, brandId, platform, period, start, end }: { orgId: 
           <div className="px-4 pb-4 pt-3 flex-1 flex items-end">
             {data.reelWatch.some(d => d.value > 0)
               ? <BarChart height={200} bars={data.reelWatch.map(d => ({
-                  label: d.label, value: d.value, display: `${d.value}%`,
+                  label: d.label, value: d.value, display: fmtPct(d.value),
                   color: d.value >= 60 ? '#5fa783' : d.value >= 40 ? '#e0a458' : '#d97a7a',
                 }))} />
               : <div className="w-full py-10 text-center text-[12px] text-[#9ca3af]">Tidak ada data watch time reel.</div>}
