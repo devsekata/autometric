@@ -121,7 +121,11 @@ export function ProfileSection({
               <MiniField label="Niche" value={niche || 'belum diisi'} />
               {/* Nothing writes kol_directory.creator_city: no run fills this. */}
               <MiniField label="Location" value={creator.city || 'tidak tersedia'} />
-              <MiniField label="Agency" value={identity.agency ?? 'belum diisi'} />
+              {/* No identification source is exposed to this screen: the only
+                  candidate is the ID number in the old Excel roster, which is
+                  personal data and is not read here. */}
+              <MiniField label="Identification" value="tidak tersedia" />
+              <MiniField label="Group / Agency" value={identity.agency ?? 'belum diisi'} />
               {/* `Collab` and `Match` both used to be generated: Collab was the
                   literal string "Open" for every creator, and Match was
                   `kolSample`'s brand-fit number, which knew nothing about any

@@ -144,6 +144,34 @@ export default function KolCreatorWorkspace({
     return () => { cancelled = true }
   }, [orgId, kolId, reload])
 
+  /**
+   * A creator fresh from Add KOL is shown before the enrichment pipeline has
+   * touched it. While that is the case the page re-reads itself once a minute,
+   * so the values appear when the pipeline writes them without the user
+   * reloading or re-adding the creator. Quiet: it does not blank the page or
+   * reset the open section, and it only replaces the data once the creator is
+   * no longer pending. It gives up after twenty tries - a pipeline that is not
+   * running is not helped by polling - and a manual reload starts it again.
+   */
+  const isPending = !!data && enrichmentPending(data.gold, data.measured?.postCount ?? 0)
+  useEffect(() => {
+    if (!isPending) return
+    let cancelled = false
+    let tries = 0
+    const timer = window.setInterval(() => {
+      tries += 1
+      if (tries > 20) { window.clearInterval(timer); return }
+      fetch(`/api/organizations/${orgId}/discover/kol-directory/${kolId}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then((d: KolCreatorPayload | null) => {
+          if (cancelled || !d) return
+          if (!enrichmentPending(d.gold, d.measured?.postCount ?? 0)) setData(d)
+        })
+        .catch(() => { /* the next tick tries again */ })
+    }, 60_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [orgId, kolId, isPending])
+
   useEffect(() => {
     if (!toast) return
     const t = window.setTimeout(() => setToast(null), 2200)
@@ -591,7 +619,7 @@ function Loaded({
       <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
         {/* Was followers × ER, labelled Reach: that product is engagements per
             post, not reach. No reach column is populated on the KOL server. */}
-        <StatTile label="Reach" value="Belum terukur" hint="butuh Insights akun terhubung" />
+        <StatTile label="Reach" value="Tidak tersedia" hint="butuh Insights akun terhubung" />
         <StatTile label="Avg. Views"
           value={intel.kpi.avgViews === null ? 'Belum terukur' : fmtNum(intel.kpi.avgViews)}
           hint={intel.kpi.avgViews === null ? undefined : viewsBasis} />
@@ -609,7 +637,16 @@ function Loaded({
         {/* CPE is cost over engagement (scrapper-project `campaign_cost_metrics`),
             and the cost is a rate card fee or a campaign deal price. Neither
             exists for this roster, and EMV is not a cost. */}
-        <StatTile label="CPE" value="Belum terukur" hint="butuh biaya: rate card / deal" />
+        <StatTile label="CPE" value="Tidak tersedia" hint="butuh biaya: rate card / deal" />
+        {/* The creator's own fee, from the rate card. The rate card tables are
+            empty for the whole roster, so this reads unavailable rather than
+            borrowing a price from the old Excel roster or from another creator. */}
+        <StatTile label="Agent Fee"
+          value={cheapestRate ? `Rp${cheapestRate.fee.toLocaleString('id-ID')}` : 'Tidak tersedia'}
+          hint={cheapestRate ? `${cheapestRate.label} · rate card` : 'belum ada rate card'} />
+        {/* Cost per acquisition needs a cost and a conversion count. Neither a
+            deal price nor any conversion data exists on the KOL server. */}
+        <StatTile label="CPA" value="Tidak tersedia" hint="butuh biaya deal + data konversi" />
         {/* Real scores now, from `feature.*_audience_analysis` via `kolGold`
             (see `GoldAudienceQuality`). Both used to come from `kolSample`.
             Null for the ~99.6% of the roster the pipeline has not analysed. */}

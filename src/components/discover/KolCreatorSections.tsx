@@ -236,7 +236,7 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
               ? NOT_MEASURED : pctLabel((gold?.engagement?.erPct ?? creator.erPct) as number)}
             hint={gold?.engagement?.erPct != null ? 'engagement analysis pipeline'
               : creator.erPct === null ? undefined : 'dari roster KOL'} />
-          <StatTile label="Reach" value={NOT_MEASURED} hint="butuh Insights akun terhubung" />
+          <StatTile label="Reach" value="Tidak tersedia" hint="butuh Insights akun terhubung" />
           <StatTile label="Impressions" value={NOT_MEASURED} hint="tidak ada kolom impressions" />
           <StatTile label="Views (rata-rata)"
             value={intel.kpi.avgViews === null ? NOT_MEASURED : fmtNum(intel.kpi.avgViews)}
