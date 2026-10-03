@@ -340,6 +340,20 @@ function Loaded({
     ? 'Growth belum terukur'
     : `${realGrowth > 0 ? '▲' : realGrowth < 0 ? '▼' : ''} ${realGrowth.toFixed(2)}% sejak snapshot sebelumnya`
 
+  /**
+   * Engagement Rate is the pipeline's Feature ER where it exists — the same
+   * number Brand Match ranks on, and present for TikTok, whose roster column
+   * nothing fills. The roster's own rate is only the fallback. The rank beside
+   * it is still taken over the roster column (it is what the Creator Database
+   * sorts and filters on), so the line under it says so when the two differ.
+   */
+  const featureEr = data.gold?.engagement?.erPct ?? null
+  const erShown = featureEr ?? creator.erPct
+  const erRankIsRoster = featureEr !== null && creator.erPct !== null
+    && featureEr.toFixed(2) !== creator.erPct.toFixed(2)
+  const erPosts = data.gold?.engagement?.postsAnalyzed ?? null
+  const emv = data.gold?.emv ?? null
+
   const lastUpdated = creator.lastRefreshedAt
   const sectionProps: SectionProps = {
     creator, identity, rank, platforms, similar, intel, gold: data.gold,
@@ -510,15 +524,19 @@ function Loaded({
           note={growthNote}
           sub={`#${rank.followersRank.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')} creator`} />
         <BigKpi label="Engagement Rate"
-          value={creator.erPct === null ? 'belum diukur' : `${creator.erPct.toFixed(2)}%`}
+          value={erShown === null ? 'belum diukur' : `${erShown.toFixed(2)}%`}
           note={categoryTop !== null && rank.categoryName
             ? `Top ${categoryTop}% di ${rank.categoryName}`
             : rank.erRank !== null
               ? `#${rank.erRank.toLocaleString('id-ID')} dari ${rank.erMeasuredTotal.toLocaleString('id-ID')} terukur`
               : 'belum masuk peringkat'}
-          sub={rank.categoryErTotal > 0
-            ? `dibanding ${rank.categoryErTotal.toLocaleString('id-ID')} creator kategori ini yang terukur`
-            : undefined} />
+          sub={erRankIsRoster
+            ? `peringkat memakai ER roster ${creator.erPct!.toFixed(2)}%`
+            : featureEr !== null
+              ? (erPosts ? `engagement analysis pipeline · ${erPosts} post` : 'engagement analysis pipeline')
+              : rank.categoryErTotal > 0
+                ? `dibanding ${rank.categoryErTotal.toLocaleString('id-ID')} creator kategori ini yang terukur`
+                : undefined} />
         {/* A real price beats a modelled one. Where the KOL platform prices this
             creator — 7,230 of the roster's 7,718 do — the third KPI is that
             price and carries no marker; Est. Media Value is what stands in when
@@ -530,12 +548,19 @@ function Loaded({
             sub={rateCount > 1
               ? `termurah dari ${rateCount} deliverable · rate card database KOL`
               : 'dari rate card database KOL'} />
+        ) : emv ? (
+          /* The pipeline's own range, `l2_gold.post_metric.emv_min / emv_max`:
+             (likes + comments) x Rp500 to x Rp2.000 per post, summed over the
+             posts that carry one. No CPM is involved. */
+          <BigKpi label="Est. Media Value"
+            value={`${fmtRupiah(emv.min)} – ${fmtRupiah(emv.max)}`}
+            note={`total ${emv.postMeasured} post`
+              + (emv.postTotal > emv.postMeasured ? ` (${emv.postTotal - emv.postMeasured} tanpa like terlihat)` : '')}
+            sub="(likes + comments) × Rp500–Rp2.000 per engagement" />
         ) : (
-          /* EMV had no source anywhere: it was engagement times a CPM drawn from
-             a hash. Phase 2B reached the same conclusion for Tracked Accounts,
-             and no benchmark exists on either server to recompute it from. */
           <BigKpi label="Est. Media Value" value="Belum terukur"
-            note="butuh benchmark CPM" sub="creator ini belum punya rate card di database KOL" />
+            note="belum ada post dengan EMV"
+            sub="EMV dihitung pipeline dari likes + comments tiap post" />
         )}
       </div>
 
@@ -543,12 +568,14 @@ function Loaded({
       <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
         {/* Was followers × ER, labelled Reach: that product is engagements per
             post, not reach. No reach column is populated on the KOL server. */}
-        <StatTile label="Reach" value="Belum terukur" hint="belum ada data reach" />
+        <StatTile label="Reach" value="Belum terukur" hint="butuh Insights akun terhubung" />
         <StatTile label="Avg. Views"
           value={intel.kpi.avgViews === null ? 'Belum terukur' : fmtNum(intel.kpi.avgViews)}
           hint={intel.kpi.avgViews === null ? undefined : viewsBasis} />
-        {/* CPE is EMV over engagement; with no EMV there is no CPE. */}
-        <StatTile label="CPE" value="Belum terukur" hint="butuh EMV" />
+        {/* CPE is cost over engagement (scrapper-project `campaign_cost_metrics`),
+            and the cost is a rate card fee or a campaign deal price. Neither
+            exists for this roster, and EMV is not a cost. */}
+        <StatTile label="CPE" value="Belum terukur" hint="butuh biaya: rate card / deal" />
         {/* Real scores now, from `feature.*_audience_analysis` via `kolGold`
             (see `GoldAudienceQuality`). Both used to come from `kolSample`.
             Null for the ~99.6% of the roster the pipeline has not analysed. */}
@@ -626,6 +653,14 @@ function Loaded({
  * A primary KPI: bigger figure, a qualifier under it, and the roster context
  * that makes the qualifier checkable.
  */
+/** Rupiah in the short form the KPI row has room for: Rp396,8 jt, Rp1,59 M. */
+function fmtRupiah(v: number): string {
+  const short = (n: number, d: number) => n.toLocaleString('id-ID', { maximumFractionDigits: d })
+  if (v >= 1_000_000_000) return `Rp${short(v / 1_000_000_000, 2)} M`
+  if (v >= 1_000_000) return `Rp${short(v / 1_000_000, 1)} jt`
+  return `Rp${Math.round(v).toLocaleString('id-ID')}`
+}
+
 function BigKpi({
   label, value, note, sub,
 }: {

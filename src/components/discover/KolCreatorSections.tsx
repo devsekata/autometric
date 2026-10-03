@@ -229,10 +229,14 @@ export function PerformanceSection({ creator, platforms, intel, gold }: SectionP
               Reach and Impressions have no column on this server at all -
               `unified_post.reach` is 0 in all 503 rows - so they are permanently
               unavailable rather than derived from views. Views are not reach. */}
+          {/* Feature ER first, the roster's rate only where the pipeline has
+              none — the same order as the header KPI. */}
           <StatTile label="Engagement Rate"
-            value={creator.erPct === null ? NOT_MEASURED : pctLabel(creator.erPct)}
-            hint={creator.erPct === null ? undefined : 'dari roster KOL'} />
-          <StatTile label="Reach" value={NOT_MEASURED} hint="tidak ada kolom reach" />
+            value={(gold?.engagement?.erPct ?? creator.erPct) === null
+              ? NOT_MEASURED : pctLabel((gold?.engagement?.erPct ?? creator.erPct) as number)}
+            hint={gold?.engagement?.erPct != null ? 'engagement analysis pipeline'
+              : creator.erPct === null ? undefined : 'dari roster KOL'} />
+          <StatTile label="Reach" value={NOT_MEASURED} hint="butuh Insights akun terhubung" />
           <StatTile label="Impressions" value={NOT_MEASURED} hint="tidak ada kolom impressions" />
           <StatTile label="Views (rata-rata)"
             value={intel.kpi.avgViews === null ? NOT_MEASURED : fmtNum(intel.kpi.avgViews)}

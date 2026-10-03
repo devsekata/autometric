@@ -310,7 +310,40 @@ export interface GoldAudienceQuality {
   platform: string | null
 }
 
+/**
+ * Feature ER: `feature.{ig,tt}_engagement_analysis.engagement_rate`, the
+ * pipeline's own rate (engagement over followers at each post's date) and the
+ * one Brand Match ranks on. Read from the table of the creator's own platform,
+ * as `whatMatters/records` does. Not `kol_directory.engagement_rate`, which is
+ * a different formula and has no writer for TikTok.
+ */
+export interface GoldEngagement {
+  /** Percentage points, e.g. 1.31 means 1.31%. */
+  erPct: number | null
+  postsAnalyzed: number | null
+  platform: string
+}
+
+/**
+ * Est. Media Value from `l2_gold.post_metric.emv_min / emv_max`, which the
+ * pipeline fills per post as (likes + comments) x Rp500 and x Rp2.000
+ * (scrapper-project `emv.py`). Summed over the posts that carry a value — the
+ * same per-account aggregation as that module's `sql_emv_per_kol`. A post
+ * whose like count is hidden has no EMV and is counted in `postTotal` only.
+ * No CPM is involved anywhere.
+ */
+export interface GoldEmv {
+  min: number
+  max: number
+  postMeasured: number
+  postTotal: number
+}
+
 export interface KolGold {
+  /** Null when the pipeline has no engagement analysis for this creator's platform. */
+  engagement: GoldEngagement | null
+  /** Null when no post of this creator carries an EMV. */
+  emv: GoldEmv | null
   /** One card per account the creator owns; empty when L2 has none. */
   cards: GoldProfileCard[]
   /** Oldest first, so a chart can plot it without sorting again. */
@@ -419,7 +452,7 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality, curated] =
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality, curated, er, emv] =
     await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
@@ -658,6 +691,46 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         ORDER BY s.platform`,
       [kolId],
     ),
+
+    // Feature ER of the creator's own platform (see `GoldEngagement`). Each
+    // table is UNIQUE on social_account_id; LIMIT 1 only matters if a creator
+    // ever links two accounts on one platform, and then the newest wins.
+    db.query<{ engagement_rate: string | null; posts_analyzed_count: string | null; platform: string }>(
+      `SELECT e.engagement_rate, e.posts_analyzed_count, e.platform
+         FROM (
+           SELECT 'instagram'::text AS platform, social_account_id, engagement_rate,
+                  posts_analyzed_count, updated_at
+             FROM feature.ig_engagement_analysis
+            UNION ALL
+           -- TikTok names the same count videos_analyzed_count.
+           SELECT 'tiktok'::text, social_account_id, engagement_rate,
+                  videos_analyzed_count, updated_at
+             FROM feature.tt_engagement_analysis
+         ) e
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = e.social_account_id
+         JOIN public.kol_directory kd ON kd.id = ksa.kol_id
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+        WHERE ksa.kol_id = $1 AND e.platform = pl.key
+        ORDER BY e.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
+
+    // EMV: the stored per-post range, summed over the posts that have one
+    // (see `GoldEmv`). Nothing is recomputed here.
+    db.query<{ post_total: string; post_measured: string; emv_min: string | null; emv_max: string | null }>(
+      `SELECT count(*)          AS post_total,
+              count(m.emv_min)  AS post_measured,
+              sum(m.emv_min)    AS emv_min,
+              sum(m.emv_max)    AS emv_max
+         FROM public.kol_social_account ksa
+         JOIN public.kol_directory kd ON kd.id = ksa.kol_id
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+         JOIN l2_gold.post_metric m
+           ON m.social_account_id = ksa.social_account_id AND m.platform = pl.key
+        WHERE ksa.kol_id = $1`,
+      [kolId],
+    ),
   ])
 
   // One row per account (a KOL links to one account today). Per field the first
@@ -682,7 +755,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
 
   if (
     !cards.rows.length && !daily.rows.length && !monthly.rows.length &&
-    !posts.rows.length && !formats.rows.length && !hasAudience
+    !posts.rows.length && !formats.rows.length && !hasAudience && !er.rows.length
   ) {
     return null
   }
@@ -824,6 +897,23 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
       followersDenom: num(r.followers_denom_sum),
       erFollowers: num(r.er_followers_daily),
     })),
+
+    engagement: er.rows.length
+      ? {
+        erPct: num(er.rows[0].engagement_rate),
+        postsAnalyzed: num(er.rows[0].posts_analyzed_count),
+        platform: er.rows[0].platform,
+      }
+      : null,
+
+    emv: num(emv.rows[0]?.emv_min ?? null) !== null && num(emv.rows[0]?.emv_max ?? null) !== null
+      ? {
+        min: num(emv.rows[0].emv_min) as number,
+        max: num(emv.rows[0].emv_max) as number,
+        postMeasured: num(emv.rows[0].post_measured) ?? 0,
+        postTotal: num(emv.rows[0].post_total) ?? 0,
+      }
+      : null,
 
     audience: hasAudience ? buildAudience() : null,
 
