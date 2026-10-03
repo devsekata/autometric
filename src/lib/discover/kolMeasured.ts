@@ -116,6 +116,23 @@ export interface KolMeasured {
   rates: KolMeasuredRate[]
   firstPostAt: string | null
   lastPostAt: string | null
+  /**
+   * Lowest, highest and median view count across the harvested posts that carry
+   * one (`l1_silver.unified_post.views IS NOT NULL`), with how many posts that
+   * is. A plain read of what was scraped: not an estimate, not the roster's
+   * `est_views`, and not the pipeline's `kol_profile_card.median_views`, which
+   * does not exist until the pipeline has run. Null when no post has a count.
+   */
+  viewsRange: { min: number; max: number; median: number; postCount: number } | null
+  /**
+   * The category the account itself declares on Instagram
+   * (`l0_raw.ig_profile_apify.raw_payload.businessCategoryName`), from the
+   * newest scraped profile. Instagram's own vocabulary ("Actor", "Public
+   * figure"), not a `kol_categories` row: it is shown beside the classified
+   * Category, never in its place. Null for TikTok and for accounts that
+   * declare none.
+   */
+  instagramCategory: string | null
 }
 
 /**
@@ -154,7 +171,7 @@ const num = (v: string | number | null): number | null =>
 export async function getKolMeasured(kolId: string): Promise<KolMeasured | null> {
   const db = kolDb()
 
-  const [agg, recent, rates, tags, sponsored] = await Promise.all([
+  const [agg, recent, rates, tags, sponsored, viewStats, igCategory] = await Promise.all([
     db.query<{
       media_type: string | null; n: number; n_likes: number
       likes: string | null; comments: string | null; views: string | null
@@ -237,9 +254,35 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
         WHERE ksa.kol_id = $1 AND p.is_sponsored`,
       [kolId],
     ),
+
+    // See `viewsRange`. One row always; `n` is 0 when no post carries a count.
+    db.query<{ n: number; min: string | null; max: string | null; median: string | null }>(
+      `SELECT COUNT(p.views)::int AS n,
+              MIN(p.views)        AS min,
+              MAX(p.views)        AS max,
+              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY p.views) AS median
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1 AND p.views IS NOT NULL`,
+      [kolId],
+    ),
+
+    // See `instagramCategory`. The actor writes the string "None" for an
+    // account without one; that is not a category.
+    db.query<{ category: string | null }>(
+      `SELECT NULLIF(NULLIF(btrim(p.raw_payload::jsonb ->> 'businessCategoryName'), ''), 'None') AS category
+         FROM public.kol_social_account ksa
+         JOIN l0_raw.ig_profile_apify p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY p.scraped_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
   ])
 
-  if (!agg.rows.length && !rates.rows.length) return null
+  const instagramCategory = igCategory.rows[0]?.category ?? null
+
+  if (!agg.rows.length && !rates.rows.length && !instagramCategory) return null
 
   const postCount = agg.rows.reduce((a, r) => a + r.n, 0)
 
@@ -313,5 +356,14 @@ export async function getKolMeasured(kolId: string): Promise<KolMeasured | null>
     })),
     firstPostAt: stamps[0] ?? null,
     lastPostAt: stamps[stamps.length - 1] ?? null,
+    viewsRange: viewStats.rows[0] && viewStats.rows[0].n > 0
+      ? {
+        min: Number(viewStats.rows[0].min),
+        max: Number(viewStats.rows[0].max),
+        median: Math.round(Number(viewStats.rows[0].median)),
+        postCount: viewStats.rows[0].n,
+      }
+      : null,
+    instagramCategory,
   }
 }

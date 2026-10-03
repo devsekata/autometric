@@ -363,6 +363,7 @@ function Loaded({
    * and location keep their own wording: no run will ever fill those.
    */
   const pending = enrichmentPending(data.gold, data.measured?.postCount ?? 0)
+  const viewsRange = data.measured?.viewsRange ?? null
 
   const lastUpdated = creator.lastRefreshedAt
   const sectionProps: SectionProps = {
@@ -594,6 +595,17 @@ function Loaded({
         <StatTile label="Avg. Views"
           value={intel.kpi.avgViews === null ? 'Belum terukur' : fmtNum(intel.kpi.avgViews)}
           hint={intel.kpi.avgViews === null ? undefined : viewsBasis} />
+        {/* Lowest to highest view count across the scraped posts that carry
+            one, and their median - read straight from L1, so both are there the
+            moment Add KOL finishes. Not an estimate. */}
+        <StatTile label="Viewing Range"
+          value={viewsRange === null
+            ? 'Belum terukur'
+            : `${fmtNum(viewsRange.min)} – ${fmtNum(viewsRange.max)}`}
+          hint={viewsRange === null ? 'belum ada post dengan views' : `min–maks dari ${viewsRange.postCount} post`} />
+        <StatTile label="Median Views"
+          value={viewsRange === null ? 'Belum terukur' : fmtNum(viewsRange.median)}
+          hint={viewsRange === null ? undefined : `dari ${viewsRange.postCount} post`} />
         {/* CPE is cost over engagement (scrapper-project `campaign_cost_metrics`),
             and the cost is a rate card fee or a campaign deal price. Neither
             exists for this roster, and EMV is not a cost. */}

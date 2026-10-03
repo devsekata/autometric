@@ -111,6 +111,11 @@ export function ProfileSection({
             <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
               <MiniField label="Category" value={creator.categories[0] ?? notYet} />
               <MiniField label="Subcategory" value={creator.subcategory ?? (creator.categories.length ? 'belum diisi' : notYet)} />
+              {/* What the account declares on Instagram itself, in Instagram's
+                  words. Shown beside Category, never instead of it. */}
+              {creator.platform === 'instagram' && (
+                <MiniField label="Instagram Category" value={intel.measured?.instagramCategory ?? 'tidak tersedia'} />
+              )}
               {/* Niche is the creator's further categories; the classifier gives
                   one, so this stays empty unless the roster carries more. */}
               <MiniField label="Niche" value={niche || 'belum diisi'} />
