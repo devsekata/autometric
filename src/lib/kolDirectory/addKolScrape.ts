@@ -684,13 +684,17 @@ async function linkSocialAccount(
  * for both log tables, so every row from one "Add New KOL" run shares it and
  * the status endpoint can pull the whole run by that one id.
  *
- * Category and subcategory are not computed here. The classifier is Python in
- * scrapper-project and this image has no Python runtime; the raw rows written
- * below are what hand the creator over: `l0_raw_new_data_sensor` there sees
- * them and runs `transform_chain_job`, whose `creator_classification` asset
- * classifies every active creator that still has no category and fills
- * `category_id` / `category_ids`. It logs to `add_kol_pipeline_log` under this
- * run's id with step `creator_classification`.
+ * This function stops at L1. Everything past it — the profile card, Feature ER,
+ * EMV, audience quality and authenticity, category and subcategory — is
+ * written by scrapper-project's `transform_chain_job` (Python; this image has
+ * no Python runtime). The raw rows inserted below are the hand-over: its
+ * `l0_raw_new_data_sensor` sees them and starts that job, which ends with
+ * `creator_classification` (inferred_category_id / inferred_subcategory_id for
+ * active creators that have no category yet) and `creator_category_bridge`
+ * (category_id / category_ids). None of it runs unless a Dagster daemon is
+ * alive; until then Creator Detail shows those fields as "Menunggu pipeline"
+ * (`enrichmentPending` in `@/lib/discover/kolIntel`). The pipeline writes no
+ * row to the two Add KOL log tables.
  */
 async function runRestOfPipeline(
   kolDirectoryId: string, socialAccountId: string, input: ScrapeNewKolInput,

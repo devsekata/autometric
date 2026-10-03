@@ -17,6 +17,7 @@
 import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, RosterAvatar } from './ui'
 import { Split, VIZ, VizCard } from './kolViz'
 import { platformLabel, type SectionProps } from './KolCreatorSections'
+import { enrichmentPending } from '@/lib/discover/kolIntel'
 
 /* ── Profile ──────────────────────────────────────────────────────────────── */
 
@@ -25,6 +26,8 @@ export function ProfileSection({
 }: SectionProps & { onGoTo: (id: string) => void }) {
   const name = identity.displayName ?? `@${creator.username}`
   const niche = creator.categories.slice(1).join(' · ')
+  // Same rule as the header KPIs: scraped but not yet through the pipeline.
+  const notYet = enrichmentPending(gold, intel.measured?.postCount ?? 0) ? 'menunggu pipeline' : 'belum diisi'
 
   /**
    * `l2_gold.kol_profile_card` — the pipeline's own snapshot of each account
@@ -106,10 +109,13 @@ export function ProfileSection({
             {/* The six fields the brief asks for, as a grid rather than a
                 paragraph: each is a lookup, and a lookup reads faster as a cell. */}
             <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
-              <MiniField label="Category" value={creator.categories[0] ?? 'belum diisi'} />
-              <MiniField label="Subcategory" value={creator.subcategory ?? 'belum diisi'} />
+              <MiniField label="Category" value={creator.categories[0] ?? notYet} />
+              <MiniField label="Subcategory" value={creator.subcategory ?? (creator.categories.length ? 'belum diisi' : notYet)} />
+              {/* Niche is the creator's further categories; the classifier gives
+                  one, so this stays empty unless the roster carries more. */}
               <MiniField label="Niche" value={niche || 'belum diisi'} />
-              <MiniField label="Location" value={creator.city || 'belum diisi'} />
+              {/* Nothing writes kol_directory.creator_city: no run fills this. */}
+              <MiniField label="Location" value={creator.city || 'tidak tersedia'} />
               <MiniField label="Agency" value={identity.agency ?? 'belum diisi'} />
               {/* `Collab` and `Match` both used to be generated: Collab was the
                   literal string "Open" for every creator, and Match was

@@ -43,7 +43,9 @@ import {
 } from './KolCreatorSections'
 import { useCreatorLinks } from './useCreatorLinks'
 import { useDiscoverFavorites } from './useDiscoverFavorites'
-import { creatorIntel, measuredBasis, type CreatorIntel } from '@/lib/discover/kolIntel'
+import {
+  creatorIntel, enrichmentPending, measuredBasis, PIPELINE_PENDING, type CreatorIntel,
+} from '@/lib/discover/kolIntel'
 import { tabHref } from '@/lib/discover/tabs'
 import type { KolCreatorPayload, KolDirectoryPayload } from '@/lib/discover/kolDirectory'
 import type { BrandMatchResult } from '@/lib/discover/whatMatters/brandMatch'
@@ -354,6 +356,14 @@ function Loaded({
   const erPosts = data.gold?.engagement?.postsAnalyzed ?? null
   const emv = data.gold?.emv ?? null
 
+  /**
+   * Scraped, but the enrichment pipeline has not run for this creator yet. The
+   * tiles it fills say "Menunggu pipeline" instead of "Belum terukur", so a
+   * value that is on its way is not read as one that has no source. Reach, CPE
+   * and location keep their own wording: no run will ever fill those.
+   */
+  const pending = enrichmentPending(data.gold, data.measured?.postCount ?? 0)
+
   const lastUpdated = creator.lastRefreshedAt
   const sectionProps: SectionProps = {
     creator, identity, rank, platforms, similar, intel, gold: data.gold,
@@ -422,10 +432,10 @@ function Loaded({
               <div className="text-[11.5px] mt-0.5" style={{ color: T.t3 }}>
                 {creator.categories.length
                   ? creator.categories.join(' · ') + (creator.subcategory ? ` › ${creator.subcategory}` : '')
-                  : 'Kategori belum diisi di roster'}
+                  : pending ? 'Kategori menunggu pipeline' : 'Kategori belum diisi di roster'}
               </div>
               <div className="text-[11.5px]" style={{ color: T.t4 }}>
-                {creator.city || 'Lokasi belum diisi di roster'}
+                {creator.city || 'Lokasi tidak tersedia'}
                 {identity.agency && <> · dikelola {identity.agency}</>}
               </div>
 
@@ -558,11 +568,23 @@ function Loaded({
               + (emv.postTotal > emv.postMeasured ? ` (${emv.postTotal - emv.postMeasured} tanpa like terlihat)` : '')}
             sub="(likes + comments) × Rp500–Rp2.000 per engagement" />
         ) : (
-          <BigKpi label="Est. Media Value" value="Belum terukur"
-            note="belum ada post dengan EMV"
+          <BigKpi label="Est. Media Value" value={pending ? PIPELINE_PENDING : 'Belum terukur'}
+            note={pending ? 'post sudah di-scrape, EMV belum dihitung' : 'belum ada post dengan EMV'}
             sub="EMV dihitung pipeline dari likes + comments tiap post" />
         )}
       </div>
+
+      {pending && (
+        <div className="rounded-[12px] border px-3.5 py-2.5 mb-3 text-[11.5px] leading-[1.5] flex items-start gap-2"
+          style={{ borderColor: T.outline, background: T.surfaceVariant, color: T.t2 }}>
+          <span className="material-symbols-outlined text-[16px]! mt-px" style={{ color: T.primaryDeep }}>hourglass_top</span>
+          <span>
+            Creator ini sudah di-scrape, tetapi pipeline enrichment belum memprosesnya. Category, Subcategory,
+            Est. Media Value, Audience Quality, dan Authenticity terisi setelah pipeline berjalan. Reach, CPE, dan
+            lokasi tidak ikut terisi karena tidak punya sumber data.
+          </span>
+        </div>
+      )}
 
       {/* ── six secondary KPIs ── */}
       <div className="grid gap-2.5 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))' }}>
@@ -582,13 +604,13 @@ function Loaded({
         <StatTile
           label="Audience Quality"
           value={data.gold?.audienceQuality?.audienceQuality == null
-            ? 'Belum terukur'
+            ? (pending ? PIPELINE_PENDING : 'Belum terukur')
             : `${data.gold.audienceQuality.audienceQuality}`}
           hint="/ 100 · sampel follower" />
         <StatTile
           label="Authenticity"
           value={data.gold?.audienceQuality?.authenticity == null
-            ? 'Belum terukur'
+            ? (pending ? PIPELINE_PENDING : 'Belum terukur')
             : `${data.gold.audienceQuality.authenticity}%`}
           hint="sampel follower" />
         {/* Was `intel.growth.monthly`, generated, labelled "per month".
@@ -600,7 +622,9 @@ function Loaded({
           value={realGrowth === null
             ? 'Belum terukur'
             : `${realGrowth > 0 ? '+' : ''}${realGrowth.toFixed(2)}%`}
-          hint={realGrowth === null ? 'butuh dua snapshot' : 'sejak snapshot sebelumnya'} />
+          hint={realGrowth === null
+            ? (pending ? 'menunggu pipeline, lalu snapshot kedua' : 'butuh dua snapshot')
+            : 'sejak snapshot sebelumnya'} />
       </div>
 
       {/* ── creator navigation + the view it selects ── */}

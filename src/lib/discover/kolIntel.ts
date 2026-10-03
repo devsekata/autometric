@@ -1,6 +1,6 @@
 import type { KolDirectoryRow } from './kolDirectory'
 import type { KolMeasured } from './kolMeasured'
-import type { GoldPost } from './kolGold'
+import type { GoldPost, KolGold } from './kolGold'
 
 /**
  * One creator's intelligence — measured, or explicitly absent.
@@ -151,6 +151,27 @@ export function measuredBasis(intel: CreatorIntel): string | undefined {
   const n = intel.measured?.postCount ?? 0
   return n > 0 ? `dari ${n} post` : undefined
 }
+
+/**
+ * True while the enrichment pipeline has not processed this creator yet.
+ *
+ * "Add New KOL" stops at L1; the profile card, the engagement and audience
+ * analyses, EMV and the classification are written afterwards by
+ * scrapper-project's `transform_chain_job`. Its first output for any account is
+ * the profile card, so: posts already in L1 but no card and no engagement
+ * analysis means the creator is waiting for a run, not that the values do not
+ * exist. Read from the same payload the screen already has — no extra query.
+ *
+ * It cannot tell a pipeline that is about to run from one that is switched off;
+ * both are "not processed yet", which is all the screen claims.
+ */
+export function enrichmentPending(gold: KolGold | null, l1PostCount: number): boolean {
+  if (l1PostCount <= 0) return false
+  return gold === null || (gold.cards.length === 0 && gold.engagement === null)
+}
+
+/** The label a tile shows for a value the pipeline has not produced yet. */
+export const PIPELINE_PENDING = 'Menunggu pipeline'
 
 const NONE: RealFlags = {
   likes: false, comments: false, views: false,
