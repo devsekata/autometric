@@ -107,6 +107,7 @@ export function ProfileSection({
                 paragraph: each is a lookup, and a lookup reads faster as a cell. */}
             <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
               <MiniField label="Category" value={creator.categories[0] ?? 'belum diisi'} />
+              <MiniField label="Subcategory" value={creator.subcategory ?? 'belum diisi'} />
               <MiniField label="Niche" value={niche || 'belum diisi'} />
               <MiniField label="Location" value={creator.city || 'belum diisi'} />
               <MiniField label="Agency" value={identity.agency ?? 'belum diisi'} />

@@ -683,6 +683,14 @@ async function linkSocialAccount(
  * already generated for `RawCtx`/the raw-table inserts — doubles as `run_id`
  * for both log tables, so every row from one "Add New KOL" run shares it and
  * the status endpoint can pull the whole run by that one id.
+ *
+ * Category and subcategory are not computed here. The classifier is Python in
+ * scrapper-project and this image has no Python runtime; the raw rows written
+ * below are what hand the creator over: `l0_raw_new_data_sensor` there sees
+ * them and runs `transform_chain_job`, whose `creator_classification` asset
+ * classifies every active creator that still has no category and fills
+ * `category_id` / `category_ids`. It logs to `add_kol_pipeline_log` under this
+ * run's id with step `creator_classification`.
  */
 async function runRestOfPipeline(
   kolDirectoryId: string, socialAccountId: string, input: ScrapeNewKolInput,

@@ -85,6 +85,13 @@ export interface KolDirectoryRow {
   bio: string | null
   city: string | null
   categories: string[]
+  /**
+   * The classification's subcategory (`kol_directory.inferred_subcategory_id`),
+   * only when it is a child of a category in `categories`. Display only: no
+   * filter, facet or Brand Profile reads it. Absent on rows not built from the
+   * Directory list or the creator detail.
+   */
+  subcategory?: string | null
   followers: number | null
   /**
    * Percentage points, e.g. 0.98 means 0.98%. Null when never measured — which
@@ -597,6 +604,7 @@ const BASE = `
          kd.bio,
          kd.creator_city                           AS city,
          cats.names                                AS categories,
+         sub.name                                  AS subcategory,
          kd.followers_count                        AS followers,
          -- BE-05: the filterable rate is the cleaned one, so minEr and
          -- sort=engagement below inherit the rule without naming it again.
@@ -647,6 +655,14 @@ const BASE = `
         FROM public.kol_categories kc
        WHERE kc.id = ANY (${CATEGORY_IDS})
     ) cats ON TRUE
+    -- Subcategory from the classification. category_ids holds category-level
+    -- ids only, so the subcategory lives in inferred_subcategory_id; it is shown
+    -- only when its parent is a category this row actually carries, so a
+    -- classification the roster disagrees with never labels the card.
+    LEFT JOIN public.kol_categories sub
+           ON sub.id = kd.inferred_subcategory_id
+          AND sub.level = 'sub_category'
+          AND sub.parent_id = ANY (${CATEGORY_IDS})
     -- Follower growth, the only measured growth that exists: L1 computes
     -- (current - previous) / previous * 100 over consecutive profile snapshots
     -- and l2_gold.kol_profile_card carries it through untouched.
@@ -801,7 +817,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
   const { rows } = await runList<{
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null; city: string | null
-    categories: string[] | null; followers: number | null
+    categories: string[] | null; subcategory: string | null; followers: number | null
     er_pct: number | null; er_raw: number | null
     tier: string | null; growth_pct: number | null; connected: boolean
     status: KolDataStatus
@@ -951,6 +967,7 @@ export async function listKolDirectory(query: KolDirectoryQuery): Promise<KolDir
       bio: r.bio,
       city: r.city,
       categories: r.categories ?? [],
+      subcategory: r.subcategory,
       followers: r.followers,
       erPct: r.er_pct,
       erRaw: r.er_raw,
@@ -1210,7 +1227,8 @@ export async function getKolCreator(
   const { rows } = await db.query<{
     id: string; username: string | null; platform: string | null
     profile_url: string | null; avatar_url: string | null; bio: string | null
-    city: string | null; categories: string[] | null; followers: number | null
+    city: string | null; categories: string[] | null; subcategory: string | null
+    followers: number | null
     er_pct: number | null; er_raw: number | null; tier: string | null
     growth_pct: number | null; connected: boolean
     status: KolDataStatus; last_refreshed_at: Date | string | null
@@ -1359,6 +1377,7 @@ export async function getKolCreator(
       bio: r.bio,
       city: r.city,
       categories: r.categories ?? [],
+      subcategory: r.subcategory,
       followers: r.followers,
       erPct: r.er_pct,
       erRaw: r.er_raw,

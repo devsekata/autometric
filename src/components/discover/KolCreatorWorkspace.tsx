@@ -406,7 +406,9 @@ function Loaded({
                 <div className="text-[12px]" style={{ color: T.t3 }}>@{creator.username}</div>
               )}
               <div className="text-[11.5px] mt-0.5" style={{ color: T.t3 }}>
-                {creator.categories.length ? creator.categories.join(' · ') : 'Kategori belum diisi di roster'}
+                {creator.categories.length
+                  ? creator.categories.join(' · ') + (creator.subcategory ? ` › ${creator.subcategory}` : '')
+                  : 'Kategori belum diisi di roster'}
               </div>
               <div className="text-[11.5px]" style={{ color: T.t4 }}>
                 {creator.city || 'Lokasi belum diisi di roster'}
