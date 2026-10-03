@@ -93,11 +93,21 @@ export function profileUrlFor(platform: string, username: string): string {
   return `https://www.instagram.com/${clean}`
 }
 
-/** Looks like a link rather than a handle — the two are told apart before parsing. */
+const KNOWN_HOSTS = new Set(CREATOR_PLATFORMS.flatMap(p => p.hosts))
+
+/**
+ * Looks like a link rather than a handle — the two are told apart before parsing.
+ *
+ * A bare `word.word` is a link only when it is a platform's own host. Handles
+ * carry dots too: `eri.carl` and `real.hanummega` used to match the bare-domain
+ * shape and were refused as "not an Instagram address" before any lookup ran.
+ */
 function looksLikeUrl(raw: string): boolean {
-  return /^https?:\/\//i.test(raw)
-    || /^[\w.-]+\.[a-z]{2,}\//i.test(raw)
-    || /^(www\.)?[\w-]+\.[a-z]{2,}$/i.test(raw)
+  if (/^https?:\/\//i.test(raw)) return true
+  // host/path — a handle never has anything after a slash.
+  if (/^[\w.-]+\.[a-z]{2,}\/+[^/]/i.test(raw)) return true
+  if (/^www\./i.test(raw)) return true
+  return KNOWN_HOSTS.has(raw.replace(/\/+$/, '').toLowerCase())
 }
 
 /**
