@@ -93,6 +93,10 @@ type Json = Record<string, unknown>
 
 function asInt(v: unknown): number | null {
   if (v && typeof v === 'object' && 'count' in (v as Json)) v = (v as Json).count
+  // A missing value is not a zero. `pick()` returns null when no key matched and
+  // `Number(null)` is 0, which stored followers/following = 0/0 for every Instagram
+  // follower (that actor sends neither) and read downstream as a measurement.
+  if (v === null || v === undefined || v === '') return null
   const n = Number(v)
   return Number.isFinite(n) ? Math.trunc(n) : null
 }
