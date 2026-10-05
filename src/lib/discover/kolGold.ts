@@ -1,5 +1,6 @@
 import kolDb from '@/lib/kolDb'
 import { audienceGeoFor } from './audienceGeo'
+import { estimateAudienceAge } from './audienceAgeEstimate'
 import { AUDIENCE_SERVED } from './curatedAudience'
 import { toIso } from './util'
 
@@ -133,10 +134,11 @@ export interface GoldAudience {
   /** From `audience_type = 'gender'`. Empty when the creator has no inference. */
   gender: GoldAudienceSlice[]
   /**
-   * From `audience_type = 'age'`: ages followers state in their own bio
-   * (inferred, never generated). Almost always empty — nearly every follower's
-   * age is `unknown`, which is left out of the slices and shows up only as low
-   * `coverage.age`; a creator's slices may rest on a single known follower.
+   * From `audience_type = 'age'`: ages followers state in their own bio. Nearly
+   * every follower's age is `unknown`, so this is almost never usable on its
+   * own; the slices are then the curated label or, failing that, the modelled
+   * split from ./audienceAgeEstimate. `source.age` says which — only `measured`
+   * is an observed distribution.
    */
   age: GoldAudienceSlice[]
   /** From `audience_geo_daily` where `geo_level = 'country'`. */
@@ -175,9 +177,22 @@ export interface GoldAudience {
   source: { gender: AudienceSource; age: AudienceSource; country: AudienceSource; city: AudienceSource }
   /** The final classification value per dimension, null when neither source has one. */
   final: { gender: string | null; age: string | null; country: string | null; city: string | null }
+  /**
+   * Set only when `source.age === 'estimated'`: the Age slices are a MODELLED
+   * split (./audienceAgeEstimate), shown because the creator has neither a usable
+   * measured age nor a curated label. `basis` lists what the model used and
+   * `observedKnown` how many followers' stated ages were blended in (0 = none).
+   * `final.age` stays null for these creators — an estimate is never served to
+   * the Audience Age filter or to Brand Match as a classification.
+   */
+  ageEstimate: { basis: string[]; observedKnown: number } | null
 }
 
-export type AudienceSource = 'measured' | 'curated' | null
+/**
+ * `measured` and `curated` are the two real sources. `estimated` exists for
+ * Age only and marks a modelled distribution, never an observed one.
+ */
+export type AudienceSource = 'measured' | 'curated' | 'estimated' | null
 
 /**
  * Measured slices when the measured value is USABLE (decided by the final
@@ -452,7 +467,7 @@ function toSlices(
 export async function getKolGold(kolId: string): Promise<KolGold | null> {
   const db = kolDb()
 
-  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality, curated, er, emv] =
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality, curated, er, emv, ageSignals] =
     await Promise.all([
     db.query<{
       platform: string | null; username: string | null; display_name: string | null
@@ -731,6 +746,31 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         WHERE ksa.kol_id = $1`,
       [kolId],
     ),
+
+    // What the estimated Age split is modelled from when the creator has no
+    // usable measured age and no curated label (see ./audienceAgeEstimate).
+    // Read-only, one row per linked account.
+    db.query<{
+      platform: string | null; category_key: string | null
+      interest_top: string | null; creator_age_band: string | null
+    }>(
+      `SELECT pl.key AS platform, kc.taxonomy_key AS category_key,
+              COALESCE(ia.interest_top, ta.interest_top) AS interest_top,
+              pc.creator_age_band
+         FROM public.kol_directory kd
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+         LEFT JOIN public.kol_categories kc ON kc.id = kd.category_id
+         LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+         LEFT JOIN l2_gold.kol_profile_card pc
+                ON pc.social_account_id = ksa.social_account_id AND pc.platform = pl.key
+         LEFT JOIN feature.ig_audience_analysis ia
+                ON pl.key = 'instagram' AND ia.social_account_id = ksa.social_account_id
+         LEFT JOIN feature.tt_audience_analysis ta
+                ON pl.key = 'tiktok' AND ta.social_account_id = ksa.social_account_id
+        WHERE kd.id = $1
+        LIMIT 1`,
+      [kolId],
+    ),
   ])
 
   // One row per account (a KOL links to one account today). Per field the first
@@ -790,11 +830,29 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
     const i = toSlices(interest.rows)
     // Usable measured value -> measured; otherwise the curated label; otherwise nothing.
     const gF = withCuratedFallback(g.slices, usable.gender, cur.curated_gender)
-    const aF = withCuratedFallback(a.slices, usable.age, cur.curated_age)
+    const aReal = withCuratedFallback(a.slices, usable.age, cur.curated_age)
+    // Age only: a creator with an audience analysis row but neither real source
+    // gets the modelled split instead of an empty block. A usable measured
+    // value or a curated label is never replaced.
+    const est = !usable.age && aReal.source === null && fin.length > 0
+      ? estimateAudienceAge(
+          {
+            platform: ageSignals.rows[0]?.platform ?? fin[0].platform,
+            categoryKey: ageSignals.rows[0]?.category_key,
+            interestTop: ageSignals.rows[0]?.interest_top,
+            creatorAgeBand: ageSignals.rows[0]?.creator_age_band,
+          },
+          // Ages followers did state: too few to be usable, kept as evidence.
+          Object.fromEntries(a.slices.map(s => [s.label, s.n])),
+        )
+      : null
+    const aF: { slices: GoldAudienceSlice[]; source: AudienceSource } =
+      est ? { slices: est.slices, source: 'estimated' } : aReal
     const coF = withCuratedFallback(country.slices, usable.country, cur.curated_country)
     const ciF = withCuratedFallback(city.slices, usable.city, cur.curated_city)
     // A curated dimension has no classified share to report.
-    const cov = (src: AudienceSource, v: number | null) => (src === 'curated' ? null : v)
+    const cov = (src: AudienceSource, v: number | null) =>
+      (src === 'curated' || src === 'estimated' ? null : v)
     return {
       gender: gF.slices,
       age: aF.slices,
@@ -815,6 +873,7 @@ export async function getKolGold(kolId: string): Promise<KolGold | null> {
         gender: firstOf('gender_final'), age: firstOf('age_final'),
         country: firstOf('country_final'), city: firstOf('city_final'),
       },
+      ageEstimate: est ? { basis: est.basis, observedKnown: est.observedKnown } : null,
     }
   }
 

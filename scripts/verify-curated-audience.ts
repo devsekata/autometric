@@ -228,6 +228,19 @@ async function main() {
           check(coverageOf(a, f) === null, { category: 'detail.curated_has_coverage', kolId: id, field: f, expected: null, actual: coverageOf(a, f),
             reason: 'a curated dimension has no classified share to report' })
         }
+      } else if (f === 'age' && rows.length > 0) {
+        // Age only: a creator with an audience analysis row and no real source
+        // gets the modelled split (audienceAgeEstimate), labelled as such and
+        // never served as a classification.
+        const total = Math.round(slices.reduce((t, x) => t + x.pct, 0) * 10) / 10
+        check(got === 'estimated' && total === 100 && !!a?.ageEstimate?.basis.length, {
+          category: 'detail.age_estimate', kolId: id, field: f, expected: 'estimated, 100%, with a basis',
+          actual: { got, total, basis: a?.ageEstimate?.basis ?? null },
+          reason: 'no measured or curated age must show the labelled estimate' })
+        check(fin[f] === null && (a ? coverageOf(a, f) : null) === null, {
+          category: 'detail.age_estimate_leak', kolId: id, field: f, expected: 'final null, coverage null',
+          actual: { final: fin[f], coverage: a ? coverageOf(a, f) : null },
+          reason: 'an estimate is not a classification and has no classified share' })
       } else {
         check(got === null && slices.length === 0, { category: 'detail.source', kolId: id, field: f, expected: null,
           actual: { got, slices: slices.length }, reason: 'neither measured nor curated must show nothing' })

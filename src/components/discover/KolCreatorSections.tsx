@@ -1078,7 +1078,7 @@ const CONFIDENCE_LABEL: Record<string, string> = {
  * data does not make.
  */
 function GoldBreakdown({
-  title, slices, coverage, asDonut, source,
+  title, slices, coverage, asDonut, source, estimate,
 }: {
   title: string
   slices: { label: string; pct: number; n: number }[]
@@ -1094,9 +1094,34 @@ function GoldBreakdown({
    * (migration 054), not a share of any sample. It is shown as a label with an
    * estimate note and never as a chart, which would print a made-up "100%".
    */
-  source?: 'measured' | 'curated' | null
+  source?: 'measured' | 'curated' | 'estimated' | null
+  /**
+   * Present with `source === 'estimated'` (Age only): the slices are a modelled
+   * split, not a share of any follower sample. Drawn as bars so the block is
+   * not empty, and always captioned as an estimate with what it was built from.
+   */
+  estimate?: { basis: string[]; observedKnown: number } | null
 }) {
   if (!slices.length) return null
+  if (source === 'estimated') {
+    return (
+      <div>
+        <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2 flex items-center gap-1.5">
+          {title}
+          <span style={{ background: T.surfaceVariant, color: T.t3 }}
+            className="px-1.5 py-px rounded text-[9px] font-bold normal-case tracking-normal">
+            Estimasi
+          </span>
+        </div>
+        <Bars parts={slices} />
+        <p className="text-[9.5px] mt-2 leading-[1.5]" style={{ color: T.t4 }}>
+          Estimasi model, bukan hasil pengukuran — follower akun ini tidak menyebut umur
+          dalam jumlah yang cukup.
+          {estimate?.basis.length ? ` Dasar: ${estimate.basis.join(', ')}.` : ''}
+        </p>
+      </div>
+    )
+  }
   if (source === 'curated') {
     return (
       <div>
@@ -1160,10 +1185,12 @@ export function AudienceSection({ gold }: SectionProps) {
    * grades the inference rather than scoring it.
    */
   const anyCurated = !!g && Object.values(g.source ?? {}).some(s => s === 'curated')
+  const ageEstimated = g?.source?.age === 'estimated'
   const goldNote = g
     ? `Diinferensi dari sampel follower${g.asOf ? `, per ${g.asOf}` : ''}` +
       `${g.confidence ? ` · ${CONFIDENCE_LABEL[g.confidence] ?? g.confidence}` : ''}` +
-      `${anyCurated ? ' · dimensi bertanda "estimasi kurasi" bukan hasil pengukuran' : ''}`
+      `${anyCurated ? ' · dimensi bertanda "estimasi kurasi" bukan hasil pengukuran' : ''}` +
+      `${ageEstimated ? ' · Age adalah estimasi model, bukan hasil pengukuran' : ''}`
     : undefined
 
   return (
@@ -1173,7 +1200,8 @@ export function AudienceSection({ gold }: SectionProps) {
           <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
             <GoldBreakdown title="Gender" slices={g.gender} coverage={g.coverage.gender} asDonut
               source={g.source?.gender} />
-            <GoldBreakdown title="Age" slices={g.age} coverage={g.coverage.age} source={g.source?.age} />
+            <GoldBreakdown title="Age" slices={g.age} coverage={g.coverage.age} source={g.source?.age}
+              estimate={g.ageEstimate} />
             <GoldBreakdown title="Top Countries" slices={g.countries} coverage={g.coverage.geo}
               source={g.source?.country} />
             <GoldBreakdown title="Top Cities" slices={g.cities} coverage={null} source={g.source?.city} />
@@ -1266,20 +1294,18 @@ export function AudienceSection({ gold }: SectionProps) {
                 <Unavailable text="Demografi gender audiens belum diinferensi untuk creator ini." />
               </div>
             )}
-            {/* The generated Age bars and the Generation card are gone.
-                Age has a real path - `l2_gold.audience_demographics_daily` with
-                `audience_type='age'`, rendered above when `hasAge` - which is
-                empty for every creator today; the generated five-band chart that
-                stood in for it is not a smaller version of that, it is a
-                different thing wearing its clothes. Generation had no real
-                counterpart at all and was derived from the generated age split,
-                so it goes with it. */}
+            {/* Age is rendered above whenever the creator has an audience
+                analysis: measured when usable, else the curated label, else the
+                modelled split from `audienceAgeEstimate`, which is captioned as
+                an estimate. This fallback is therefore only reached by a creator
+                with no audience analysis at all. The Generation card stays gone:
+                it had no real counterpart. */}
             {!hasAge && (
               <div className="mt-5">
                 <div style={{ ...PJ, color: T.t3 }} className="text-[10.5px] font-extrabold uppercase tracking-wide mb-2">
                   Age
                 </div>
-                <Unavailable text="Demografi umur audiens belum tersedia untuk creator manapun di database ini — pipeline baru mengisi gender." />
+                <Unavailable text="Demografi umur audiens belum tersedia — creator ini belum punya analisis audiens." />
               </div>
             )}
           </VizCard>
