@@ -1,0 +1,388 @@
+'use client'
+
+/**
+ * Profile — the creator navigation's default section, and the two sections that
+ * only appear here: Insights, and the AI Snapshot that teases AI Insights.
+ *
+ * Layout follows the brief: About on the left with its six-field grid,
+ * Connected Platforms beside it on the right, and the AI Snapshot full width
+ * underneath as the hook into the full analysis.
+ *
+ * Most of this section is real. About's Category, Niche and Agency come from the
+ * roster and its agency tables; Connected Platforms is the creator's actual
+ * follower split across the accounts they hold; Match is the Brand Match
+ * Engine's status. Nothing here is sampled.
+ */
+
+import { PJ, TOKENS as T, PLATFORM_ICON, fmtNum, RosterAvatar } from './ui'
+import { Split, VIZ, VizCard } from './kolViz'
+import { platformLabel, type SectionProps } from './KolCreatorSections'
+import { enrichmentPending } from '@/lib/discover/kolIntel'
+
+/* ── Profile ──────────────────────────────────────────────────────────────── */
+
+export function ProfileSection({
+  creator, identity, rank, platforms, similar, intel, gold, match, matchScoreable, onGoTo,
+}: SectionProps & { onGoTo: (id: string) => void }) {
+  const name = identity.displayName ?? `@${creator.username}`
+  const niche = creator.categories.slice(1).join(' · ')
+  // Same rule as the header KPIs: scraped but not yet through the pipeline.
+  const notYet = enrichmentPending(gold, intel.measured?.postCount ?? 0) ? 'menunggu pipeline' : 'belum diisi'
+
+  /**
+   * `l2_gold.kol_profile_card` — the pipeline's own snapshot of each account
+   * the creator owns. Shown alongside the roster row rather than replacing it:
+   * the roster is what the agency sold, the card is what the platform actually
+   * showed when it was last harvested, and the two disagreeing is information.
+   *
+   * The card's `rate_card*` columns are NULL for every row, so prices stay with
+   * `l1_silver.unified_rate_card` and are not read here — one source per figure.
+   */
+  const cards = gold?.cards ?? []
+
+  return (
+    <div className="flex flex-col gap-4">
+      {cards.length > 0 && (
+        <VizCard title="Profile Snapshot (terukur, L2 Gold)"
+          subtitle="Angka saat snapshot terakhir diambil pipeline, per akun">
+          <div className="flex flex-col gap-3">
+            {cards.map(c => (
+              <div key={`${c.platform}-${c.username}`} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ ...PJ, color: T.t1 }} className="text-[12.5px] font-extrabold">
+                    @{c.username ?? '—'}
+                  </span>
+                  <span className="text-[11px]" style={{ color: T.t3 }}>{platformLabel(c.platform)}</span>
+                  {c.isVerified && (
+                    <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                      className="h-6 px-2 rounded-md text-[10px] font-bold inline-flex items-center">
+                      verified
+                    </span>
+                  )}
+                  {c.isPrivate && (
+                    <span style={{ ...PJ, background: T.surfaceVariant, color: T.t3 }}
+                      className="h-6 px-2 rounded-md text-[10px] font-bold inline-flex items-center">
+                      private
+                    </span>
+                  )}
+                  {c.snapshotDate && (
+                    <span className="text-[10.5px] ml-auto" style={{ color: T.t4 }}>
+                      snapshot {c.snapshotDate}
+                    </span>
+                  )}
+                </div>
+                <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
+                  {c.followers !== null && <MiniField label="Followers" value={fmtNum(c.followers)} />}
+                  {c.following !== null && <MiniField label="Following" value={fmtNum(c.following)} />}
+                  {c.mediaCount !== null && <MiniField label="Post" value={fmtNum(c.mediaCount)} />}
+                  {c.tier && <MiniField label="Tier" value={c.tier} />}
+                </div>
+                {c.website && (
+                  <a href={c.website} target="_blank" rel="noreferrer"
+                    className="text-[11px] underline w-fit" style={{ color: T.primaryDeep }}>
+                    {c.website}
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </VizCard>
+      )}
+      <Split
+        main={
+          <VizCard title="About" subtitle="Creator overview">
+            <p className="text-[12.5px] leading-[1.7]" style={{ color: T.t2 }}>
+              {creator.bio || (
+                <>
+                  {name} adalah creator{' '}
+                  {creator.categories.length ? <b>{creator.categories.join(' · ')}</b> : 'di roster ini'}
+                  {creator.tier && <> di tier <b>{creator.tier}</b></>}
+                  {creator.followers !== null && <> dengan <b>{fmtNum(creator.followers)}</b> followers</>}
+                  {platforms.length > 1
+                    ? <> di {platforms.map(p => platformLabel(p.platform)).join(' dan ')}.</>
+                    : <> di {platformLabel(creator.platform)}.</>}
+                  {identity.agency && <> Dikelola oleh <b>{identity.agency}</b>.</>}
+                </>
+              )}
+            </p>
+
+            {/* The six fields the brief asks for, as a grid rather than a
+                paragraph: each is a lookup, and a lookup reads faster as a cell. */}
+            <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))' }}>
+              <MiniField label="Category" value={creator.categories[0] ?? notYet} />
+              <MiniField label="Subcategory" value={creator.subcategory ?? (creator.categories.length ? 'belum diisi' : notYet)} />
+              {/* What the account declares on Instagram itself, in Instagram's
+                  words. Shown beside Category, never instead of it. */}
+              {creator.platform === 'instagram' && (
+                <MiniField label="Instagram Category" value={intel.measured?.instagramCategory ?? 'tidak tersedia'} />
+              )}
+              {/* Niche is the creator's further categories; the classifier gives
+                  one, so this stays empty unless the roster carries more. */}
+              <MiniField label="Niche" value={niche || 'belum diisi'} />
+              {/* Nothing writes kol_directory.creator_city: no run fills this. */}
+              <MiniField label="Location" value={creator.city || 'tidak tersedia'} />
+              {/* No identification source is exposed to this screen: the only
+                  candidate is the ID number in the old Excel roster, which is
+                  personal data and is not read here. */}
+              <MiniField label="Identification" value="tidak tersedia" />
+              <MiniField label="Group / Agency" value={identity.agency ?? 'belum diisi'} />
+              {/* `Collab` and `Match` both used to be generated: Collab was the
+                  literal string "Open" for every creator, and Match was
+                  `kolSample`'s brand-fit number, which knew nothing about any
+                  brand. Collab is dropped — the roster has no availability
+                  column — and Match is now the real Match %: the mean of the
+                  criteria the workspace chose. A dash where it could not be
+                  measured, never a band and never a zero. */}
+              <MiniField
+                label="Match"
+                value={matchScoreable === false ? 'atur Brand Profile'
+                  : match === null || match.matchPct === null ? 'belum terukur'
+                    : `${match.matchPct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}% match`}
+              />
+            </div>
+          </VizCard>
+        }
+        aside={
+          <VizCard title="Connected Platforms" subtitle="Followers by channel">
+            <ConnectedPlatforms platforms={platforms} />
+          </VizCard>
+        }
+      />
+
+      {/* Full width, as the brief has it: the teaser that earns the click. */}
+      <VizCard title="✦ AI Snapshot"
+        subtitle="Posisi engagement di kategori — dari data roster"
+        action={
+          <button type="button" onClick={() => onGoTo('ai')} style={{ ...PJ, color: T.primary }}
+            className="text-[10.5px] font-bold hover:underline whitespace-nowrap">
+            Full analysis →
+          </button>
+        }>
+        <div className="flex items-start gap-2.5">
+          <span className="material-symbols-outlined text-[18px] mt-px" style={{ color: VIZ.good }}>trending_up</span>
+          <p className="text-[12.5px] leading-[1.65]" style={{ color: T.t2 }}>
+            {/* The real half of this sentence is the ER percentile, computed
+                from `kol_directory` by `getKolCreator`. The authenticity clause
+                was generated and is dropped; the `else` branch was
+                `intel.ai.summary`, a template string, and is replaced by an
+                honest line rather than by another template. */}
+            {creator.erPct !== null && rank.categoryErPercentile !== null && rank.categoryName ? (
+              <>
+                Engagement <b>{creator.erPct.toFixed(2)}%</b> menempatkannya di{' '}
+                <b>top {Math.max(1, Math.round(100 - rank.categoryErPercentile))}%</b> kategori{' '}
+                {rank.categoryName} berdasarkan data roster.
+              </>
+            ) : (
+              <>
+                Engagement rate creator ini belum terukur, jadi posisinya di kategori belum bisa dihitung.
+              </>
+            )}
+          </p>
+        </div>
+      </VizCard>
+
+      {similar.length > 0 && (
+        <VizCard title="Similar Creators"
+          subtitle={rank.categoryName
+            ? `Kategori ${rank.categoryName}, ukuran audiens terdekat — data asli roster`
+            : 'Ukuran audiens terdekat di roster — data asli'}>
+          <SimilarRow similar={similar} onOpen={id => onGoTo(`creator:${id}`)} />
+        </VizCard>
+      )}
+    </div>
+  )
+}
+
+function MiniField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[12px] border px-3 py-2.5" style={{ borderColor: T.outline, background: T.surfaceLow }}>
+      <div className="flex items-center gap-1">
+        <span style={{ ...PJ, color: T.t4 }} className="text-[9px] font-extrabold uppercase tracking-widest">
+          {label}
+        </span>
+      </div>
+      <div style={{ ...PJ, color: T.t1 }} className="text-[12px] font-bold mt-1 break-words">{value}</div>
+    </div>
+  )
+}
+
+/**
+ * Followers by channel — a real split, so the bars are proportional to the
+ * creator's own largest account rather than to a fixed scale.
+ */
+function ConnectedPlatforms({ platforms }: { platforms: SectionProps['platforms'] }) {
+  const max = Math.max(...platforms.map(p => p.followers ?? 0), 1)
+  return (
+    <div className="flex flex-col gap-3">
+      {platforms.map(p => (
+        <div key={p.id}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="material-symbols-outlined text-[15px]" style={{ color: T.primary }}>
+              {PLATFORM_ICON[p.platform ?? ''] ?? 'public'}
+            </span>
+            <span className="text-[11.5px] flex-1" style={{ color: T.t2 }}>{platformLabel(p.platform)}</span>
+            <span style={{ ...PJ, color: T.t1 }} className="text-[11.5px] font-extrabold tabular-nums">
+              {p.followers === null ? '—' : fmtNum(p.followers)}
+            </span>
+          </div>
+          <div className="h-[10px] rounded-[4px]" style={{ background: T.outlineSoft }}>
+            <div className="h-full rounded-r-[4px]"
+              style={{ width: `${Math.max(3, ((p.followers ?? 0) / max) * 100)}%`, background: VIZ.series }} />
+          </div>
+        </div>
+      ))}
+      {platforms.length === 1 && (
+        <p className="text-[9.5px] leading-[1.45]" style={{ color: T.t4 }}>
+          Roster hanya punya satu akun untuk username ini. 277 creator di roster
+          terhubung di dua platform.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SimilarRow({
+  similar, onOpen,
+}: { similar: SectionProps['similar']; onOpen: (id: string) => void }) {
+  return (
+    <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
+      {similar.map(s => (
+        <button key={s.id} type="button" onClick={() => onOpen(s.id)}
+          style={{ borderColor: T.outline }}
+          className="rounded-[14px] border p-3 text-left hover:bg-[#f9fbfc] transition-colors">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0 overflow-hidden"
+              style={{ background: T.gradient }}>
+              <RosterAvatar src={s.avatarUrl} username={s.username} textClass="text-[11px]" />
+            </span>
+            <div className="min-w-0">
+              <div style={{ ...PJ, color: T.t1 }} className="text-[11.5px] font-bold truncate">@{s.username}</div>
+              <div className="text-[10px]" style={{ color: T.t4 }}>
+                {platformLabel(s.platform)}{s.tier ? ` · ${s.tier}` : ''}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-2.5">
+            <span className="text-[10.5px]" style={{ color: T.t3 }}>
+              {s.followers === null ? '—' : fmtNum(s.followers)}
+            </span>
+            <span style={{ ...PJ, color: T.primaryDeep }} className="text-[10.5px] font-extrabold tabular-nums">
+              {s.erPct === null ? 'ER —' : `ER ${s.erPct.toFixed(2)}%`}
+            </span>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ── Insights ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Key Opportunities — deliberately the most measured section on the page.
+ *
+ * "Insights" elsewhere in this product means a model's opinion. Here it means
+ * what the roster can actually establish about this creator: where they sit,
+ * where their audience is concentrated across platforms, whether their rate has
+ * ever been measured, and which format dominates the harvested posts. Every
+ * item is computed from data; an item without data is left out.
+ */
+export function InsightsSection({ creator, rank, platforms, similar, intel }: SectionProps) {
+  const items: { icon: string; tone: string; title: string; body: React.ReactNode }[] = []
+
+  items.push({
+    icon: 'leaderboard',
+    tone: VIZ.good,
+    title: `Peringkat #${rank.followersRank.toLocaleString('id-ID')} dari ${rank.rosterTotal.toLocaleString('id-ID')} creator`,
+    body: <>Di atas <b>{rank.followersPercentile}%</b> roster berdasarkan jumlah followers.</>,
+  })
+
+  if (rank.categoryName && rank.categoryFollowersRank !== null) {
+    items.push({
+      icon: 'category',
+      tone: VIZ.series,
+      title: `Nomor #${rank.categoryFollowersRank} di kategori ${rank.categoryName}`,
+      body: <>Dari <b>{rank.categoryTotal.toLocaleString('id-ID')}</b> creator di kategori yang sama —
+        pembanding paling relevan saat menyusun shortlist.</>,
+    })
+  }
+
+  if (creator.erPct !== null && rank.categoryErPercentile !== null && rank.categoryName) {
+    const top = Math.max(1, Math.round(100 - rank.categoryErPercentile))
+    items.push({
+      icon: 'bolt',
+      tone: top <= 25 ? VIZ.good : VIZ.warning,
+      title: `Engagement ${creator.erPct.toFixed(2)}% — top ${top}% di ${rank.categoryName}`,
+      body: <>Diukur terhadap <b>{rank.categoryErTotal.toLocaleString('id-ID')}</b> creator kategori ini
+        yang engagement rate-nya pernah diukur.</>,
+    })
+  } else {
+    items.push({
+      icon: 'help',
+      tone: T.t4,
+      title: 'Engagement rate belum pernah diukur',
+      body: <>Hanya <b>{rank.erMeasuredTotal.toLocaleString('id-ID')}</b> dari{' '}
+        {rank.rosterTotal.toLocaleString('id-ID')} creator yang punya angka ini. Tanpa itu,
+        creator ini tidak bisa dibandingkan pada kualitas engagement.</>,
+    })
+  }
+
+  if (platforms.length > 1) {
+    const top = [...platforms].sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))[0]
+    items.push({
+      icon: 'hub',
+      tone: VIZ.series,
+      title: `Audiens terbesar ada di ${platformLabel(top.platform)}`,
+      body: <>Terhubung di {platforms.length} platform — {platforms.map(p =>
+        `${platformLabel(p.platform)} ${p.followers === null ? '—' : fmtNum(p.followers)}`).join(' · ')}.
+        Pilih platform sesuai objektif campaign, bukan sesuai yang paling dikenal.</>,
+    })
+  }
+
+  if (similar.length > 0) {
+    items.push({
+      icon: 'group',
+      tone: T.t4,
+      title: `${similar.length} creator sekelas tersedia di roster`,
+      body: <>Kategori dan ukuran audiens serupa — layak dibandingkan sebelum harga disepakati.</>,
+    })
+  }
+
+  // Only with harvested posts. It used to fall back to "Format video, 0%" for
+  // everyone else, and it said "performa" of a figure that is a share of posts.
+  const topFormat = intel.real.formats ? intel.content.formats[0] : undefined
+  if (topFormat) {
+    items.push({
+      icon: 'movie',
+      tone: VIZ.warning,
+      title: `Format ${topFormat.label} paling sering dipakai`,
+      body: <><b>{topFormat.pct}%</b> dari {intel.measured?.postCount ?? topFormat.n} post yang terpanen.</>,
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <VizCard title="✦ Key Opportunities"
+        subtitle="Dihitung dari roster dan post yang terpanen">
+        <ol className="flex flex-col">
+          {items.map((it, i) => (
+            <li key={it.title} className="flex items-start gap-3 py-3"
+              style={{ borderBottom: i < items.length - 1 ? `1px solid ${T.outlineSoft}` : undefined }}>
+              <span style={{ ...PJ, background: T.surfaceVariant, color: T.primaryDeep }}
+                className="w-6 h-6 rounded-lg text-[11px] font-extrabold inline-flex items-center justify-center flex-shrink-0">
+                {i + 1}
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="material-symbols-outlined text-[15px]" style={{ color: it.tone }}>{it.icon}</span>
+                  <span style={{ ...PJ, color: T.t1 }} className="text-[12px] font-extrabold">{it.title}</span>
+                </div>
+                <p className="text-[11.5px] leading-[1.55] mt-1" style={{ color: T.t3 }}>{it.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </VizCard>
+    </div>
+  )
+}

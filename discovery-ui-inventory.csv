@@ -1,0 +1,127 @@
+﻿no,element,type,location,purpose,file,group
+1,Breadcrumb link,Button,Shell — atas halaman,Kembali ke tab/view induk,DiscoverWorkspace.tsx:347,A. Navigation
+2,Sidebar nav — Discover + 7 anak,Nav links,Sidebar kiri (global),Pindah tab Discovery,layout/OrgNav.tsx:43,A. Navigation
+3,TabStrip (sub-tab per tab),Tabs,Shell — bawah header,Pindah view dalam satu tab,ui.tsx:189 · DiscoverWorkspace.tsx:400,A. Navigation
+4,Add KOL,Button (primary),Shell — header kanan,Buka modal tambah KOL (`?add=1`),DiscoverWorkspace.tsx:376,B. Discovery Actions
+5,Cart + badge jumlah,Button (kondisional),Shell — header kanan,Ke tab Ordering › Cart,DiscoverWorkspace.tsx:649,B. Discovery Actions
+6,Ordering Flow,Button (kondisional),Shell — header kanan,Ke alur pemesanan,DiscoverWorkspace.tsx:659,B. Discovery Actions
+7,Purchase History,Button (ghost),Shell — header kanan,Ke riwayat order,DiscoverWorkspace.tsx:665,B. Discovery Actions
+8,Shelf action (`Lihat semua →`),Button,Hub — kanan tiap shelf,Ke Smart Discovery / Creator Database,DiscoverHub.tsx:221,A. Navigation
+9,Hub creator card,Card (clickable),Hub — dalam shelf,Buka creator,DiscoverHub.tsx:259,B. Discovery Actions
+10,Find similar (ikon kartu),Icon Button,Hub — pojok kartu,Cari creator serupa,DiscoverHub.tsx:270,B. Discovery Actions
+11,Compare,Button (ghost),Creator Database — toolbar,Ke tab Compare,KolDirectoryPage.tsx:596,B. Discovery Actions
+12,Add KOL,Button (primary),Creator Database — toolbar,Buka AddKolDirectoryModal,KolDirectoryPage.tsx:603,B. Discovery Actions
+13,Preset chips ×8,"Chips (single, toggle)",Creator Database — toolbar,Terapkan preset filter+ranking,KolDirectoryPage.tsx:617 · creatorMatch.ts:306,C. Search & Filtering
+14,Search input,Text Input (debounce 350ms),Creator Database — toolbar,Cari creator,KolDirectoryPage.tsx:657,C. Search & Filtering
+15,Clear search (×),Icon Button,Creator Database — toolbar,Kosongkan kotak pencarian,KolDirectoryPage.tsx:666,C. Search & Filtering
+16,Category quick-chips (All + 6),Chips (single),Creator Database — toolbar,Filter kategori cepat,KolDirectoryPage.tsx:674,C. Search & Filtering
+17,Filter panel toggle,Pill Button,Creator Database — toolbar,Tampil/sembunyikan sidebar filter,KolDirectoryPage.tsx:681,C. Search & Filtering
+18,Clear filters,Pill Button (kondisional),Creator Database — toolbar,Reset semua filter,KolDirectoryPage.tsx:688,C. Search & Filtering
+19,Saved lists,Pill Button → Dropdown,Creator Database — toolbar,Buka daftar tersimpan,KolDirectoryPage.tsx:692,C. Search & Filtering
+20,Apply saved list,Dropdown row,Creator Database — toolbar,Terapkan kombinasi filter tersimpan,KolDirectoryPage.tsx:707,C. Search & Filtering
+21,Delete saved list (×),Icon Button,Creator Database — toolbar,Hapus daftar tersimpan,KolDirectoryPage.tsx:714,C. Search & Filtering
+22,Save current as list,Button (+),Creator Database — toolbar,Simpan filter aktif,KolDirectoryPage.tsx:720,C. Search & Filtering
+23,Sort,Pill Button → Dropdown (4 opsi),Creator Database — toolbar,Ubah urutan hasil,KolDirectoryPage.tsx:735,D. Sorting & Display
+24,Column chooser (8 checkbox),Pill → Checkbox list,Creator Database — toolbar,Pilih kolom tabel,KolDirectoryPage.tsx:758,D. Sorting & Display
+25,View toggle Card / Table,Segmented Button,Creator Database — toolbar,Ganti tampilan daftar,KolDirectoryPage.tsx:779,D. Sorting & Display
+26,Result count line,Text (dinamis),Creator Database — toolbar,Jumlah hasil + favorit + compare,KolDirectoryPage.tsx:590,D. Sorting & Display
+27,Collapse sidebar (chevron),Icon Button,Creator Database — filter sidebar,Tutup panel jadi tab vertikal,KolDirectoryFilters.tsx:266,C. Search & Filtering
+28,Filter tab (state tertutup),Vertical Tab Button,Creator Database — tepi kanan,Buka kembali panel,KolDirectoryFilters.tsx:446,C. Search & Filtering
+29,Clear all (dalam panel),Text Button,Creator Database — filter sidebar,Reset semua filter,KolDirectoryFilters.tsx:264,C. Search & Filtering
+30,Section accordion ×7,Accordion Header,Creator Database — filter sidebar,Buka/tutup section filter,KolDirectoryFilters.tsx:170,C. Search & Filtering
+31,Platform chips (All + 2),Chips (single),Creator Database — filter sidebar,Filter platform,KolDirectoryFilters.tsx:279,C. Search & Filtering
+32,Tier chips (All + 5 dinamis),Chips (single),Creator Database — filter sidebar,Filter band follower,KolDirectoryFilters.tsx:303,C. Search & Filtering
+33,Format chips (6 IG / 3 TT),Chips — DISABLED,Creator Database — filter sidebar,Filter format konten,KolDirectoryFilters.tsx:330,C. Search & Filtering
+34,Min. followers,Range Slider (12 langkah),Creator Database — filter sidebar,Ambang follower,KolDirectoryFilters.tsx:343,C. Search & Filtering
+35,Min. engagement,Range Slider (0–10%),Creator Database — filter sidebar,Ambang engagement rate,KolDirectoryFilters.tsx:346,C. Search & Filtering
+36,Max. rate card,Range Slider (12 langkah),Creator Database — filter sidebar,Plafon harga,KolDirectoryFilters.tsx:349,C. Search & Filtering
+37,Audience Age chips ×7,Chips — DISABLED,Creator Database — filter sidebar,Filter umur audiens,KolDirectoryFilters.tsx:366,C. Search & Filtering
+38,Major Female (%),Range Slider — DISABLED,Creator Database — filter sidebar,Ambang audiens perempuan,KolDirectoryFilters.tsx:369,C. Search & Filtering
+39,Major Male (%),Range Slider — DISABLED,Creator Database — filter sidebar,Ambang audiens laki-laki,KolDirectoryFilters.tsx:371,C. Search & Filtering
+40,Category chips (All + 28 dinamis),Chips (single),Creator Database — filter sidebar,Filter kategori,KolDirectoryFilters.tsx:382,C. Search & Filtering
+41,Creator location,Select — DISABLED,Creator Database — filter sidebar,Filter kota creator,KolDirectoryFilters.tsx:395,C. Search & Filtering
+42,Audience location,Select — DISABLED,Creator Database — filter sidebar,Filter lokasi audiens,KolDirectoryFilters.tsx:395,C. Search & Filtering
+43,Min. authenticity,Range Slider — DISABLED,Creator Database — filter sidebar,Ambang autentisitas,KolDirectoryFilters.tsx:411,C. Search & Filtering
+44,Min. brand fit,Range Slider — DISABLED,Creator Database — filter sidebar,Ambang brand fit,KolDirectoryFilters.tsx:412,C. Search & Filtering
+45,Max. paid ratio,Range Slider — DISABLED,Creator Database — filter sidebar,Plafon rasio konten berbayar,KolDirectoryFilters.tsx:413,C. Search & Filtering
+46,Min. campaigns,Range Slider — DISABLED,Creator Database — filter sidebar,Ambang jumlah campaign,KolDirectoryFilters.tsx:414,C. Search & Filtering
+47,Verified creators only,Toggle (switch),Creator Database — filter sidebar,Hanya creator terverifikasi,KolDirectoryFilters.tsx:431,C. Search & Filtering
+48,Retry (error state),Button,Creator Database — area hasil,Muat ulang direktori,KolDirectoryPage.tsx:804,E. Other
+49,Clear filters (empty state),Button,Creator Database — area hasil,Reset saat hasil kosong,KolDirectoryPage.tsx:819,E. Other
+50,Pagination prev / next / nomor,Pagination Buttons,Creator Database — area hasil,Pindah halaman (server-side),KolDirectoryPage.tsx:840,D. Sorting & Display
+51,Select-all halaman,Checkbox,Creator Database — area hasil (tabel),Pilih semua baris di halaman,KolDirectoryPage.tsx:1163,B. Discovery Actions
+52,Row checkbox,Checkbox,Creator Database — area hasil (tabel),Pilih satu creator,KolDirectoryPage.tsx:1182,B. Discovery Actions
+53,Column header sort,Sort Control,Creator Database — area hasil (tabel),Urutkan lewat header kolom,KolDirectoryPage.tsx:1144,D. Sorting & Display
+54,Creator card / row (klik),Card / Row,Creator Database — area hasil,Buka panel Quick Insight,KolDirectoryPage.tsx:972 · 1177,B. Discovery Actions
+55,Favorite (hati),Icon Toggle,Creator Database — area hasil (kartu),Tandai creator sebagai favorit,KolDirectoryPage.tsx:981,B. Discovery Actions
+56,Add to compare,Icon Toggle,Creator Database — area hasil (kartu),Masukkan ke perbandingan,KolDirectoryPage.tsx:982,B. Discovery Actions
+57,Add to cart,Icon Toggle,Creator Database — area hasil (kartu & tabel),Masukkan ke keranjang,KolDirectoryPage.tsx:984 · 1220,B. Discovery Actions
+58,Find similar,Icon Button,Creator Database — area hasil (kartu & tabel),Ke Smart Discovery dengan acuan ini,KolDirectoryPage.tsx:990 · 1213,B. Discovery Actions
+59,Bulk: Add to Compare,Button,Creator Database — area hasil (bulk bar),Tambah semua terpilih ke compare,KolDirectoryPage.tsx:860,B. Discovery Actions
+60,Bulk: Add to Cart,Button,Creator Database — area hasil (bulk bar),Tambah semua terpilih ke keranjang,KolDirectoryPage.tsx:861,B. Discovery Actions
+61,Bulk: Export CSV,Button,Creator Database — area hasil (bulk bar),Unduh terpilih sebagai CSV,KolDirectoryPage.tsx:862,B. Discovery Actions
+62,Bulk: Export Excel,Button,Creator Database — area hasil (bulk bar),Unduh terpilih sebagai Excel,KolDirectoryPage.tsx:865,B. Discovery Actions
+63,Bulk: Clear,Button,Creator Database — area hasil (bulk bar),Kosongkan pilihan,KolDirectoryPage.tsx:868,B. Discovery Actions
+64,Quick Insight — Close,Icon Button,Panel Quick Insight,Tutup panel,CreatorQuickInsight.tsx:105,E. Other
+65,Quick Insight — Shortlist,Action Button,Panel Quick Insight,Toggle favorit (state yang sama),CreatorQuickInsight.tsx:265,B. Discovery Actions
+66,Quick Insight — Compare,Action Button,Panel Quick Insight,Toggle compare,CreatorQuickInsight.tsx:267,B. Discovery Actions
+67,Quick Insight — View Full Profile,Action Button,Panel Quick Insight,Buka halaman creator,CreatorQuickInsight.tsx:270,B. Discovery Actions
+68,Quick Insight — Start Collaboration,Action Button (primary),Panel Quick Insight,Masukkan ke keranjang,CreatorQuickInsight.tsx:272,B. Discovery Actions
+69,Pricing modal — input harga,Number Input,Modal harga roster,Isi base rate creator,KolDirectoryPage.tsx:891,B. Discovery Actions
+70,Pricing modal — Simpan,Button (primary),Modal harga roster,PUT rate card org,KolDirectoryPage.tsx:1524,B. Discovery Actions
+71,Pricing modal — Batal / ×,Button,Modal harga roster,Tutup modal,KolDirectoryPage.tsx:1479 · 1520,E. Other
+72,Add KOL — pilih platform,Chips (single),AddKolDirectoryModal,Pilih Instagram / TikTok,AddKolDirectoryModal.tsx:368,B. Discovery Actions
+73,Add KOL — input username/URL,Text Input,AddKolDirectoryModal,Identitas creator baru,AddKolDirectoryModal.tsx,B. Discovery Actions
+74,Add KOL — Check,Button,AddKolDirectoryModal,POST /api/kol-directory/add/check,AddKolDirectoryModal.tsx:146,B. Discovery Actions
+75,Add KOL — Add / Edit / Try Again,Button (primary),AddKolDirectoryModal,POST /api/kol-directory/add,AddKolDirectoryModal.tsx:165 · 553,B. Discovery Actions
+76,Add KOL — Close / Cancel,Button,AddKolDirectoryModal,Tutup modal,AddKolDirectoryModal.tsx:225 · 244,E. Other
+77,Search input,Text Input,Tracked Accounts — toolbar,Cari akun (client-side),DiscoverDirectoryView.tsx:409,C. Search & Filtering
+78,Reset filter,Button (ghost),Tracked Accounts — toolbar,Kembalikan filter ke default,DiscoverDirectoryView.tsx:417,C. Search & Filtering
+79,Saved lists,Button → Dropdown,Tracked Accounts — toolbar,Simpan/terapkan set filter,DiscoverDirectoryView.tsx:423,C. Search & Filtering
+80,Column chooser (15 kolom),Button → Checkbox list,Tracked Accounts — toolbar,Pilih kolom tabel,DiscoverDirectoryView.tsx:457,D. Sorting & Display
+81,Sort select (10 opsi),Select,Tracked Accounts — toolbar,Ubah urutan hasil,DiscoverDirectoryView.tsx:445,D. Sorting & Display
+82,View toggle Card / Table,Segmented Button,Tracked Accounts — toolbar,Ganti tampilan,DiscoverDirectoryView.tsx:476,D. Sorting & Display
+83,Export CSV,Button,Tracked Accounts — toolbar,Unduh hasil sebagai CSV,DiscoverDirectoryView.tsx:485,B. Discovery Actions
+84,Export Excel,Button,Tracked Accounts — toolbar,Unduh hasil sebagai Excel,DiscoverDirectoryView.tsx:488,B. Discovery Actions
+85,Buka panel filter,Button,Tracked Accounts — toolbar,Tampilkan panel filter,DiscoverDirectoryView.tsx:492,C. Search & Filtering
+86,Category quick-chips (7),Chips (single),Tracked Accounts — strip,Filter kategori cepat,DiscoverDirectoryView.tsx:503,C. Search & Filtering
+87,Panel: Reset / Tutup,Text Button ×2,Tracked Accounts — panel,Reset filter / tutup panel,DiscoverDirectoryView.tsx:600,C. Search & Filtering
+88,Panel: 9 grup chips,Chips (single) ×9,Tracked Accounts — panel,"Tipe akun, platform, kategori, lifestyle, lokasi, tier, umur, gender, format",DiscoverDirectoryView.tsx:607-665,C. Search & Filtering
+89,Panel: 6 SelectPill ambang,Select ×6,Tracked Accounts — panel,"Followers, ER, reach, authenticity, brand fit, rasio paid",DiscoverDirectoryView.tsx:674-685,C. Search & Filtering
+90,Panel: 2 Toggle,Toggle ×2,Tracked Accounts — panel,Hanya terverifikasi / hanya punya rate card,DiscoverDirectoryView.tsx:690,C. Search & Filtering
+91,Bulk: Tambah ke shortlist,Button,Tracked Accounts — bulk bar,Masukkan terpilih ke shortlist,DiscoverDirectoryView.tsx:519,B. Discovery Actions
+92,Bulk: Bookmark,Button,Tracked Accounts — bulk bar,Bookmark terpilih,DiscoverDirectoryView.tsx:522,B. Discovery Actions
+93,Bulk: Add to campaign,Button (primary),Tracked Accounts — bulk bar,Ke alur ordering dengan terpilih,DiscoverDirectoryView.tsx:526,B. Discovery Actions
+94,Bulk: Bersihkan,Button (ghost),Tracked Accounts — bulk bar,Kosongkan pilihan,DiscoverDirectoryView.tsx:530,B. Discovery Actions
+95,Card checkbox,Checkbox,Tracked Accounts — kartu,Pilih akun,DiscoverDirectoryView.tsx:750,B. Discovery Actions
+96,Card Bookmark / Shortlist,Icon Toggle ×2,Tracked Accounts — kartu,Tandai akun,DiscoverDirectoryView.tsx:756,B. Discovery Actions
+97,Card Order,Button,Tracked Accounts — kartu,Masukkan ke keranjang,DiscoverDirectoryView.tsx:835,B. Discovery Actions
+98,Card Analisis / Detail,Button / Link,Tracked Accounts — kartu,Buka workspace atau halaman detail,DiscoverDirectoryView.tsx:843 · 848,B. Discovery Actions
+99,Pagination Prev / Next,Button ×2,Tracked Accounts — bawah,Pindah halaman (client-side),DiscoverDirectoryView.tsx:565,D. Sorting & Display
+100,Reset filter (empty state),Button,Tracked Accounts — empty state,Reset saat hasil kosong,DiscoverDirectoryView.tsx:542,E. Other
+101,Add creator (header + empty state),Button ×2,My Creators,Buka alur tambah creator,CreatorRoster.tsx:213 · 331,B. Discovery Actions
+102,Reset filters ×2,Button,My Creators,Kembalikan filter ke default,CreatorRoster.tsx:271 · 344,C. Search & Filtering
+103,Search input,Text Input + debounce,My Creators,Cari creator org,CreatorRoster.tsx:251,C. Search & Filtering
+104,Platform chips,"Chips (single, dinamis)",My Creators,Filter platform,CreatorRoster.tsx:287,C. Search & Filtering
+105,Category chips,"Chips (single, dinamis)",My Creators,Filter kategori,CreatorRoster.tsx:297,C. Search & Filtering
+106,Tier chips,"Chips (single, dinamis)",My Creators,Filter tier,CreatorRoster.tsx:306,C. Search & Filtering
+107,Location select,Select (dinamis),My Creators,Filter kota,CreatorRoster.tsx:262,C. Search & Filtering
+108,Followers select,Select,My Creators,Ambang follower,CreatorRoster.tsx:264,C. Search & Filtering
+109,Engagement select,Select,My Creators,Ambang ER,CreatorRoster.tsx:266,C. Search & Filtering
+110,Card open / Profile,Card + Button,My Creators — kartu,Buka detail creator,CreatorRoster.tsx:399 · 464,B. Discovery Actions
+111,Follow run,Card Action,My Creators — kartu,Buka layar profiling berjalan,CreatorRoster.tsx:462,B. Discovery Actions
+112,Refresh,Button,My Creators — kartu,POST refresh profiling,CreatorRoster.tsx:474,B. Discovery Actions
+113,Monitoring toggle,Toggle,My Creators — kartu,PATCH monitoringEnabled,CreatorRoster.tsx:480,B. Discovery Actions
+114,Find similar,Button,My Creators — kartu,Ke Smart Discovery,CreatorRoster.tsx:490,B. Discovery Actions
+115,Reference search input,Text Input,Smart Discovery,Cari creator acuan di roster,SmartDiscovery.tsx:219,C. Search & Filtering
+116,Reference result pick,Row (clickable),Smart Discovery,Pilih creator acuan,SmartDiscovery.tsx:547,B. Discovery Actions
+117,Clear reference,Button,Smart Discovery,Hapus acuan & hasil,SmartDiscovery.tsx:301,B. Discovery Actions
+118,Platform chips (+ Same as reference),Chips (single),Smart Discovery,Batasi platform kandidat,SmartDiscovery.tsx:401,C. Search & Filtering
+119,Tier select,Select (hardcoded),Smart Discovery,Batasi tier kandidat,SmartDiscovery.tsx:384,C. Search & Filtering
+120,Location select,Select (hardcoded 7 kota),Smart Discovery,Batasi kota kandidat,SmartDiscovery.tsx:389,C. Search & Filtering
+121,Rate card select,Select (hardcoded 5 opsi),Smart Discovery,Plafon harga kandidat,SmartDiscovery.tsx:380,C. Search & Filtering
+122,Lower price than reference,Chip / Toggle,Smart Discovery,Hanya kandidat lebih murah,SmartDiscovery.tsx:393,C. Search & Filtering
+123,Find similar (jalankan),Button (primary),Smart Discovery,GET /discover/creators/similar,SmartDiscovery.tsx:413,B. Discovery Actions
+124,Go to roster,Button,Smart Discovery,Ke My Creators,SmartDiscovery.tsx:351,A. Navigation
+125,Go to compare,Button,Smart Discovery,Ke tab Compare,SmartDiscovery.tsx:462,A. Navigation
+126,Result card — Compare / Open,Button ×2,Smart Discovery — kartu hasil,Bandingkan / buka creator,SmartDiscovery.tsx:635 · 647,B. Discovery Actions

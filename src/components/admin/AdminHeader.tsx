@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { signOut } from 'next-auth/react'
+import { logout } from '@/lib/auth/actions'
 
 const PJB = { fontFamily: "'Plus Jakarta Sans', sans-serif" } as const
 
@@ -26,14 +26,24 @@ export default function AdminHeader({ userName }: { userName: string }) {
         <span className="text-[13px] text-[#64748b]" style={PJB}>
           {userName}
         </span>
-        <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
-          style={PJB}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[#e2e8f0] text-[12.5px] font-semibold text-[#64748b] hover:bg-[#f8fafc] hover:text-[#334155] transition-colors"
-        >
-          <span className="material-symbols-outlined text-[15px]">logout</span>
-          Sign out
-        </button>
+        {/*
+          The same server action every other sign-out uses, rather than
+          next-auth's client `signOut`: it clears the workspace-mode cookie
+          before ending the session. With the client helper that year-long
+          cookie survived, so the next person to sign in on this browser
+          silently inherited the previous session's mode instead of being
+          asked — which is exactly what `logout()` exists to prevent.
+        */}
+        <form action={logout}>
+          <button
+            type="submit"
+            style={PJB}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[#e2e8f0] text-[12.5px] font-semibold text-[#64748b] hover:bg-[#f8fafc] hover:text-[#334155] transition-colors"
+          >
+            <span className="material-symbols-outlined text-[15px]">logout</span>
+            Sign out
+          </button>
+        </form>
       </div>
     </header>
   )

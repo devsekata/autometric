@@ -1,0 +1,787 @@
+'use client'
+
+/**
+ * Smart Discovery — recommendations from a reference creator.
+ *
+ * Basic Discovery is the filter form on the My Creators screen. This is the
+ * other half: pick a creator who already works, and let the system read their
+ * category, audience size, engagement and topics and go looking for that shape.
+ *
+ * The controls here are only the things a user can genuinely constrain —
+ * platform, tier, location, price. "Similar content style" and "similar
+ * audience" are deliberately *not* toggles: they are always part of the score
+ * (that is what makes it a similarity search), so offering them as switches
+ * would be offering control that does not exist. They are shown as a legend
+ * instead, and every recommendation carries the reasons it actually earned.
+ */
+
+import { useCallback, useEffect, useState } from 'react'
+import { Chip, EmptyState, PJ, TOKENS as T, fmtNum, RosterAvatar, SelectPill } from './ui'
+import { CREATOR_PLATFORMS, platformLabel } from '@/lib/discover/creatorInput'
+import { LOCATIONS, TIERS } from '@/lib/discover/vocab'
+import type { KolDirectoryRow } from '@/lib/discover/kolDirectory'
+import type { SimilarCandidate, SimilarResult } from '@/lib/discover/creatorSimilar'
+import type { TrackingStatus } from '@/lib/discover/types'
+import { useDiscoverSelection, selectionKey } from './useDiscoverSelection'
+import { useCreatorLinks } from './useCreatorLinks'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
+
+export interface SmartDiscoveryProps {
+  orgId: string
+  /** Pre-selected reference, handed over from a creator card or profile. */
+  referenceId?: string | null
+  /**
+   * Which list the pre-selected reference lives in. `Find Similar` is offered
+   * on Creator Database rows as well as on the org's own creators, and the two
+   * ids are looked up in different places — so the entry point has to say which
+   * it handed over. Defaults to the org's own roster, which is where the
+   * feature started and what a link saved before this existed meant.
+   */
+  referenceSource?: RefSource | null
+  /** The shell already draws this segment's title and subtitle. */
+  embedded?: boolean
+  /**
+   * Open a result's profile. Every candidate is a KOL-database creator: a
+   * `creator` result is one of this agency's own My Creators, a `roster` result
+   * is anyone else in the Creator Database — and both have their profile in the
+   * directory.
+   */
+  onOpenRosterCreator: (kolId: string) => void
+  onGoToRoster: () => void
+  /** Where the shortlist is actually read — otherwise `Compare` is a dead end. */
+  onGoToCompare: () => void
+}
+
+export type RefSource = 'creator' | 'roster'
+
+/**
+ * A creator that can be used as a reference, from either list.
+ *
+ * Smart Discovery is deliberately not limited to the creators this org added:
+ * the whole point is to find people you do *not* have yet, and the reference
+ * only has to be somebody whose shape you want more of. Anyone in the Creator
+ * Database qualifies, so both lists are reduced to this one shape and the
+ * picker treats them the same — only `source` differs, and it travels with the
+ * id because the two ids are resolved by different queries.
+ */
+interface RefPick {
+  id: string
+  source: RefSource
+  username: string
+  displayName: string | null
+  avatarUrl: string | null
+  platform: string | null
+  category: string | null
+  followers: number | null
+}
+
+/**
+ * The one-line summary under a reference's name.
+ *
+ * Joined rather than concatenated because every piece is optional on the
+ * Creator Database side — the roster's platform, category and follower columns
+ * are all nullable — and fixed separators around a missing piece read as a
+ * typo (` · · 12K`).
+ */
+const metaLine = (p: RefPick, suffix?: string): string => [
+  p.platform ? platformLabel(p.platform) : null,
+  p.category,
+  p.followers !== null ? `${fmtNum(p.followers)}${suffix ?? ''}` : null,
+].filter(Boolean).join(' · ')
+
+const fromDirectoryRow = (r: KolDirectoryRow, source: RefSource = 'roster'): RefPick => ({
+  id: r.id,
+  // `creator` = one of this agency's own My Creators; the similarity search
+  // then resolves the reference inside the agency (`creatorSimilar`).
+  source,
+  // The roster has no display-name column; the handle is the only identity.
+  displayName: null,
+  username: r.username,
+  avatarUrl: r.avatarUrl,
+  platform: r.platform,
+  category: r.categories[0] ?? null,
+  followers: r.followers,
+})
+
+const RATE_STEPS: { label: string; value: number }[] = [
+  { label: 'Any rate card', value: 0 },
+  { label: 'Under 5 juta', value: 5_000_000 },
+  { label: 'Under 10 juta', value: 10_000_000 },
+  { label: 'Under 25 juta', value: 25_000_000 },
+  { label: 'Under 50 juta', value: 50_000_000 },
+]
+
+export default function SmartDiscovery({
+  orgId, referenceId, referenceSource, embedded, onOpenRosterCreator, onGoToRoster,
+  onGoToCompare,
+}: SmartDiscoveryProps) {
+  /** This agency's My Creators, as reference quick picks. */
+  const [pool, setPool] = useState<RefPick[] | null>(null)
+  /**
+   * The chosen reference, whichever list it came from.
+   *
+   * Held as the whole pick rather than as an id because a Creator Database
+   * reference is not in any list this screen keeps: it arrives from a search
+   * that is later cleared, or straight from a `Find Similar` on another screen.
+   * Keeping the row means the summary line can name it without re-fetching.
+   */
+  const [ref, setRef] = useState<RefPick | null>(null)
+  /** Creator Database search, for picking a reference from the full database. */
+  const [dbQuery, setDbQuery] = useState('')
+  const [dbRows, setDbRows] = useState<RefPick[] | null>(null)
+  const [dbBusy, setDbBusy] = useState(false)
+  const [platform, setPlatform] = useState('')
+  const [tier, setTier] = useState('')
+  const [city, setCity] = useState('')
+  const [maxRate, setMaxRate] = useState(0)
+  const [cheaper, setCheaper] = useState(false)
+  /**
+   * Category as a requirement rather than as the ranking's own preference.
+   *
+   * Off by default because category is already the heaviest rule in the
+   * scoring, so the results are category-led without it — and a reference with
+   * no category on record would otherwise start the screen with a constraint
+   * that cannot be met.
+   */
+  const [sameCategory, setSameCategory] = useState(false)
+  /**
+   * The Compare shortlist, the same one the Creator Database and Compare share
+   * through localStorage.
+   *
+   * A ranking that names five creators and gives you no way to put two of them
+   * side by side stops one step short of the decision it exists to support, so
+   * every database-side recommendation can be shortlisted from here. Only those:
+   * the shortlist holds tracked accounts and Creator Database creators, and an
+   * org's own creator is neither — adding one would write a key Compare cannot
+   * resolve.
+   */
+  const compare = useDiscoverSelection(orgId, 'compare')
+  /**
+   * My Creators and tracking, so a recommendation can be acted on where it is
+   * read.
+   *
+   * A ranking that names five creators and then makes you go and find them
+   * again in the Creator Database to save one stops a step short of the
+   * decision it exists to support. Only Creator Database candidates can carry
+   * either state: an org's own creator is in My Creators by construction.
+   */
+  const creatorLinks = useCreatorLinks(orgId)
+  const [result, setResult] = useState<SimilarResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  /**
+   * "Your creators" — this agency's My Creators, from `/discover/links` (the
+   * active `agency_kol_accounts` links) and read back through the same `ids=`
+   * directory query every other screen uses. They are KOL `kol_directory` ids.
+   * The directory answers at most 60 ids per request, which is plenty of quick
+   * picks; the database search above covers everyone else.
+   */
+  const myCreatorIds = creatorLinks.ready
+    ? [...creatorLinks.byKey.values()]
+      .filter(l => l.source === 'roster' && l.inRoster)
+      .map(l => l.id)
+      .sort()
+      .slice(0, 60)
+      .join(',')
+    : null
+
+  useEffect(() => {
+    if (myCreatorIds === null) return
+    if (!myCreatorIds) { setPool([]); return }
+    let alive = true
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${myCreatorIds}`)
+      .then(r => r.json())
+      .then(d => {
+        if (alive) setPool(((d.rows ?? []) as KolDirectoryRow[]).map(r => fromDirectoryRow(r, 'creator')))
+      })
+      .catch(() => { if (alive) setPool([]) })
+    return () => { alive = false }
+  }, [orgId, myCreatorIds])
+
+  /**
+   * Resolve a reference handed over by another screen.
+   *
+   * Both sources are KOL `kol_directory` ids (`creator` = one of this agency's
+   * My Creators), so either is looked up by the same `ids=` the directory API
+   * already supports — the id may not be in any list this screen keeps. The
+   * source rides along so the similarity search resolves a `creator` reference
+   * inside the agency.
+   */
+  useEffect(() => {
+    if (!referenceId) return
+    let alive = true
+    const source: RefSource = referenceSource === 'roster' ? 'roster' : 'creator'
+
+    fetch(`/api/organizations/${orgId}/discover/kol-directory?ids=${referenceId}`)
+      .then(r => r.json())
+      .then(d => {
+        const row = (d.rows ?? [])[0] as KolDirectoryRow | undefined
+        if (alive && row) setRef(fromDirectoryRow(row, source))
+      })
+      .catch(() => { /* The picker still works; the hand-over just did not land. */ })
+    return () => { alive = false }
+  }, [orgId, referenceId, referenceSource])
+
+  /**
+   * Search the complete Creator Database for a reference.
+   *
+   * Debounced because it runs against 7.7k rows on a private host, and a
+   * keystroke is not a question. Below two characters it clears instead of
+   * asking, which keeps `q=a` from returning a page of unrelated creators.
+   */
+  useEffect(() => {
+    const q = dbQuery.trim()
+    if (q.length < 2) { setDbRows(null); setDbBusy(false); return }
+    let alive = true
+    setDbBusy(true)
+    const t = setTimeout(() => {
+      fetch(`/api/organizations/${orgId}/discover/kol-directory?q=${encodeURIComponent(q)}&pageSize=12`)
+        .then(r => r.json())
+        .then(d => {
+          if (!alive) return
+          setDbRows(((d.rows ?? []) as KolDirectoryRow[]).map(r => fromDirectoryRow(r)))
+        })
+        .catch(() => { if (alive) setDbRows([]) })
+        .finally(() => { if (alive) setDbBusy(false) })
+    }, 350)
+    return () => { alive = false; clearTimeout(t) }
+  }, [orgId, dbQuery])
+
+  const search = useCallback(async () => {
+    if (!ref) return
+    setLoading(true)
+    setError('')
+    try {
+      const qs = new URLSearchParams({ ref: ref.id, source: ref.source })
+      if (platform) qs.set('platform', platform)
+      if (tier) qs.set('tier', tier)
+      if (city) qs.set('city', city)
+      if (sameCategory) qs.set('sameCategory', '1')
+      // Both constraints price creators from the rate card. With no official
+      // source (`rateCardAvailability`) neither is sent, whatever the state
+      // holds, so the search narrows on the other constraints only.
+      if (RATE_CARD_AVAILABLE && maxRate) qs.set('maxRate', String(maxRate))
+      if (RATE_CARD_AVAILABLE && cheaper) qs.set('cheaper', '1')
+
+      const res = await fetch(`/api/organizations/${orgId}/discover/creators/similar?${qs}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'The search could not be completed.')
+      setResult(data as SimilarResult)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      setLoading(false)
+    }
+  }, [orgId, ref, platform, tier, city, sameCategory, maxRate, cheaper])
+
+  const choose = useCallback((pick: RefPick) => {
+    setRef(pick)
+    // The old recommendations were about a different creator; leaving them on
+    // screen under a new reference would read as this reference's answer.
+    setResult(null)
+    setError('')
+  }, [])
+
+  return (
+    <div className="max-w-[1100px]">
+      {!embedded && (
+        <div className="mb-4">
+          <h2 style={PJ} className="text-[19px] font-extrabold text-[#111827] tracking-[-0.02em]">
+            Smart Discovery
+          </h2>
+          <p className="text-[12px] text-[#6b7280] mt-1 max-w-[74ch]">
+            Pick a creator who already works for you. We read their category, audience size, engagement and recurring
+            topics, then rank creators that resemble them — from your own database and from the commercial KOL roster.
+          </p>
+        </div>
+      )}
+
+      {/* ── 1. reference ───────────────────────────────────────────────── */}
+      <Section step={1} title="Reference creator"
+        subtitle="Any creator in the Creator Database can be the reference — not only the ones your organization added. Search the database, or start from one of your own.">
+
+        {/* The chosen reference, once there is one. Shown above the pickers
+            rather than only as a line on the button, because after a search the
+            list below is a page of other people and the answer to "who is this
+            about" should not be somewhere further down. */}
+        {ref && (
+          <div className="flex items-center gap-2.5 rounded-xl border-2 border-[#327488] bg-[#f0f7fa] p-2.5 mb-3">
+            <span className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0"
+              style={{ background: T.gradient }}>
+              <RosterAvatar src={ref.avatarUrl} username={ref.username} textClass="text-[12px]" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span style={PJ} className="block text-[13px] font-extrabold text-[#111827] truncate">
+                {ref.displayName || `@${ref.username}`}
+              </span>
+              <span className="block text-[10.5px] text-[#6b7280] truncate">
+                {[
+                  metaLine(ref, ' followers'),
+                  ref.source === 'creator' ? 'from your creators' : 'from the Creator Database',
+                ].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+            <button type="button" onClick={() => { setRef(null); setResult(null) }} style={PJ}
+              title="Choose a different reference"
+              className="rounded-lg text-[11.5px] font-bold px-2.5 h-8 border border-[#A7C8D4] bg-white text-[#327488] hover:bg-[#eaf3f6] cursor-pointer flex-shrink-0">
+              Change
+            </button>
+          </div>
+        )}
+
+        {/* ── search the complete database ───────────────────────────── */}
+        <label className="relative block mb-2">
+          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[17px] text-[#9ca3af] pointer-events-none">
+            {dbBusy ? 'progress_activity' : 'search'}
+          </span>
+          <input
+            value={dbQuery}
+            onChange={e => setDbQuery(e.target.value)}
+            placeholder="Search the Creator Database by name or username…"
+            className="w-full rounded-lg border border-[#e5e7eb] bg-white h-9 pl-8 pr-3 text-[12.5px] text-[#111827] placeholder:text-[#c4cbd4] outline-none focus:border-[#A7C8D4]"
+          />
+        </label>
+
+        {dbRows !== null && (
+          dbRows.length === 0 ? (
+            <p className="text-[11.5px] text-[#9ca3af] mb-3">
+              No creator in the database matches “{dbQuery.trim()}”.
+            </p>
+          ) : (
+            <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(240px,1fr))] mb-3">
+              {dbRows.map(r => (
+                <RefButton key={`roster-${r.id}`} pick={r} on={ref?.source === 'roster' && ref.id === r.id}
+                  onPick={() => choose(r)} />
+              ))}
+            </div>
+          )
+        )}
+
+        {/* ── the org's own creators, as quick picks ─────────────────── */}
+        <div style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#c4cbd4] mb-2 mt-1">
+          Your creators
+        </div>
+        {pool === null ? (
+          <p className="text-[12px] text-[#9ca3af]">Loading your creators…</p>
+        ) : pool.length === 0 ? (
+          /* Not a dead end any more: with the database search above, an org with
+             no creators of its own can still run this screen. So this says what
+             is missing from *this list* without implying the feature is shut. */
+          <div className="rounded-lg border border-dashed border-[#e5e7eb] px-3 py-2.5 flex items-center gap-2 flex-wrap">
+            <span className="text-[11.5px] text-[#9ca3af]">
+              No creators in My Creators yet — search the database above, or save one from the Creator Database.
+            </span>
+            <button type="button" onClick={onGoToRoster} style={PJ}
+              className="inline-flex items-center gap-1.5 rounded-lg text-[11.5px] font-bold px-3 h-8 border border-[#A7C8D4] bg-white text-[#327488] hover:bg-[#eaf3f6] cursor-pointer">
+              <span className="material-symbols-outlined text-[15px]">person_add</span>
+              My Creators
+            </button>
+          </div>
+        ) : (
+          <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
+            {pool.map(pick => (
+              <RefButton key={`creator-${pick.id}`} pick={pick}
+                on={ref?.source === 'creator' && ref.id === pick.id} onPick={() => choose(pick)} />
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ── 2. constraints ─────────────────────────────────────────────── */}
+      {/* Not gated on the org's own roster any more. Gating it there meant an
+          org with no creators of its own could pick a Creator Database
+          reference in step 1 and then have nowhere to press — the constraints
+          and the search button simply were not rendered. */}
+      {(
+        <Section step={2} title="What you need"
+          subtitle="Similarity in category, audience size, engagement and topics is always part of the ranking. These narrow the field on top of it.">
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            <div className="w-[170px]">
+              {RATE_CARD_AVAILABLE ? (
+                <SelectPill icon="payments" label="Rate card" value={maxRate} options={RATE_STEPS}
+                  onChange={v => setMaxRate(v)} />
+              ) : (
+                // Shown, not hidden, so the missing control is explained rather
+                // than silently gone; nothing here can be picked.
+                <div aria-disabled="true" title={RATE_CARD_UNAVAILABLE_REASON} style={PJ}
+                  className="w-full inline-flex items-center gap-1.5 rounded-lg text-[11.5px] font-semibold px-2.5 h-8 border bg-[#f9fafb] border-[#e5e7eb] text-[#b6bcc4] cursor-not-allowed">
+                  <span className="material-symbols-outlined text-[14px]">payments</span>
+                  <span className="flex-1 text-left truncate">Rate card belum tersedia</span>
+                </div>
+              )}
+            </div>
+            <div className="w-[160px]">
+              <SelectPill icon="workspace_premium" label="Any tier" value={tier}
+                options={[{ label: 'Any tier', value: '' }, ...TIERS.map(t => ({ label: t, value: t as string }))]}
+                onChange={v => setTier(v)} />
+            </div>
+            <div className="w-[170px]">
+              <SelectPill icon="location_on" label="Any location" value={city}
+                options={[{ label: 'Any location', value: '' }, ...LOCATIONS.map(l => ({ label: l, value: l as string }))]}
+                onChange={v => setCity(v)} />
+            </div>
+            {RATE_CARD_AVAILABLE && (
+              <Chip label="Lower price than the reference" icon="trending_down" on={cheaper}
+                onClick={() => setCheaper(v => !v)} />
+            )}
+          </div>
+          {!RATE_CARD_AVAILABLE && (
+            <p className="text-[10.5px] leading-[1.4] -mt-1.5 mb-3" style={{ color: T.t4 }}>
+              {RATE_CARD_UNAVAILABLE_REASON}
+            </p>
+          )}
+
+          <div className="flex items-center gap-1.5 flex-wrap mb-3">
+            <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#c4cbd4] mr-1">
+              Category
+            </span>
+            {/* Two chips rather than a category picker: this step is about the
+                reference, and "the same category as them" is the question
+                somebody standing here is actually asking. Picking a category
+                outright is what the Creator Database's own filters are for. */}
+            <Chip label="Any category" on={!sameCategory} onClick={() => setSameCategory(false)} />
+            <Chip label="Same as reference" icon="category" on={sameCategory}
+              onClick={() => setSameCategory(true)} />
+            {sameCategory && ref && !ref.category && (
+              <span className="text-[10.5px] text-[#b5761f]">
+                This reference has no category on record, so the requirement will be skipped.
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span style={PJ} className="text-[10px] font-bold uppercase tracking-widest text-[#c4cbd4] mr-1">
+              Platform
+            </span>
+            <Chip label="Same as reference" on={!platform} onClick={() => setPlatform('')} />
+            {CREATOR_PLATFORMS.map(p => (
+              <Chip key={p.id} icon={p.icon} label={p.label} on={platform === p.id}
+                onClick={() => setPlatform(platform === p.id ? '' : p.id)} />
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 mt-4">
+            {/* Pressable even with nothing selected: a button that does nothing
+                when clicked teaches less than one that says what is missing. */}
+            <button
+              type="button"
+              onClick={() => (ref
+                ? search()
+                : setError('Pilih satu creator sebagai referensi di langkah 1 dulu — dari Creator Database atau dari creator milikmu.'))}
+              disabled={loading}
+              style={PJ}
+              className={`inline-flex items-center gap-1.5 rounded-lg text-[12px] font-bold px-4 h-9 border transition-colors ${
+                loading
+                  ? 'bg-[#f3f4f6] border-[#f3f4f6] text-[#9ca3af] cursor-wait'
+                  : 'bg-[#327488] border-[#327488] text-white hover:bg-[#285D6E] cursor-pointer'
+              }`}
+            >
+              <span className={`material-symbols-outlined text-[16px] ${loading ? 'animate-spin' : ''}`}>
+                {loading ? 'progress_activity' : 'hub'}
+              </span>
+              {loading ? 'Analysing…' : 'Find similar creators'}
+            </button>
+            {ref && (
+              <span className="text-[11.5px] text-[#9ca3af]">
+                Reference: <span className="font-bold text-[#374151]">
+                  {ref.displayName || `@${ref.username}`}
+                </span>
+              </span>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {error && (
+        <div className="rounded-lg bg-[#fdf2f2] border border-[#f3d9d9] px-3 py-2 text-[11.5px] text-[#a04545] mb-4">
+          {error}
+        </div>
+      )}
+
+      {/* ── 3. recommendations ─────────────────────────────────────────── */}
+      {result && (
+        <Section step={3} title="Recommended creators"
+          subtitle={`Ranked by how much of the reference's shape they match. ${
+            result.candidates.length
+              ? `${result.candidates.length} creator${result.candidates.length === 1 ? '' : 's'} above the cut-off.`
+              : ''
+          }`}>
+          {/* The shortlist is invisible from here otherwise: creators go into it
+              one press at a time and it is read on another screen entirely. */}
+          {compare.ids.size > 0 && (
+            <div className="flex items-center gap-2 flex-wrap rounded-lg bg-[#f0f7fa] border border-[#dbe9ee] px-3 py-2 mb-3">
+              <span className="material-symbols-outlined text-[16px] text-[#285D6E]">compare_arrows</span>
+              <span className="text-[11.5px] text-[#285D6E]">
+                {compare.ids.size} creator{compare.ids.size === 1 ? '' : 's'} in your Compare shortlist.
+              </span>
+              <button type="button" onClick={onGoToCompare} style={PJ}
+                className="ml-auto inline-flex items-center gap-1 rounded-lg text-[11.5px] font-bold px-3 h-7 border border-[#A7C8D4] bg-white text-[#327488] hover:bg-[#eaf3f6] cursor-pointer">
+                Open Compare
+                <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+              </button>
+            </div>
+          )}
+          {result.candidates.length === 0 ? (
+            <EmptyState
+              icon="search_off"
+              title="No close match"
+              body={result.notes[0] ?? 'Nothing scored high enough against this reference. Loosen a constraint, or add more creators to compare against.'}
+            />
+          ) : (
+            <ol className="flex flex-col gap-2.5">
+              {result.candidates.map((c, i) => (
+                <RecommendationRow
+                  key={`${c.source}-${c.id}`}
+                  rank={i + 1}
+                  candidate={c}
+                  // Both sources are KOL ids with one profile page.
+                  onOpen={() => onOpenRosterCreator(c.id)}
+                  inCompare={c.source === 'roster' && compare.ids.has(selectionKey('roster', c.id))}
+                  onCompare={c.source === 'roster'
+                    ? () => compare.toggle(selectionKey('roster', c.id))
+                    : null}
+                  // Only database candidates carry the two org-wide states; an
+                  // org's own creator is in My Creators already.
+                  inRoster={c.source === 'roster' ? creatorLinks.inRoster('roster', c.id) : null}
+                  tracking={c.source === 'roster' ? creatorLinks.trackingOf('roster', c.id) : null}
+                  onRoster={c.source === 'roster'
+                    ? () => { void creatorLinks.setRoster('roster', c.id, !creatorLinks.inRoster('roster', c.id)) }
+                    : null}
+                  onTracking={c.source === 'roster'
+                    ? () => {
+                        const now = creatorLinks.trackingOf('roster', c.id)
+                        void creatorLinks.setTracking('roster', c.id, now === 'active' ? 'paused' : 'active')
+                      }
+                    : null}
+                  // Chase the thread: a recommendation that looks right is often
+                  // the better starting point than the creator you began with.
+                  onUseAsReference={() => choose({
+                    id: c.id,
+                    source: c.source === 'creator' ? 'creator' : 'roster',
+                    username: c.username,
+                    displayName: c.displayName,
+                    avatarUrl: c.avatarUrl,
+                    platform: c.platform,
+                    category: c.categories[0] ?? null,
+                    followers: c.followers,
+                  })}
+                />
+              ))}
+            </ol>
+          )}
+
+          {!!result.notes.length && (
+            <ul className="mt-4 pt-3 border-t border-[#f3f4f6] flex flex-col gap-1.5">
+              {result.notes.map(n => (
+                <li key={n} className="flex items-start gap-1.5 text-[11px] text-[#9ca3af]">
+                  <span className="material-symbols-outlined text-[13px] mt-px">info</span>
+                  {n}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
+    </div>
+  )
+}
+
+/* ── pieces ───────────────────────────────────────────────────────────────── */
+
+function Section({
+  step, title, subtitle, children,
+}: { step: number; title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-[#e5e7eb] bg-white p-5 mb-4" style={{ boxShadow: T.shadow }}>
+      <div className="flex items-start gap-2.5 mb-3.5">
+        <span style={PJ}
+          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#EDF4F7] text-[#285D6E] text-[10px] font-extrabold flex-shrink-0 mt-0.5">
+          {step}
+        </span>
+        <div>
+          <h3 style={PJ} className="text-[13px] font-extrabold text-[#111827]">{title}</h3>
+          <p className="text-[11.5px] text-[#9ca3af] mt-0.5 max-w-[80ch] leading-snug">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/**
+ * One selectable reference, drawn the same whichever list it came from.
+ *
+ * The two lists used to be one list, so this was inline. It is a component now
+ * because a Creator Database hit and one of the org's own creators have to be
+ * indistinguishable to press — the only thing that legitimately differs between
+ * them is where they were found, and that is said once on the chosen reference
+ * rather than on every card.
+ */
+function RefButton({
+  pick, on, onPick,
+}: { pick: RefPick; on: boolean; onPick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className={`flex items-center gap-2.5 rounded-xl border-2 p-2.5 text-left transition-colors cursor-pointer ${
+        on ? 'border-[#327488] bg-[#f0f7fa]' : 'border-[#e5e7eb] bg-white hover:border-[#A7C8D4]'
+      }`}
+    >
+      <span className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0"
+        style={{ background: T.gradient }}>
+        <RosterAvatar src={pick.avatarUrl} username={pick.username} textClass="text-[11px]" />
+      </span>
+      <span className="min-w-0">
+        <span style={PJ} className="block text-[12.5px] font-extrabold text-[#111827] truncate">
+          {pick.displayName || `@${pick.username}`}
+        </span>
+        <span className="block text-[10.5px] text-[#9ca3af] truncate">
+          {metaLine(pick)}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function RecommendationRow({
+  rank, candidate, onOpen, inCompare, onCompare, inRoster, tracking, onRoster, onTracking,
+  onUseAsReference,
+}: {
+  rank: number
+  candidate: SimilarCandidate
+  onOpen: (() => void) | null
+  inCompare: boolean
+  /** Null for an org's own creator, which the shortlist has no population for. */
+  onCompare: (() => void) | null
+  /** Null for a candidate that cannot carry the state - see the caller. */
+  inRoster: boolean | null
+  tracking: TrackingStatus | null
+  onRoster: (() => void) | null
+  onTracking: (() => void) | null
+  /** Search again, from this creator. */
+  onUseAsReference: () => void
+}) {
+  const c = candidate
+  return (
+    <li className="rounded-xl border border-[#e5e7eb] p-3 flex items-start gap-3">
+      <span style={PJ}
+        className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-[#f9fafb] text-[#9ca3af] text-[11px] font-extrabold flex-shrink-0">
+        {rank}
+      </span>
+
+      <span className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0"
+        style={{ background: T.gradient }}>
+        <RosterAvatar src={c.avatarUrl} username={c.username} textClass="text-[12px]" />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span style={PJ} className="text-[13px] font-extrabold text-[#111827] truncate">
+            {c.displayName || `@${c.username}`}
+          </span>
+          <span style={PJ} className={`rounded-md text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 ${
+            c.source === 'creator' ? 'bg-[#eaf5ef] text-[#3d8a5f]' : 'bg-[#f3f0fb] text-[#6b5bb5]'
+          }`}>
+            {c.source === 'creator' ? 'My Creators' : 'KOL roster'}
+          </span>
+        </div>
+
+        <p className="text-[11px] text-[#9ca3af] mt-0.5">
+          {c.platform ? platformLabel(c.platform) : 'unknown platform'} · @{c.username}
+          {c.followers !== null ? ` · ${fmtNum(c.followers)} followers` : ''}
+          {c.erPct !== null ? ` · ER ${c.erPct.toFixed(2)}%` : ''}
+          {c.city ? ` · ${c.city}` : ''}
+        </p>
+
+        <ul className="flex flex-wrap gap-1.5 mt-2">
+          {c.reasons.map(r => (
+            <li key={r} className="inline-flex items-center gap-1 rounded-full bg-[#f0f7fa] text-[#285D6E] text-[10.5px] font-semibold px-2 py-0.5">
+              <span className="material-symbols-outlined text-[12px]">check</span>
+              {r}
+            </li>
+          ))}
+          {!c.reasons.length && (
+            <li className="text-[10.5px] text-[#c4cbd4]">
+              Matched on shape alone — no single rule scored high enough to name.
+            </li>
+          )}
+        </ul>
+      </div>
+
+      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+        <span style={PJ} className="text-[15px] font-extrabold text-[#285D6E] tabular-nums">{c.match}%</span>
+        {/* What the percentage rests on. Without it, a creator matching on the
+            three things we could read looks identical to one matching on six. */}
+        <span className="text-[9px] uppercase tracking-wider text-[#9ca3af] font-bold text-right leading-tight"
+          title={`${c.signals.judged} of ${c.signals.total} similarity signals could be compared for this creator`}>
+          match<br />
+          <span className="text-[#c4cbd4]">{c.signals.judged}/{c.signals.total} signals</span>
+        </span>
+        {onCompare && (
+          <button type="button" onClick={onCompare} style={PJ}
+            title={inCompare ? 'Remove from the Compare shortlist' : 'Add to the Compare shortlist'}
+            className={`inline-flex items-center gap-1 rounded-lg text-[10.5px] font-bold px-2 h-7 border transition-colors cursor-pointer ${
+              inCompare
+                ? 'bg-[#f0f7fa] border-[#A7C8D4] text-[#285D6E]'
+                : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4]'
+            }`}>
+            <span className="material-symbols-outlined text-[13px]">{inCompare ? 'check' : 'compare_arrows'}</span>
+            {inCompare ? 'In compare' : 'Compare'}
+          </button>
+        )}
+        {onRoster && (
+          <button type="button" onClick={onRoster} style={PJ}
+            title={inRoster ? 'Remove from My Creators' : 'Save to My Creators'}
+            className={`inline-flex items-center gap-1 rounded-lg text-[10.5px] font-bold px-2 h-7 border transition-colors cursor-pointer ${
+              inRoster
+                ? 'bg-[#f0f7fa] border-[#A7C8D4] text-[#285D6E]'
+                : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4]'
+            }`}>
+            <span className="material-symbols-outlined text-[13px]">
+              {inRoster ? 'folder_shared' : 'create_new_folder'}
+            </span>
+            {inRoster ? 'Saved' : 'My Creators'}
+          </button>
+        )}
+        {onTracking && (
+          <button type="button" onClick={onTracking} style={PJ}
+            title={
+              tracking === 'active' ? 'Pause tracking'
+                : tracking === 'paused' ? 'Resume tracking'
+                : 'Start tracking this creator'
+            }
+            className={`inline-flex items-center gap-1 rounded-lg text-[10.5px] font-bold px-2 h-7 border transition-colors cursor-pointer ${
+              tracking === 'active'
+                ? 'bg-[#eaf5ef] border-[#b6ddc6] text-[#2f6d4c]'
+                : tracking === 'paused'
+                  ? 'bg-[#fdf3e3] border-[#e6d6b8] text-[#96621a]'
+                  : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#A7C8D4]'
+            }`}>
+            <span className="material-symbols-outlined text-[13px]">
+              {tracking === 'active' ? 'monitor_heart' : tracking === 'paused' ? 'pause_circle' : 'radar'}
+            </span>
+            {tracking === 'active' ? 'Tracking' : tracking === 'paused' ? 'Paused' : 'Track'}
+          </button>
+        )}
+        <button type="button" onClick={onUseAsReference} style={PJ}
+          title="Search again using this creator as the reference"
+          className="text-[10.5px] font-bold text-[#6b5bb5] hover:underline cursor-pointer">
+          Use as reference
+        </button>
+        {onOpen ? (
+          <button type="button" onClick={onOpen} style={PJ}
+            className="text-[10.5px] font-bold text-[#285D6E] hover:underline cursor-pointer">
+            Open profile
+          </button>
+        ) : c.profileUrl ? (
+          <a href={c.profileUrl} target="_blank" rel="noreferrer" style={PJ}
+            className="text-[10.5px] font-bold text-[#285D6E] hover:underline">
+            Open on platform
+          </a>
+        ) : null}
+      </div>
+    </li>
+  )
+}

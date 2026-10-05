@@ -1,0 +1,994 @@
+import kolDb from '@/lib/kolDb'
+import { audienceGeoFor } from './audienceGeo'
+import { estimateAudienceAge } from './audienceAgeEstimate'
+import { AUDIENCE_SERVED } from './curatedAudience'
+import { toIso } from './util'
+
+/**
+ * What the warehouse's L2 Gold layer holds for a roster creator.
+ *
+ * `@/lib/discover/kolMeasured` reads L1 Silver — the per-post rows and the rate
+ * card. This module reads the layer above it: `l2_gold`, where the Dagster
+ * pipeline writes figures that are already aggregated to the grain a screen
+ * wants, so the page does not aggregate them again on every request.
+ *
+ * Row counts below are a snapshot from when this module was written (early
+ * Sep 2026); the tables grow with every harvest, so re-measure before quoting
+ * them. The grain is what stays true.
+ *
+ *   * `l2_gold.kol_profile_card`            1.976 rows — one card per account
+ *   * `l2_gold.kol_metric_daily`              280 rows — per account per day
+ *   * `l2_gold.kol_metric_monthly`             68 rows — per account per month
+ *   * `l2_gold.audience_demographics_daily`    69 rows — gender, and age (mostly unknown)
+ *   * `l2_gold.audience_geo_daily`            181 rows — country and city
+ *   * `l2_gold.audience_interest_daily`       214 rows — interest keys
+ *   * `l2_gold.post_metric`                    477 rows — one row per post
+ *   * `l2_gold.content_format_daily`           300 rows — per account, day, format
+ *
+ * Reached the same way L1 is: from `public.kol_directory` through
+ * `public.kol_social_account`, which maps a roster row to the accounts it owns.
+ * A creator can hold both an Instagram and a TikTok account, so every query here
+ * fans in and carries `platform` so the caller can tell them apart.
+ *
+ * ── Nulls are never coalesced to zero ────────────────────────────────────────
+ * Same rule as `kolMeasured`, and it matters more here because L2 is sparser
+ * than it looks. Measured against the tables as they stand:
+ *
+ *   `reach_sum`, `er_reach_daily`, `reposts_sum`, `followers_growth`  NULL in
+ *   every row of `kol_metric_daily` and `kol_metric_monthly` — they need the
+ *   Insights API, which the harvest does not have. `er_followers_daily` is
+ *   present in 26% of rows, `likes_sum`/`comments_sum` in 85%.
+ *
+ *   `rate_card*` columns are NULL in every row of `kol_profile_card`. Prices
+ *   still come from `l1_silver.unified_rate_card` via `kolMeasured` — this
+ *   module deliberately does not read them, so there is one source for a price
+ *   rather than two that can disagree.
+ *
+ * A zero would read as "measured, and it was nothing". These stay null and the
+ * UI omits the tile.
+ *
+ * ── The last two tables came online on 1 Sep 2026 ───────────────────────────
+ * `l2_gold.post_metric` and `l2_gold.content_format_daily` used to hold zero rows
+ * and were skipped for that reason. The scraper repo's `gold_post.py` asset now
+ * fills them inside the same `transform_chain_job` the other rollups ride, so
+ * they are read here on the same terms as the rest: 30 creators had rows when
+ * they came online, the same 30 that carried `kol_metric_daily`.
+ *
+ * They reconcile against `kol_metric_daily` by construction, which is what makes
+ * them safe to show beside it — summing `content_format_daily` across formats for
+ * an account-day reproduces the daily row exactly, and `post_metric` does too
+ * once the two sample flags are filtered. The pipeline re-checks that on every
+ * materialize. Neither is aggregated again here.
+ */
+
+/** One day of a creator's measured performance, one row per platform. */
+export interface GoldDailyPoint {
+  /** `YYYY-MM-DD`. The date the content was PUBLISHED, not the day it was scraped. */
+  date: string
+  platform: string
+  postCount: number
+  likes: number | null
+  comments: number | null
+  views: number | null
+  engagement: number | null
+  /** Fraction 0..1, not a percentage. Null for the 74% of days without a follower snapshot. */
+  erFollowers: number | null
+}
+
+/** One month, aggregated by the pipeline rather than by this query. */
+export interface GoldMonthlyPoint {
+  /** `YYYY-MM`, taken from the pipeline's own `month_year` column. */
+  month: string
+  platform: string
+  /** Days in the month on which the creator published at least once. */
+  activeDays: number
+  postCount: number
+  likes: number | null
+  comments: number | null
+  views: number | null
+  engagement: number | null
+  /** Recomputed monthly by the pipeline — never an average of the daily ER. */
+  erFollowers: number | null
+  /** Follower count on the last day of the month that carried a snapshot. */
+  followersEom: number | null
+}
+
+/** The pipeline's own profile snapshot, one per account the creator owns. */
+export interface GoldProfileCard {
+  platform: string
+  username: string | null
+  displayName: string | null
+  avatarUrl: string | null
+  profileUrl: string | null
+  bio: string | null
+  website: string | null
+  isVerified: boolean | null
+  isPrivate: boolean | null
+  followers: number | null
+  following: number | null
+  mediaCount: number | null
+  tier: string | null
+  /**
+   * Percentage change in followers between this snapshot and the account's
+   * previous one — `l1_silver.sp_build_unified_profile()` computes it and
+   * `kol_profile_card` carries it through unchanged. NOT a 30-day or monthly
+   * figure: the gap between snapshots is whatever the scraper produced (10-13
+   * days today), so it must be labelled "since last snapshot", never "monthly".
+   * Null when the account has only ever been scraped once.
+   */
+  followersGrowth: number | null
+  /** When the pipeline took this snapshot — the honest "last refreshed". */
+  snapshotDate: string | null
+}
+
+/** A slice of the audience, already shaped for `Donut` and `Bars`. */
+export interface GoldAudienceSlice {
+  label: string
+  /** Share of this creator's audience, 0..100, rounded to one decimal. */
+  pct: number
+  /** The raw count behind `pct`, so a tooltip can show it. */
+  n: number
+}
+
+export interface GoldAudience {
+  /** From `audience_type = 'gender'`. Empty when the creator has no inference. */
+  gender: GoldAudienceSlice[]
+  /**
+   * From `audience_type = 'age'`: ages followers state in their own bio. Nearly
+   * every follower's age is `unknown`, so this is almost never usable on its
+   * own; the slices are then the curated label or, failing that, the modelled
+   * split from ./audienceAgeEstimate. `source.age` says which — only `measured`
+   * is an observed distribution.
+   */
+  age: GoldAudienceSlice[]
+  /** From `audience_geo_daily` where `geo_level = 'country'`. */
+  countries: GoldAudienceSlice[]
+  /** From `audience_geo_daily` where `geo_level = 'city'`. */
+  cities: GoldAudienceSlice[]
+  interests: GoldAudienceSlice[]
+  /**
+   * How much of the audience the inference could actually classify, per
+   * dimension, 0..100. The slices above are shares of the classified part, so
+   * without this a chart reading "78% business" hides that only 22% of the
+   * audience was classified at all. The UI prints it next to the chart.
+   */
+  coverage: { gender: number | null; age: number | null; geo: number | null; interests: number | null }
+  /**
+   * The pipeline's own confidence LABEL, not a number — the column is
+   * `character varying` and carries exactly `inferred_high`, `inferred_medium`
+   * or `inferred_low`. The dominant label across the rows behind these figures
+   * is taken (`MODE()`), because averaging a word is not a thing.
+   *
+   * Every value starts with `inferred_` for a reason: these are derived from
+   * the follower sample, never reported by the platform. The UI says so.
+   */
+  confidence: string | null
+  /** The day the inference was computed. */
+  asOf: string | null
+  /**
+   * Where each dimension's slices came from, by the final classification rule
+   * (`AUDIENCE_SERVED` in ./curatedAudience, the SQL form of scrapper-project
+   * `audience_classification.py`): `measured` = the measured/inferred value is
+   * usable (>= 5 known, unique top) and its slices are shown; `curated` = it is
+   * not, so the curated LABEL from `feature.*_audience_analysis.curated_*`
+   * (migration 054) is shown (one slice, no follower count behind it; the UI
+   * labels it an estimate); `null` = neither.
+   */
+  source: { gender: AudienceSource; age: AudienceSource; country: AudienceSource; city: AudienceSource }
+  /** The final classification value per dimension, null when neither source has one. */
+  final: { gender: string | null; age: string | null; country: string | null; city: string | null }
+  /**
+   * Set only when `source.age === 'estimated'`: the Age slices are a MODELLED
+   * split (./audienceAgeEstimate), shown because the creator has neither a usable
+   * measured age nor a curated label. `basis` lists what the model used and
+   * `observedKnown` how many followers' stated ages were blended in (0 = none).
+   * `final.age` stays null for these creators — an estimate is never served to
+   * the Audience Age filter or to Brand Match as a classification.
+   */
+  ageEstimate: { basis: string[]; observedKnown: number } | null
+}
+
+/**
+ * `measured` and `curated` are the two real sources. `estimated` exists for
+ * Age only and marks a modelled distribution, never an observed one.
+ */
+export type AudienceSource = 'measured' | 'curated' | 'estimated' | null
+
+/**
+ * Measured slices when the measured value is USABLE (decided by the final
+ * classification, passed in as `usable`); otherwise the curated label;
+ * otherwise nothing. Never mixes the two and never turns a label into a
+ * percentage split: the curated fallback is a single slice with `n = 0` (no
+ * follower count behind it); its `pct` is 100 only so the slice shape holds.
+ *
+ * A usable measured value is never replaced by the curated label, even when
+ * this module's own slices for that dimension are empty: the slices here are
+ * read from this module's existing sources (L2 gender/age rows, `audienceGeoFor`
+ * for geo), which are not always the rows the classification decided on.
+ */
+export function withCuratedFallback(
+  measured: GoldAudienceSlice[],
+  usable: boolean,
+  curated: string | null | undefined,
+): { slices: GoldAudienceSlice[]; source: AudienceSource } {
+  if (usable) return { slices: measured, source: measured.length ? 'measured' : null }
+  const label = (curated ?? '').trim()
+  if (!label || label.toLowerCase() === UNCLASSIFIED) return { slices: [], source: null }
+  return { slices: [{ label, pct: 100, n: 0 }], source: 'curated' }
+}
+
+/**
+ * One published post, carrying the pipeline's own rank and ER rather than ones
+ * this page derives. The grain of `l2_gold.post_metric`.
+ *
+ * `likesHidden` and `isCollaboration` are the two sample rules, kept as fields
+ * because the pipeline writes EVERY post and expects the reader to filter. They
+ * are also why `erFollowers` can be null on a row whose likes are present: a
+ * collaboration's likes are real but partly someone else's audience, so a ratio
+ * against THIS account's followers would be wrong rather than merely incomplete.
+ */
+export interface GoldPost {
+  platform: string
+  contentId: string
+  /** Full instant of publication. */
+  postedAt: string | null
+  /** `YYYY-MM-DD`, the publication day in WIB — the day the rollups group by. */
+  postDate: string | null
+  mediaType: string | null
+  isSponsored: boolean | null
+  permalink: string | null
+  likesHidden: boolean | null
+  isCollaboration: boolean | null
+  likes: number | null
+  comments: number | null
+  /** TikTok only on the harvest as it stands; null on Instagram means unknown. */
+  shares: number | null
+  saves: number | null
+  views: number | null
+  /** Like + Comment + Share. Saves are deliberately not part of engagement. */
+  engagement: number | null
+  engagementPublic: number | null
+  followersAtPostDate: number | null
+  /** Fraction 0..1, not a percentage. Null for 71% of posts — see above. */
+  erFollowers: number | null
+  /** Rank by ER within the account, from the feature layer. Null when unranked. */
+  rankInAccount: number | null
+  /** Already a JSON array of strings in the column; empty when the post had none. */
+  hashtags: string[]
+}
+
+/**
+ * One (day × format) cell of `l2_gold.content_format_daily` — `kol_metric_daily`
+ * with `media_type` added, and identical formulas, so the two can be compared.
+ *
+ * `mediaType` is the platform's own word (`clips`, `carousel_container`, `feed`,
+ * `VIDEO`, `CAROUSEL`), plus `unknown` for the posts whose format never came
+ * through. Not normalised into shared labels: that mapping is a product decision
+ * that has not been made, and inventing it here would bake it into the data.
+ */
+export interface GoldFormatDay {
+  /** `YYYY-MM-DD`, publication day in WIB. */
+  date: string
+  platform: string
+  mediaType: string
+  postCount: number
+  /** Posts that passed both sample rules; the `*Sum` fields cover only these. */
+  postsInSample: number
+  likes: number | null
+  comments: number | null
+  views: number | null
+  engagement: number | null
+  /**
+   * The ER denominator, kept because ER is a ratio and ratios do not add. A
+   * multi-day ER must be `sum(engagement) / sum(followersDenom)`, never a mean
+   * of `erFollowers`.
+   */
+  followersDenom: number | null
+  erFollowers: number | null
+}
+
+/**
+ * The three audience-quality scores, from `feature.{ig,tt}_audience_analysis`.
+ *
+ * ── These are DERIVED, and the derivation is real ──────────────────────────
+ * They are not a platform report and not a vendor score. `skor_kualitas()` in
+ * `pipeline/audience_inference.py` computes them from the ~100 real followers
+ * the scraper samples per account, over attributes the platform actually
+ * returned for those followers:
+ *
+ *   followerQuality  share of sampled followers that look like accounts a
+ *                    person uses: they have a name, are not private, and carry
+ *                    a bio or a profile picture.
+ *   authenticity     share that do NOT match the bulk-account pattern -
+ *                    following more than 5x their own followers AND under 100
+ *                    followers themselves.
+ *   audienceQuality  the mean of the two. **Falls back to `followerQuality`
+ *                    alone when authenticity could not be computed**, so on any
+ *                    account in that state the two numbers are the same figure
+ *                    printed twice. Worth knowing before reading them as
+ *                    independent signals.
+ *
+ * So: category B, transparently derived from measured inputs - not the seeded
+ * `between(68, 96)` that `kolSample` used to produce for the same tiles.
+ *
+ * Every field is nullable and the pipeline means it: it returns `None` rather
+ * than 0 wherever the signal was unavailable, precisely so a zero is not read
+ * as "bad" when it means "not known".
+ *
+ * It is a SAMPLE of followers, not a census, and the UI says so.
+ */
+export interface GoldAudienceQuality {
+  followerQuality: number | null
+  authenticity: number | null
+  audienceQuality: number | null
+  /** Which platform's analysis row this came from, for the caveat line. */
+  platform: string | null
+}
+
+/**
+ * Feature ER: `feature.{ig,tt}_engagement_analysis.engagement_rate`, the
+ * pipeline's own rate (engagement over followers at each post's date) and the
+ * one Brand Match ranks on. Read from the table of the creator's own platform,
+ * as `whatMatters/records` does. Not `kol_directory.engagement_rate`, which is
+ * a different formula and has no writer for TikTok.
+ */
+export interface GoldEngagement {
+  /** Percentage points, e.g. 1.31 means 1.31%. */
+  erPct: number | null
+  postsAnalyzed: number | null
+  platform: string
+}
+
+/**
+ * Est. Media Value from `l2_gold.post_metric.emv_min / emv_max`, which the
+ * pipeline fills per post as (likes + comments) x Rp500 and x Rp2.000
+ * (scrapper-project `emv.py`). Summed over the posts that carry a value — the
+ * same per-account aggregation as that module's `sql_emv_per_kol`. A post
+ * whose like count is hidden has no EMV and is counted in `postTotal` only.
+ * No CPM is involved anywhere.
+ */
+export interface GoldEmv {
+  min: number
+  max: number
+  postMeasured: number
+  postTotal: number
+}
+
+export interface KolGold {
+  /** Null when the pipeline has no engagement analysis for this creator's platform. */
+  engagement: GoldEngagement | null
+  /** Null when no post of this creator carries an EMV. */
+  emv: GoldEmv | null
+  /** One card per account the creator owns; empty when L2 has none. */
+  cards: GoldProfileCard[]
+  /** Oldest first, so a chart can plot it without sorting again. */
+  daily: GoldDailyPoint[]
+  /** Oldest first. */
+  monthly: GoldMonthlyPoint[]
+  /** Null when no audience inference exists for any of the creator's accounts. */
+  audience: GoldAudience | null
+  /** Null when no `feature.*_audience_analysis` row exists for this creator. */
+  audienceQuality: GoldAudienceQuality | null
+  /** Newest first, capped — see the query. Empty for a creator with no posts. */
+  posts: GoldPost[]
+  /** Oldest first, one row per format per day. */
+  formats: GoldFormatDay[]
+}
+
+/**
+ * A `date` column as the calendar day the pipeline meant, `YYYY-MM-DD`.
+ *
+ * NOT `toIso(...).slice(0, 10)`. node-pg parses a `date` into a Date at LOCAL
+ * midnight, so converting it to UTC first walks it back a day for every zone
+ * east of Greenwich: `metric_date = 2026-07-13` came out of that as
+ * `"2026-07-12"` in Asia/Jakarta. The local parts are the ones that carry the
+ * meaning here, because the pipeline stored a day, not an instant.
+ */
+function toDateOnly(v: Date | string | null | undefined): string | null {
+  if (!v) return null
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`
+  }
+  // Already `YYYY-MM-DD…` from the driver; take the day part as-is.
+  return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : toDateOnly(new Date(v))
+}
+
+/** `bigint` and `numeric` both arrive as strings from node-pg; null stays null. */
+const num = (v: string | number | null): number | null =>
+  v === null || v === undefined ? null : Number(v)
+
+/**
+ * A `jsonb` array of tags as a plain `string[]`.
+ *
+ * node-pg parses `jsonb` for us, so this is a shape guard rather than a parse:
+ * the column is nullable and nothing stops a future writer putting an object
+ * there, and a `.map` over that would throw inside a page render.
+ */
+const strList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+
+/** `count(*)::int` already arrives as a number; everything else may not. */
+const int = (v: string | number | null): number =>
+  v === null || v === undefined ? 0 : Number(v)
+
+/**
+ * The inference's own bucket for "could not classify this follower". It is not
+ * a demographic and must never be charted as one: on the roster as it stands it
+ * is the LARGEST bucket almost everywhere — 61% of gender, 90% of country, 78%
+ * of interest. Left in, every chart would announce that the biggest slice of
+ * this creator's audience is `unknown`, which says nothing about the audience
+ * and everything about the inference.
+ *
+ * So it is split out: the slices are shares of the CLASSIFIED audience, and how
+ * much was unclassified travels beside them as `coverage` for the UI to state
+ * plainly.
+ */
+const UNCLASSIFIED = 'unknown'
+
+/**
+ * Turns counted rows into shares of the classified audience, plus the coverage
+ * that share is based on.
+ *
+ * The counts are per-account, and a creator holding two accounts contributes two
+ * sets, so the total is taken across whatever came back rather than assumed to
+ * be one account's follower count.
+ */
+function toSlices(
+  rows: { key: string | null; n: string | number | null }[],
+): { slices: GoldAudienceSlice[]; classified: number; total: number } {
+  const clean = rows
+    .map(r => ({ label: (r.key ?? '').trim(), n: int(r.n) }))
+    .filter(r => r.label !== '' && r.n > 0)
+  const total = clean.reduce((a, r) => a + r.n, 0)
+  const known = clean.filter(r => r.label.toLowerCase() !== UNCLASSIFIED)
+  const classified = known.reduce((a, r) => a + r.n, 0)
+  if (!classified) return { slices: [], classified: 0, total }
+  return {
+    slices: known
+      .map(r => ({ label: r.label, n: r.n, pct: Math.round((r.n / classified) * 1000) / 10 }))
+      .sort((a, b) => b.pct - a.pct),
+    classified,
+    total,
+  }
+}
+
+/**
+ * Returns null when L2 holds nothing at all for this creator, which is the
+ * signal for the workspace to keep showing what it showed before — the sampled
+ * shape from `@/lib/discover/kolSample`, or the L1 figures from `kolMeasured`.
+ *
+ * L2 covers far more of the roster than L1 does: 1.976 accounts have a profile
+ * card against the 23 creators with harvested posts. So for most creators this
+ * returns a card and nothing else, and the caller must handle each field being
+ * independently absent rather than treating the object as all-or-nothing.
+ */
+export async function getKolGold(kolId: string): Promise<KolGold | null> {
+  const db = kolDb()
+
+  const [cards, daily, monthly, gender, age, geo, interest, posts, formats, quality, curated, er, emv, ageSignals] =
+    await Promise.all([
+    db.query<{
+      platform: string | null; username: string | null; display_name: string | null
+      avatar_url: string | null; profile_url: string | null; bio: string | null
+      website: string | null; is_verified: boolean | null; is_private: boolean | null
+      followers_count: string | null; following_count: string | null
+      media_count: string | null; tier: string | null
+      followers_growth: string | null
+      profile_snapshot_date: Date | string | null
+    }>(
+      `SELECT c.platform, c.username, c.display_name, c.avatar_url, c.profile_url,
+              c.bio, c.website, c.is_verified, c.is_private,
+              c.followers_count, c.following_count, c.media_count, c.tier,
+              c.followers_growth, c.profile_snapshot_date
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.kol_profile_card c ON c.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY c.followers_count DESC NULLS LAST`,
+      [kolId],
+    ),
+
+    // Capped at a year. The chart shows a window, and an uncapped scan would
+    // grow without bound as the pipeline keeps appending days.
+    db.query<{
+      metric_date: Date | string; platform: string | null; post_count: string | null
+      likes_sum: string | null; comments_sum: string | null; views_sum: string | null
+      engagement_sum: string | null; er_followers_daily: string | null
+    }>(
+      `SELECT d.metric_date, d.platform, d.post_count,
+              d.likes_sum, d.comments_sum, d.views_sum,
+              d.engagement_sum, d.er_followers_daily
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.kol_metric_daily d ON d.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+          AND d.metric_date >= (CURRENT_DATE - INTERVAL '365 days')
+        ORDER BY d.metric_date ASC`,
+      [kolId],
+    ),
+
+    db.query<{
+      month_year: string | null; platform: string | null
+      active_days: string | null; post_count: string | null
+      likes_sum: string | null; comments_sum: string | null; views_sum: string | null
+      engagement_sum: string | null; er_followers_monthly: string | null
+      followers_eom: string | null
+    }>(
+      `SELECT m.month_year, m.platform, m.active_days, m.post_count,
+              m.likes_sum, m.comments_sum, m.views_sum,
+              m.engagement_sum, m.er_followers_monthly, m.followers_eom
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.kol_metric_monthly m ON m.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY m.month_start ASC`,
+      [kolId],
+    ),
+
+    // Gender and age share one table, separated by `audience_type` — the
+    // pipeline writes them as one demographics fact, not two. Only the newest
+    // day is read here. (Geo below no longer follows this rule: its dates were
+    // shown to be disjoint follower batches — see `audienceGeo.ts`.)
+    db.query<{ key: string | null; n: string | null; confidence: string | null; at: Date | string | null }>(
+      `SELECT a.dimension_key AS key, SUM(a.audience_count) AS n,
+              MODE() WITHIN GROUP (ORDER BY a.confidence) AS confidence,
+              MAX(a.audience_date) AS at
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.audience_demographics_daily a
+           ON a.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+          AND a.audience_type = 'gender'
+          AND a.audience_date = (
+                SELECT MAX(x.audience_date)
+                  FROM l2_gold.audience_demographics_daily x
+                 WHERE x.social_account_id = a.social_account_id
+                   AND x.audience_type = 'gender')
+        GROUP BY a.dimension_key`,
+      [kolId],
+    ),
+
+    // Same table, `audience_type = 'age'`. The pipeline writes a row per follower
+    // batch, mostly `unknown`; only ages stated in a follower's bio are known.
+    db.query<{ key: string | null; n: string | null }>(
+      `SELECT a.dimension_key AS key, SUM(a.audience_count) AS n
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.audience_demographics_daily a
+           ON a.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+          AND a.audience_type = 'age'
+          AND a.audience_date = (
+                SELECT MAX(x.audience_date)
+                  FROM l2_gold.audience_demographics_daily x
+                 WHERE x.social_account_id = a.social_account_id
+                   AND x.audience_type = 'age')
+        GROUP BY a.dimension_key`,
+      [kolId],
+    ),
+
+    // Geo is NOT newest-day-only, unlike the three reads around it: each geo
+    // date is a separate follower batch, so every inferred date is kept and
+    // only measured snapshots are cut to the newest. The rule lives in
+    // `audienceGeo.ts`, shared with Brand Match and the classifier.
+    audienceGeoFor([kolId], db).then(m => m.get(kolId) ?? {}),
+
+    db.query<{ key: string | null; n: string | null }>(
+      `SELECT i.interest_key AS key, SUM(i.audience_count) AS n
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.audience_interest_daily i
+           ON i.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+          AND i.audience_date = (
+                SELECT MAX(x.audience_date)
+                  FROM l2_gold.audience_interest_daily x
+                 WHERE x.social_account_id = i.social_account_id)
+        GROUP BY i.interest_key`,
+      [kolId],
+    ),
+
+    // Capped by COUNT, not by date, and that is the difference from the daily
+    // rollup above. This is a list of posts, not a time series: the busiest
+    // creator on the roster carries 200 rows, and a 365-day window would drop
+    // 18 posts that a "top posts" table still wants. Newest first so the cap
+    // takes the recent end when a creator eventually outgrows it.
+    //
+    // Ordering for display (top ER / newest / most viewed) happens in the
+    // component, over these rows — the same way the sampled grid already sorts.
+    db.query<{
+      platform: string | null; content_id: string; posted_at: Date | string | null
+      post_date: Date | string | null; media_type: string | null
+      is_sponsored: boolean | null; permalink: string | null
+      likes_hidden: boolean | null; is_collaboration: boolean | null
+      likes: string | null; comments: string | null; shares: string | null
+      saves: string | null; views: string | null
+      engagement_owned: string | null; engagement_public: string | null
+      followers_at_post_date: string | null; er_followers: string | null
+      rank_in_account: number | null; top_hashtags: unknown
+    }>(
+      `SELECT p.platform, p.content_id, p.posted_at, p.post_date, p.media_type,
+              p.is_sponsored, p.permalink, p.likes_hidden, p.is_collaboration,
+              p.likes, p.comments, p.shares, p.saves, p.views,
+              p.engagement_owned, p.engagement_public,
+              p.followers_at_post_date, p.er_followers,
+              p.rank_in_account, p.top_hashtags
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.post_metric p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY p.posted_at DESC NULLS LAST
+        LIMIT 200`,
+      [kolId],
+    ),
+
+    // NOT windowed, unlike `kol_metric_daily` above, and the difference is
+    // deliberate: this feeds a format MIX, not a time series.
+    //
+    // It used to carry the same 365-day cap, on the reasoning that the two
+    // tables should agree. Measured against the data, that cap only lost rows:
+    // 16 rows across 6 accounts fall outside the window and never reached the
+    // screen. Worse, both this card and the Top Posts table live on the same
+    // Content tab, and `post_metric` below is capped by COUNT rather than by
+    // date — so `irwansyah_15` showed "10 post" in the table beside a format
+    // breakdown built from 8. Two totals for one creator on one tab.
+    //
+    // The card renders shares across the whole period, so the window bought the
+    // reader nothing while silently dropping the oldest content. Both queries
+    // now describe the same corpus. The daily and monthly series above keep
+    // their window — those really are charts over time.
+    db.query<{
+      metric_date: Date | string; platform: string | null; media_type: string
+      post_count: string | null; posts_in_sample: string | null
+      likes_sum: string | null; comments_sum: string | null; views_sum: string | null
+      engagement_sum: string | null; followers_denom_sum: string | null
+      er_followers_daily: string | null
+    }>(
+      `SELECT f.metric_date, f.platform, f.media_type,
+              f.post_count, f.posts_in_sample,
+              f.likes_sum, f.comments_sum, f.views_sum,
+              f.engagement_sum, f.followers_denom_sum, f.er_followers_daily
+         FROM public.kol_social_account ksa
+         JOIN l2_gold.content_format_daily f
+           ON f.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY f.metric_date ASC`,
+      [kolId],
+    ),
+
+    /*
+     * The audience-quality scores. See `GoldAudienceQuality` for what they are
+     * and how the pipeline derives them.
+     *
+     * Instagram and TikTok keep separate analysis tables with identical score
+     * columns, so they are unioned and the newest row wins. `updated_at DESC`
+     * rather than a per-platform preference: whichever analysis ran most
+     * recently describes the creator's audience best, and preferring one
+     * platform would silently pick a stale reading over a fresh one.
+     */
+    db.query<{
+      follower_quality_score: string | null; authenticity_score: string | null
+      audience_quality_score: string | null; platform: string | null
+    }>(
+      `SELECT q.follower_quality_score, q.authenticity_score,
+              q.audience_quality_score, q.platform
+         FROM (
+           SELECT a.social_account_id, a.follower_quality_score, a.authenticity_score,
+                  a.audience_quality_score, 'instagram' AS platform, a.updated_at
+             FROM feature.ig_audience_analysis a
+            UNION ALL
+           SELECT a.social_account_id, a.follower_quality_score, a.authenticity_score,
+                  a.audience_quality_score, 'tiktok', a.updated_at
+             FROM feature.tt_audience_analysis a
+         ) q
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = q.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY q.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
+
+    // FINAL audience classification (./curatedAudience AUDIENCE_SERVED): per
+    // account whether the measured value is usable, the curated label and the
+    // served value, from the account's own platform table (IG ->
+    // ig_audience_analysis, TikTok -> tt_audience_analysis). Read-only.
+    db.query<{
+      platform: string
+      gender_measured: string | null; age_measured: string | null
+      country_measured: string | null; city_measured: string | null
+      curated_gender: string | null; curated_age: string | null
+      curated_country: string | null; curated_city: string | null
+      gender_final: string | null; age_final: string | null
+      country_final: string | null; city_final: string | null
+    }>(
+      `SELECT s.platform,
+              s.gender_measured, s.age_measured, s.country_measured, s.city_measured,
+              s.curated_gender, s.curated_age, s.curated_country, s.curated_city,
+              s.gender_final, s.age_final, s.country_final, s.city_final
+         FROM (${AUDIENCE_SERVED}) s
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = s.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY s.platform`,
+      [kolId],
+    ),
+
+    // Feature ER of the creator's own platform (see `GoldEngagement`). Each
+    // table is UNIQUE on social_account_id; LIMIT 1 only matters if a creator
+    // ever links two accounts on one platform, and then the newest wins.
+    db.query<{ engagement_rate: string | null; posts_analyzed_count: string | null; platform: string }>(
+      `SELECT e.engagement_rate, e.posts_analyzed_count, e.platform
+         FROM (
+           SELECT 'instagram'::text AS platform, social_account_id, engagement_rate,
+                  posts_analyzed_count, updated_at
+             FROM feature.ig_engagement_analysis
+            UNION ALL
+           -- TikTok names the same count videos_analyzed_count.
+           SELECT 'tiktok'::text, social_account_id, engagement_rate,
+                  videos_analyzed_count, updated_at
+             FROM feature.tt_engagement_analysis
+         ) e
+         JOIN public.kol_social_account ksa ON ksa.social_account_id = e.social_account_id
+         JOIN public.kol_directory kd ON kd.id = ksa.kol_id
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+        WHERE ksa.kol_id = $1 AND e.platform = pl.key
+        ORDER BY e.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
+
+    // EMV: the stored per-post range, summed over the posts that have one
+    // (see `GoldEmv`). Nothing is recomputed here.
+    db.query<{ post_total: string; post_measured: string; emv_min: string | null; emv_max: string | null }>(
+      `SELECT count(*)          AS post_total,
+              count(m.emv_min)  AS post_measured,
+              sum(m.emv_min)    AS emv_min,
+              sum(m.emv_max)    AS emv_max
+         FROM public.kol_social_account ksa
+         JOIN public.kol_directory kd ON kd.id = ksa.kol_id
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+         JOIN l2_gold.post_metric m
+           ON m.social_account_id = ksa.social_account_id AND m.platform = pl.key
+        WHERE ksa.kol_id = $1`,
+      [kolId],
+    ),
+
+    // What the estimated Age split is modelled from when the creator has no
+    // usable measured age and no curated label (see ./audienceAgeEstimate).
+    // Read-only, one row per linked account.
+    db.query<{
+      platform: string | null; category_key: string | null
+      interest_top: string | null; creator_age_band: string | null
+    }>(
+      `SELECT pl.key AS platform, kc.taxonomy_key AS category_key,
+              COALESCE(ia.interest_top, ta.interest_top) AS interest_top,
+              pc.creator_age_band
+         FROM public.kol_directory kd
+         JOIN public.platforms pl ON pl.id = kd.platform_id
+         LEFT JOIN public.kol_categories kc ON kc.id = kd.category_id
+         LEFT JOIN public.kol_social_account ksa ON ksa.kol_id = kd.id
+         LEFT JOIN l2_gold.kol_profile_card pc
+                ON pc.social_account_id = ksa.social_account_id AND pc.platform = pl.key
+         LEFT JOIN feature.ig_audience_analysis ia
+                ON pl.key = 'instagram' AND ia.social_account_id = ksa.social_account_id
+         LEFT JOIN feature.tt_audience_analysis ta
+                ON pl.key = 'tiktok' AND ta.social_account_id = ksa.social_account_id
+        WHERE kd.id = $1
+        LIMIT 1`,
+      [kolId],
+    ),
+  ])
+
+  // One row per account (a KOL links to one account today). Per field the first
+  // non-null wins, so a second account can only fill a gap, never flip a value.
+  const fin = curated.rows
+  const firstOf = <K extends keyof (typeof fin)[number]>(k: K) =>
+    (fin.find(r => r[k] !== null && r[k] !== undefined)?.[k] ?? null) as (typeof fin)[number][K] | null
+  const cur = {
+    curated_gender: firstOf('curated_gender'), curated_age: firstOf('curated_age'),
+    curated_country: firstOf('curated_country'), curated_city: firstOf('curated_city'),
+  }
+  const usable = {
+    gender: firstOf('gender_measured') !== null, age: firstOf('age_measured') !== null,
+    country: firstOf('country_measured') !== null, city: firstOf('city_measured') !== null,
+  }
+  const hasCurated = !!(cur.curated_gender || cur.curated_age || cur.curated_country || cur.curated_city)
+    || fin.some(r => r.gender_final || r.age_final || r.country_final || r.city_final)
+
+  const hasAudience =
+    gender.rows.length > 0 || age.rows.length > 0 ||
+    Object.keys(geo).length > 0 || interest.rows.length > 0 || hasCurated
+
+  if (
+    !cards.rows.length && !daily.rows.length && !monthly.rows.length &&
+    !posts.rows.length && !formats.rows.length && !hasAudience && !er.rows.length
+  ) {
+    return null
+  }
+
+  // The dominant label across the gender rows. They agree in practice, but the
+  // most common one is taken rather than the first so the pick is not
+  // row-order-dependent.
+  const labelCount = new Map<string, number>()
+  for (const r of gender.rows) {
+    const l = (r.confidence ?? '').trim()
+    if (l) labelCount.set(l, (labelCount.get(l) ?? 0) + 1)
+  }
+  const confidence = [...labelCount.entries()]
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const asOf = gender.rows
+    .map(r => toDateOnly(r.at))
+    .filter((v): v is string => v !== null)
+    .sort()
+    .pop() ?? null
+
+  /** Percentage of a dimension that carried a real label, null when it had no rows. */
+  const pctOf = (t: { classified: number; total: number }) =>
+    t.total ? Math.round((t.classified / t.total) * 1000) / 10 : null
+
+  function buildAudience(): GoldAudience {
+    const g = toSlices(gender.rows)
+    const a = toSlices(age.rows)
+    const geoLevel = (level: string) =>
+      Object.entries(geo[level] ?? {}).map(([key, n]) => ({ key, n }))
+    const country = toSlices(geoLevel('country'))
+    const city = toSlices(geoLevel('city'))
+    const i = toSlices(interest.rows)
+    // Usable measured value -> measured; otherwise the curated label; otherwise nothing.
+    const gF = withCuratedFallback(g.slices, usable.gender, cur.curated_gender)
+    const aReal = withCuratedFallback(a.slices, usable.age, cur.curated_age)
+    // Age only: a creator with an audience analysis row but neither real source
+    // gets the modelled split instead of an empty block. A usable measured
+    // value or a curated label is never replaced.
+    const est = !usable.age && aReal.source === null && fin.length > 0
+      ? estimateAudienceAge(
+          {
+            platform: ageSignals.rows[0]?.platform ?? fin[0].platform,
+            categoryKey: ageSignals.rows[0]?.category_key,
+            interestTop: ageSignals.rows[0]?.interest_top,
+            creatorAgeBand: ageSignals.rows[0]?.creator_age_band,
+          },
+          // Ages followers did state: too few to be usable, kept as evidence.
+          Object.fromEntries(a.slices.map(s => [s.label, s.n])),
+        )
+      : null
+    const aF: { slices: GoldAudienceSlice[]; source: AudienceSource } =
+      est ? { slices: est.slices, source: 'estimated' } : aReal
+    const coF = withCuratedFallback(country.slices, usable.country, cur.curated_country)
+    const ciF = withCuratedFallback(city.slices, usable.city, cur.curated_city)
+    // A curated dimension has no classified share to report.
+    const cov = (src: AudienceSource, v: number | null) =>
+      (src === 'curated' || src === 'estimated' ? null : v)
+    return {
+      gender: gF.slices,
+      age: aF.slices,
+      countries: coF.slices,
+      cities: ciF.slices,
+      interests: i.slices,
+      coverage: {
+        gender: cov(gF.source, pctOf(g)),
+        age: cov(aF.source, pctOf(a)),
+        // Country is the geo dimension with real coverage; city is a subset of it.
+        geo: cov(coF.source, pctOf(country)),
+        interests: pctOf(i),
+      },
+      confidence,
+      asOf,
+      source: { gender: gF.source, age: aF.source, country: coF.source, city: ciF.source },
+      final: {
+        gender: firstOf('gender_final'), age: firstOf('age_final'),
+        country: firstOf('country_final'), city: firstOf('city_final'),
+      },
+      ageEstimate: est ? { basis: est.basis, observedKnown: est.observedKnown } : null,
+    }
+  }
+
+  return {
+    cards: cards.rows.map(r => ({
+      platform: r.platform ?? 'unknown',
+      username: r.username,
+      displayName: r.display_name,
+      avatarUrl: r.avatar_url,
+      profileUrl: r.profile_url,
+      bio: r.bio,
+      website: r.website,
+      isVerified: r.is_verified,
+      isPrivate: r.is_private,
+      followers: num(r.followers_count),
+      following: num(r.following_count),
+      mediaCount: num(r.media_count),
+      tier: r.tier,
+      followersGrowth: num(r.followers_growth),
+      snapshotDate: toDateOnly(r.profile_snapshot_date),
+    })),
+
+    daily: daily.rows.map(r => ({
+      date: toDateOnly(r.metric_date) ?? '',
+      platform: r.platform ?? 'unknown',
+      postCount: int(r.post_count),
+      likes: num(r.likes_sum),
+      comments: num(r.comments_sum),
+      views: num(r.views_sum),
+      engagement: num(r.engagement_sum),
+      erFollowers: num(r.er_followers_daily),
+    })),
+
+    monthly: monthly.rows.map(r => ({
+      month: r.month_year ?? '',
+      platform: r.platform ?? 'unknown',
+      activeDays: int(r.active_days),
+      postCount: int(r.post_count),
+      likes: num(r.likes_sum),
+      comments: num(r.comments_sum),
+      views: num(r.views_sum),
+      engagement: num(r.engagement_sum),
+      erFollowers: num(r.er_followers_monthly),
+      followersEom: num(r.followers_eom),
+    })),
+
+    posts: posts.rows.map(r => ({
+      platform: r.platform ?? 'unknown',
+      contentId: r.content_id,
+      postedAt: toIso(r.posted_at),
+      postDate: toDateOnly(r.post_date),
+      mediaType: r.media_type,
+      isSponsored: r.is_sponsored,
+      permalink: r.permalink,
+      likesHidden: r.likes_hidden,
+      isCollaboration: r.is_collaboration,
+      likes: num(r.likes),
+      comments: num(r.comments),
+      shares: num(r.shares),
+      saves: num(r.saves),
+      views: num(r.views),
+      engagement: num(r.engagement_owned),
+      engagementPublic: num(r.engagement_public),
+      followersAtPostDate: num(r.followers_at_post_date),
+      erFollowers: num(r.er_followers),
+      rankInAccount: r.rank_in_account,
+      hashtags: strList(r.top_hashtags),
+    })),
+
+    formats: formats.rows.map(r => ({
+      date: toDateOnly(r.metric_date) ?? '',
+      platform: r.platform ?? 'unknown',
+      mediaType: r.media_type,
+      postCount: int(r.post_count),
+      postsInSample: int(r.posts_in_sample),
+      likes: num(r.likes_sum),
+      comments: num(r.comments_sum),
+      views: num(r.views_sum),
+      engagement: num(r.engagement_sum),
+      followersDenom: num(r.followers_denom_sum),
+      erFollowers: num(r.er_followers_daily),
+    })),
+
+    engagement: er.rows.length
+      ? {
+        erPct: num(er.rows[0].engagement_rate),
+        postsAnalyzed: num(er.rows[0].posts_analyzed_count),
+        platform: er.rows[0].platform,
+      }
+      : null,
+
+    emv: num(emv.rows[0]?.emv_min ?? null) !== null && num(emv.rows[0]?.emv_max ?? null) !== null
+      ? {
+        min: num(emv.rows[0].emv_min) as number,
+        max: num(emv.rows[0].emv_max) as number,
+        postMeasured: num(emv.rows[0].post_measured) ?? 0,
+        postTotal: num(emv.rows[0].post_total) ?? 0,
+      }
+      : null,
+
+    audience: hasAudience ? buildAudience() : null,
+
+    /*
+     * One row per creator, not per account. A creator holding both an Instagram
+     * and a TikTok account has two analyses; the newest wins rather than the two
+     * being averaged, because these are shares of two different follower
+     * samples and a mean of them describes no real audience.
+     */
+    audienceQuality: quality.rows.length
+      ? {
+        followerQuality: num(quality.rows[0].follower_quality_score),
+        authenticity: num(quality.rows[0].authenticity_score),
+        audienceQuality: num(quality.rows[0].audience_quality_score),
+        platform: quality.rows[0].platform,
+      }
+      : null,
+  }
+}

@@ -5,11 +5,11 @@ export async function POST(req: NextRequest) {
   try {
     const { email, otp } = await req.json()
 
-    if (!email || !otp) {
+    if (typeof email !== 'string' || typeof otp !== 'string' || !email || !otp) {
       return NextResponse.json({ error: 'Email and OTP are required.' }, { status: 400 })
     }
 
-    if (otp.length !== 6) {
+    if (!/^\d{6}$/.test(otp)) {
       return NextResponse.json({ error: 'OTP must be 6 digits.' }, { status: 400 })
     }
 

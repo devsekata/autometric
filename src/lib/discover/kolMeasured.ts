@@ -1,0 +1,369 @@
+import kolDb from '@/lib/kolDb'
+import { toIso } from './util'
+
+/**
+ * What the warehouse has actually measured about a roster creator.
+ *
+ * This module exists to shrink `@/lib/discover/kolSample`'s territory rather
+ * than to replace it. The commercial KOL database was described there as holding
+ * identity only, and for most of the roster that is still true — but not for all
+ * of it. Two of its tables carry real figures:
+ *
+ *   * `l1_silver.unified_post` — 221 posts across 23 creators, with likes,
+ *     comments, views, caption, permalink, cover image and media type.
+ *   * `l1_silver.unified_rate_card` — 8.856 priced deliverables across 6.959
+ *     creators, measured 13 Sep 2026 right after the roster sync that filled it.
+ *     This line has been wrong in both directions: it once claimed 9.210 rows
+ *     from a stale snapshot, was corrected to 0 on 12 Sep when the table was
+ *     genuinely empty, and is now non-zero again. Re-measure before trusting it
+ *     rather than reading the count off this comment.
+ *
+ * Both are reached from `public.kol_directory` through `public.kol_social_account`,
+ * which maps a roster row to the social accounts it owns. A creator can hold more
+ * than one (Instagram and TikTok), and posts hang off the account rather than the
+ * creator, so the join fans in rather than out.
+ *
+ * Nothing the workspace shows is sampled any more — Phases 4A-4D replaced or
+ * removed every generated field. What is genuinely absent is absent:
+ *
+ *   `public.campaigns` / `public.campaign_kols`   0 rows — no campaign history
+ *   `feature.*_comments_analysis`                 0 rows — no sentiment
+ *   `feature.*_post_analysis.content_category`    NULL in every row — the
+ *     pipeline's topic lives in `l2_gold.kol_profile_card.content_topic`
+ *     instead (part of the roster), which Discover does not read yet
+ *   `unified_post.reach`                          0 in all 503 — no reach
+ *
+ * `feature.*_audience_analysis` is NOT in that list: it holds 27 rows and now
+ * backs the Audience tab. And `feature.*_brand_fit_analysis`, named here
+ * previously as an empty table, **does not exist at all** — brand matching is
+ * the Brand Match Engine's, scored from `public.kol_directory`.
+ *
+ * Nulls here are deliberate and are never coalesced to zero. `reach`, `shares`
+ * and `saved` come back empty for every post harvested so far, and a zero would
+ * read as "measured, and it was nothing" instead of "never measured" — the same
+ * distinction `erPct` already makes on the roster row itself.
+ */
+
+export interface KolMeasuredPost {
+  id: string
+  /** The platform's own post id — the key `l2_gold.post_metric` is joined on. */
+  contentId: string | null
+  /** ISO timestamp of the post, or null when the harvest carried none. */
+  date: string | null
+  /** Raw warehouse value (`clips`, `feed`, `CAROUSEL`, …), kept for grouping. */
+  mediaType: string | null
+  /** `mediaType` rendered for a human; see `POST_FORMAT_LABEL`. */
+  format: string
+  caption: string | null
+  permalink: string | null
+  coverImage: string | null
+  likes: number | null
+  comments: number | null
+  views: number | null
+  /**
+   * Per-post shares and saves, from the same row as the rest.
+   *
+   * They were already summed into `totals` but not projected here, so the post
+   * detail showed them as unavailable for the 10-11 creators who actually have
+   * them. Measured 12 Sep 2026: 291 of 503 harvested posts carry each.
+   */
+  shares: number | null
+  saves: number | null
+  /** Tags the post actually carries. */
+  hashtags: string[]
+  /** The platform's own paid-partnership flag, not an inference from the caption. */
+  sponsored: boolean
+}
+
+/** One priced deliverable from the KOL platform's own rate card. */
+export interface KolMeasuredRate {
+  postType: string
+  /** Human label for `postType`, the same mapping the formats use. */
+  label: string
+  fee: number
+  currency: string
+}
+
+export interface KolMeasured {
+  /** How many posts back these figures — the workspace prints it as the basis. */
+  postCount: number
+  totals: {
+    likes: number | null
+    comments: number | null
+    views: number | null
+    shares: number | null
+    reach: number | null
+    saved: number | null
+  }
+  averages: {
+    likes: number | null
+    comments: number | null
+    views: number | null
+  }
+  /** Share of posts per format, largest first. Empty when nothing is harvested. */
+  formats: { label: string; pct: number; n: number }[]
+  /** Newest first, capped at twelve — enough to fill the Content grid. */
+  recent: KolMeasuredPost[]
+  /**
+   * Most-used tags across every harvested post, not just the twelve shown. This
+   * is the source platform's "Top hashtags & keywords" panel, which it filled
+   * with a hardcoded list; here it is counted.
+   */
+  hashtags: { tag: string; n: number }[]
+  /** How many harvested posts the platform marks as paid partnerships. */
+  sponsoredCount: number
+  /** The creator's real prices, cheapest quote per deliverable. */
+  rates: KolMeasuredRate[]
+  firstPostAt: string | null
+  lastPostAt: string | null
+  /**
+   * Lowest, highest and median view count across the harvested posts that carry
+   * one (`l1_silver.unified_post.views IS NOT NULL`), with how many posts that
+   * is. A plain read of what was scraped: not an estimate, not the roster's
+   * `est_views`, and not the pipeline's `kol_profile_card.median_views`, which
+   * does not exist until the pipeline has run. Null when no post has a count.
+   */
+  viewsRange: { min: number; max: number; median: number; postCount: number } | null
+  /**
+   * The category the account itself declares on Instagram
+   * (`l0_raw.ig_profile_apify.raw_payload.businessCategoryName`), from the
+   * newest scraped profile. Instagram's own vocabulary ("Actor", "Public
+   * figure"), not a `kol_categories` row: it is shown beside the classified
+   * Category, never in its place. Null for TikTok and for accounts that
+   * declare none.
+   */
+  instagramCategory: string | null
+}
+
+/**
+ * The warehouse's `media_type` vocabulary is the union of what Instagram and
+ * TikTok each report, so one idea arrives under several spellings — `clips` and
+ * `VIDEO` are both short-form video. Mapping happens here, once, rather than in
+ * every component that prints one.
+ */
+const POST_FORMAT_LABEL: Record<string, string> = {
+  clips: 'Reels',
+  reel: 'Reels',
+  feed: 'Feed',
+  feed_photo: 'Foto',
+  feed_video: 'Feed Video',
+  carousel_container: 'Carousel',
+  carousel: 'Carousel',
+  video: 'Video',
+  image: 'Foto',
+  story: 'Story',
+}
+
+export function postFormatLabel(mediaType: string | null): string {
+  if (!mediaType) return 'Lainnya'
+  return POST_FORMAT_LABEL[mediaType] ?? POST_FORMAT_LABEL[mediaType.toLowerCase()] ?? mediaType
+}
+
+/** `bigint` and `numeric` both arrive as strings from node-pg; null stays null. */
+const num = (v: string | number | null): number | null =>
+  v === null || v === undefined ? null : Number(v)
+
+/**
+ * Returns null when the warehouse has neither posts nor prices for this creator,
+ * which is the signal for the workspace to sample the whole page exactly as it
+ * did before this module existed.
+ */
+export async function getKolMeasured(kolId: string): Promise<KolMeasured | null> {
+  const db = kolDb()
+
+  const [agg, recent, rates, tags, sponsored, viewStats, igCategory] = await Promise.all([
+    db.query<{
+      media_type: string | null; n: number; n_likes: number
+      likes: string | null; comments: string | null; views: string | null
+      shares: string | null; reach: string | null; saved: string | null
+      first_at: Date | string | null; last_at: Date | string | null
+    }>(
+      // `likes = -1` is Instagram's "likes hidden" sentinel, which the pipeline
+      // leaves as-is in every layer (migration 013). Summed raw it drags the
+      // total down by one per hidden post, so it is filtered out here and the
+      // average divides by the posts that actually carry a count.
+      `SELECT p.media_type,
+              COUNT(*)::int   AS n,
+              SUM(p.likes)   FILTER (WHERE p.likes >= 0)      AS likes,
+              COUNT(p.likes) FILTER (WHERE p.likes >= 0)::int AS n_likes,
+              SUM(p.comments) AS comments,
+              SUM(p.views)    AS views,
+              SUM(p.shares)   AS shares,
+              SUM(p.reach)    AS reach,
+              SUM(p.saved)    AS saved,
+              MIN(COALESCE(p.posted_at, p.date::timestamptz)) AS first_at,
+              MAX(COALESCE(p.posted_at, p.date::timestamptz)) AS last_at
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        GROUP BY p.media_type`,
+      [kolId],
+    ),
+
+    db.query<{
+      id: string; content_id: string | null; at: Date | string | null; media_type: string | null
+      caption: string | null; title: string | null
+      permalink: string | null; cover_image: string | null
+      likes: string | null; comments: string | null; views: string | null
+      shares: string | null; saved: string | null
+      hashtags: string[] | null; is_sponsored: boolean | null
+    }>(
+      `SELECT p.id, p.content_id,
+              COALESCE(p.posted_at, p.date::timestamptz) AS at,
+              p.media_type, p.caption, p.title, p.permalink, p.cover_image,
+              CASE WHEN p.likes < 0 THEN NULL ELSE p.likes END AS likes,
+              p.comments, p.views, p.shares, p.saved,
+              p.hashtags, p.is_sponsored
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY COALESCE(p.posted_at, p.date::timestamptz) DESC NULLS LAST
+        LIMIT 12`,
+      [kolId],
+    ),
+
+    // The roster carries a row per harvest, so a deliverable can be quoted more
+    // than once. The cheapest quote wins rather than an arbitrary one: a price
+    // shown to a buyer should be one the creator has actually agreed to.
+    db.query<{ post_type: string | null; fee: string | null; currency: string | null }>(
+      `SELECT DISTINCT ON (rc.post_type)
+              rc.post_type, rc.fee, rc.currency
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_rate_card rc ON rc.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1 AND rc.fee IS NOT NULL AND rc.post_type IS NOT NULL
+        ORDER BY rc.post_type, rc.fee ASC`,
+      [kolId],
+    ),
+
+    db.query<{ tag: string; n: number }>(
+      `SELECT tag, COUNT(*)::int AS n
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+        CROSS JOIN LATERAL unnest(COALESCE(p.hashtags, ARRAY[]::text[])) AS tag
+        WHERE ksa.kol_id = $1
+        GROUP BY tag
+        ORDER BY n DESC, tag
+        LIMIT 12`,
+      [kolId],
+    ),
+
+    db.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1 AND p.is_sponsored`,
+      [kolId],
+    ),
+
+    // See `viewsRange`. One row always; `n` is 0 when no post carries a count.
+    db.query<{ n: number; min: string | null; max: string | null; median: string | null }>(
+      `SELECT COUNT(p.views)::int AS n,
+              MIN(p.views)        AS min,
+              MAX(p.views)        AS max,
+              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY p.views) AS median
+         FROM public.kol_social_account ksa
+         JOIN l1_silver.unified_post p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1 AND p.views IS NOT NULL`,
+      [kolId],
+    ),
+
+    // See `instagramCategory`. The actor writes the string "None" for an
+    // account without one; that is not a category.
+    db.query<{ category: string | null }>(
+      `SELECT NULLIF(NULLIF(btrim(p.raw_payload::jsonb ->> 'businessCategoryName'), ''), 'None') AS category
+         FROM public.kol_social_account ksa
+         JOIN l0_raw.ig_profile_apify p ON p.social_account_id = ksa.social_account_id
+        WHERE ksa.kol_id = $1
+        ORDER BY p.scraped_at DESC NULLS LAST
+        LIMIT 1`,
+      [kolId],
+    ),
+  ])
+
+  const instagramCategory = igCategory.rows[0]?.category ?? null
+
+  if (!agg.rows.length && !rates.rows.length && !instagramCategory) return null
+
+  const postCount = agg.rows.reduce((a, r) => a + r.n, 0)
+
+  /** Sums one column across the per-format groups, staying null if every group is. */
+  const total = (k: 'likes' | 'comments' | 'views' | 'shares' | 'reach' | 'saved') => {
+    const vals = agg.rows.map(r => num(r[k])).filter((v): v is number => v !== null)
+    return vals.length ? vals.reduce((a, b) => a + b, 0) : null
+  }
+  const avg = (v: number | null) =>
+    v === null || postCount === 0 ? null : Math.round(v / postCount)
+
+  const stamps = agg.rows
+    .flatMap(r => [r.first_at, r.last_at])
+    .map(toIso)
+    .filter((v): v is string => v !== null)
+    .sort()
+
+  const likes = total('likes')
+  const comments = total('comments')
+  const views = total('views')
+  const likesCounted = agg.rows.reduce((a, r) => a + r.n_likes, 0)
+
+  return {
+    postCount,
+    totals: {
+      likes,
+      comments,
+      views,
+      shares: total('shares'),
+      reach: total('reach'),
+      saved: total('saved'),
+    },
+    averages: {
+      likes: likes === null || likesCounted === 0 ? null : Math.round(likes / likesCounted),
+      comments: avg(comments),
+      views: avg(views),
+    },
+    formats: [...agg.rows]
+      .sort((a, b) => b.n - a.n)
+      .map(r => ({
+        label: postFormatLabel(r.media_type),
+        n: r.n,
+        pct: postCount ? Math.round((r.n / postCount) * 100) : 0,
+      })),
+    recent: recent.rows.map(r => ({
+      id: r.id,
+      contentId: r.content_id,
+      date: toIso(r.at),
+      mediaType: r.media_type,
+      format: postFormatLabel(r.media_type),
+      // TikTok fills `title` where Instagram fills `caption`; either one is the
+      // text the card shows, and an empty string is not a caption.
+      caption: (r.caption || r.title) ?? null,
+      permalink: r.permalink,
+      coverImage: r.cover_image,
+      likes: num(r.likes),
+      comments: num(r.comments),
+      views: num(r.views),
+      shares: num(r.shares),
+      saves: num(r.saved),
+      hashtags: r.hashtags ?? [],
+      sponsored: r.is_sponsored === true,
+    })),
+    hashtags: tags.rows.map(r => ({ tag: r.tag, n: r.n })),
+    sponsoredCount: sponsored.rows[0]?.n ?? 0,
+    rates: rates.rows.map(r => ({
+      postType: r.post_type as string,
+      label: postFormatLabel(r.post_type),
+      fee: Number(r.fee),
+      currency: r.currency ?? 'IDR',
+    })),
+    firstPostAt: stamps[0] ?? null,
+    lastPostAt: stamps[stamps.length - 1] ?? null,
+    viewsRange: viewStats.rows[0] && viewStats.rows[0].n > 0
+      ? {
+        min: Number(viewStats.rows[0].min),
+        max: Number(viewStats.rows[0].max),
+        median: Math.round(Number(viewStats.rows[0].median)),
+        postCount: viewStats.rows[0].n,
+      }
+      : null,
+    instagramCategory,
+  }
+}

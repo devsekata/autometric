@@ -1,29 +1,8 @@
-import { notFound } from 'next/navigation'
-import { getOrgBasicBySlug } from '@/lib/organizations/queries'
-import { getBrandById } from '@/lib/brands/queries'
-import { BrandDetailProvider } from '@/components/brands/detail/BrandDetailContext'
-import BrandDetailShell from '@/components/brands/detail/BrandDetailShell'
-
-interface Props {
-  children: React.ReactNode
-  params: Promise<{ orgSlug: string; brandId: string }>
-}
-
-export default async function BrandDetailLayout({ children, params }: Props) {
-  const { orgSlug, brandId } = await params
-
-  const [org, brand] = await Promise.all([
-    getOrgBasicBySlug(orgSlug),
-    getBrandById(brandId),
-  ])
-
-  if (!org || !brand) notFound()
-
-  return (
-    <BrandDetailProvider initial={brand} orgName={org.name}>
-      <BrandDetailShell orgSlug={orgSlug}>
-        {children}
-      </BrandDetailShell>
-    </BrandDetailProvider>
-  )
+/**
+ * Switched off with the Brands module: this layout loaded the brand from the
+ * analytics warehouse. The pages under it now only show an "unavailable"
+ * notice, and each checks organization membership itself.
+ */
+export default function BrandDetailLayout({ children }: { children: React.ReactNode }) {
+  return <>{children}</>
 }

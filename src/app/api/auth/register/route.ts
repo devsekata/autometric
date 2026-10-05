@@ -5,7 +5,11 @@ export async function POST(req: NextRequest) {
   try {
     const { name, email, password, confirmPassword } = await req.json()
 
-    if (!name || !email || !password || !confirmPassword) {
+    if (
+      typeof name !== 'string' || typeof email !== 'string' ||
+      typeof password !== 'string' || typeof confirmPassword !== 'string' ||
+      !name.trim() || !email.trim() || !password || !confirmPassword
+    ) {
       return NextResponse.json({ error: 'All fields are required.' }, { status: 400 })
     }
 
@@ -20,7 +24,7 @@ export async function POST(req: NextRequest) {
     const result = await registerUser({ name, email, password })
 
     if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 409 })
+      return NextResponse.json({ error: result.error }, { status: result.status ?? 400 })
     }
 
     return NextResponse.json({ success: true })

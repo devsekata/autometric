@@ -7,13 +7,27 @@ out/
 
 # Build artifacts
 tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Python bytecode (scripts/what-matters, pipeline)
+__pycache__/
+*.pyc
 
 # Local debug dumps (from scripts/dev)
 *.dump.json
 
+# Ekspor L0 mentah — hanya baris header, tidak ada datanya
+l0_raw/
+l0_raw.rar
+
 # Environment
-.env.local
+.env
+.env.local*
 .env.*.local
+!.env.example
+
+# Nested standalone repo (clone terpisah, jangan ikut di-commit)
+autometric_dashboard/
 
 # Misc
 .DS_Store
@@ -21,3 +35,11 @@ tsconfig.tsbuildinfo
 
 # Office lock/temp files
 ~$*
+
+# Screenshot kerja lokal, jangan ikut di-commit
+Screenshot*.png
+
+# Brand Match population snapshot — 5,8 MB, regenerable with `npm run brandmatch:population`
+# (office VPN). The 24-creator roster.json IS committed: it is small and it is the
+# frozen input behind the published comparison workbook.
+scripts/brand-match/population.json

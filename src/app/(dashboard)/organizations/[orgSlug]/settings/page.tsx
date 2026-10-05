@@ -1,6 +1,7 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { getOrgBySlugForUser } from '@/lib/organizations/queries'
+import { effectiveOrgRole } from '@/lib/organizations/role'
 import OrgSettingsPage from '@/components/organizations/OrgSettingsPage'
 
 interface Props { params: Promise<{ orgSlug: string }> }
@@ -14,6 +15,12 @@ export default async function SettingsPage({ params }: Props) {
   // than getOrgBasicBySlug.
   const org = await getOrgBySlugForUser(orgSlug, userId)
   if (!org) notFound()
+
+  // Settings is Admin-only, and the sidebar entry is gone for a Member. This is
+  // the half that survives a typed URL.
+  if (await effectiveOrgRole(org.role) === 'MEMBER') {
+    redirect(`/organizations/${orgSlug}/dashboard`)
+  }
 
   return (
     <div>

@@ -188,8 +188,15 @@ function apifyToken(): string {
   return token
 }
 
-async function startActorRun(actorId: string, input: Record<string, unknown>): Promise<string> {
-  const res = await fetch(`${APIFY_BASE}/acts/${actorId}/runs`, {
+interface RunCaps { maxItems?: number; maxTotalChargeUsd?: number }
+
+async function startActorRun(actorId: string, input: Record<string, unknown>, caps?: RunCaps): Promise<string> {
+  const qs = new URLSearchParams()
+  if (caps?.maxItems !== undefined) qs.set('maxItems', String(caps.maxItems))
+  if (caps?.maxTotalChargeUsd !== undefined) qs.set('maxTotalChargeUsd', String(caps.maxTotalChargeUsd))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+
+  const res = await fetch(`${APIFY_BASE}/acts/${actorId}/runs${query}`, {
     method: 'POST',
     headers: {
       'Content-Type':  'application/json',
@@ -237,8 +244,13 @@ async function downloadDataset<T>(runId: string): Promise<T[]> {
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 // Start an actor run, poll until it finishes, then download dataset items.
-async function runActor<T>(actorId: string, input: Record<string, unknown>): Promise<T[]> {
-  const runId = await startActorRun(actorId, input)
+// `caps` are enforced by Apify itself at the run level — a ceiling independent
+// of whatever limit field the actor's own input happens to respect, since not
+// every actor input option actually stops the actor from returning more than
+// asked (see the "Add New KOL" post fetch, which used to request up to 1000
+// items with nothing capping the run itself).
+async function runActor<T>(actorId: string, input: Record<string, unknown>, caps?: RunCaps): Promise<T[]> {
+  const runId = await startActorRun(actorId, input, caps)
   const start = Date.now()
 
   while (Date.now() - start < MAX_WAIT_MS) {
@@ -323,7 +335,7 @@ export async function fetchTiktokPosts(
     input.oldestPostDateUnified = oldest
     input.newestPostDate        = new Date().toISOString().slice(0, 10)
   }
-  return runActor<ApifyTiktokPost>(TIKTOK_ACTOR, input)
+  return runActor<ApifyTiktokPost>(TIKTOK_ACTOR, input, { maxItems: resultsPerPage })
 }
 
 // --- Instagram fetchers ---
@@ -349,19 +361,19 @@ export async function fetchIgProfile(username: string): Promise<ApifyIgProfile |
   return items[0] ?? null
 }
 
-export async function fetchIgPosts(username: string, days: number): Promise<ApifyIgPost[]> {
+export async function fetchIgPosts(username: string, days: number, limit = 1000): Promise<ApifyIgPost[]> {
   const items = await runActor<ApifyIgPost>(IG_ACTOR, {
     directUrls:                        [instagramUrlFromUsername(username)],
     resultsType:                       'posts',
     onlyPostsNewerThan:                `${days} days`,
-    resultsLimit:                      1000,
+    resultsLimit:                      limit,
     searchType:                        'user',
     searchLimit:                       1,
     addParentData:                     false,
     enhanceUserSearchWithFacebookPage: false,
     isUserReelFeedURL:                 false,
     isUserTaggedFeedURL:               false,
-  })
+  }, { maxItems: limit })
   return dropErrorItems(items)
 }
 

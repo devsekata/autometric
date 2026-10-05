@@ -1,0 +1,3601 @@
+{
+  "measuredAt": "2026-09-10T04:48:07.421Z",
+  "server": "10.100.14.216/kol",
+  "categoryMaster": [
+    {
+      "name": "Lifestyle",
+      "taxonomy_key": "Lifestyle",
+      "creators": 2442
+    },
+    {
+      "name": "Beauty",
+      "taxonomy_key": "Beauty",
+      "creators": 1206
+    },
+    {
+      "name": "Moms",
+      "taxonomy_key": "Moms",
+      "creators": 542
+    },
+    {
+      "name": "Entertainment",
+      "taxonomy_key": "Entertainment",
+      "creators": 458
+    },
+    {
+      "name": "Gen Z",
+      "taxonomy_key": "Gen Z",
+      "creators": 145
+    },
+    {
+      "name": "Fashion",
+      "taxonomy_key": "Fashion",
+      "creators": 73
+    },
+    {
+      "name": "Foodies",
+      "taxonomy_key": "Food",
+      "creators": 63
+    },
+    {
+      "name": "Home Decor",
+      "taxonomy_key": "Lifestyle",
+      "creators": 58
+    },
+    {
+      "name": "Food",
+      "taxonomy_key": "Food",
+      "creators": 55
+    },
+    {
+      "name": "Fitness",
+      "taxonomy_key": "Fitness",
+      "creators": 24
+    },
+    {
+      "name": "Sports",
+      "taxonomy_key": "Fitness",
+      "creators": 24
+    },
+    {
+      "name": "Humor",
+      "taxonomy_key": "Entertainment",
+      "creators": 12
+    },
+    {
+      "name": "Travel",
+      "taxonomy_key": "Lifestyle",
+      "creators": 12
+    },
+    {
+      "name": "Automotive and motorsports",
+      "taxonomy_key": null,
+      "creators": 9
+    },
+    {
+      "name": "Cooking",
+      "taxonomy_key": "Food",
+      "creators": 9
+    },
+    {
+      "name": "Parenting and family",
+      "taxonomy_key": "Moms",
+      "creators": 8
+    },
+    {
+      "name": "Musicians",
+      "taxonomy_key": "Entertainment",
+      "creators": 7
+    },
+    {
+      "name": "Medical",
+      "taxonomy_key": null,
+      "creators": 6
+    },
+    {
+      "name": "Dance",
+      "taxonomy_key": "Entertainment",
+      "creators": 3
+    },
+    {
+      "name": "Gym Enthusiast",
+      "taxonomy_key": "Fitness",
+      "creators": 3
+    },
+    {
+      "name": "Story Teller",
+      "taxonomy_key": "Entertainment",
+      "creators": 3
+    },
+    {
+      "name": "Gaming",
+      "taxonomy_key": "Tech",
+      "creators": 2
+    },
+    {
+      "name": "Spirituality and religion",
+      "taxonomy_key": null,
+      "creators": 2
+    },
+    {
+      "name": "Technology and gadgets",
+      "taxonomy_key": "Tech",
+      "creators": 2
+    },
+    {
+      "name": "Animal Lovers",
+      "taxonomy_key": null,
+      "creators": 1
+    },
+    {
+      "name": "Business and entrepreneurship",
+      "taxonomy_key": null,
+      "creators": 1
+    },
+    {
+      "name": "Cyclist",
+      "taxonomy_key": "Fitness",
+      "creators": 1
+    },
+    {
+      "name": "Environmentalism and sustainability",
+      "taxonomy_key": null,
+      "creators": 1
+    }
+  ],
+  "canonicalCategories": [
+    "Beauty",
+    "Entertainment",
+    "Fashion",
+    "Fitness",
+    "Food",
+    "Gen Z",
+    "Lifestyle",
+    "Moms",
+    "Tech"
+  ],
+  "interestKeys": [
+    "art",
+    "automotive",
+    "beauty",
+    "business",
+    "education",
+    "entertainment",
+    "fashion",
+    "fitness",
+    "food",
+    "gaming",
+    "music",
+    "parenting",
+    "pets",
+    "photography",
+    "religion",
+    "sports",
+    "technology",
+    "travel",
+    "unknown"
+  ],
+  "requested": 24,
+  "found": 24,
+  "aliased": 2,
+  "notFound": [],
+  "rejectedDuplicates": [
+    {
+      "handle": "instagram",
+      "platform": "tiktok",
+      "followers": 531100,
+      "signal": 1,
+      "keptPlatform": "instagram",
+      "keptFollowers": 685896635,
+      "keptSignal": 6
+    },
+    {
+      "handle": "iben_ma",
+      "platform": "tiktok",
+      "followers": 24400000,
+      "signal": 9,
+      "keptPlatform": "instagram",
+      "keptFollowers": 3997609,
+      "keptSignal": 12
+    },
+    {
+      "handle": "inul.d",
+      "platform": "tiktok",
+      "followers": 1256,
+      "signal": 9,
+      "keptPlatform": "instagram",
+      "keptFollowers": 20046665,
+      "keptSignal": 12
+    },
+    {
+      "handle": "saalhaerid",
+      "platform": "tiktok",
+      "followers": 14000000,
+      "signal": 9,
+      "keptPlatform": "instagram",
+      "keptFollowers": 2249679,
+      "keptSignal": 12
+    }
+  ],
+  "aliasTable": [
+    {
+      "from": "erickapinedao9",
+      "to": "erickapineda09"
+    },
+    {
+      "from": "shabiraaluaadnan",
+      "to": "shabiraalulaadnan"
+    }
+  ],
+  "records": [
+    {
+      "requested": "instagram",
+      "resolved": "instagram",
+      "aliased": false,
+      "found": true,
+      "id": "d0d4c520-8644-4cda-a9a7-8dae25e936f8",
+      "socialAccountIds": [
+        "26b47c8f-cb11-4929-9372-2aaea28704f8"
+      ],
+      "name": "instagram",
+      "platform": "Instagram",
+      "followers": 685896635,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "Discover what's new on Instagram 🔎✨",
+      "tier": "Mega",
+      "addedDate": "2025-09-25T09:09:51.249Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Lifestyle",
+        "Moms"
+      ],
+      "category": "Lifestyle",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Music",
+            "points": 2,
+            "evidence": [
+              "music (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Entertainment",
+            "points": 2,
+            "evidence": [
+              "music (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 1,
+      "hashtagCount": 0,
+      "captionDigest": "The precision in this trick 🤯 @leonmbz is a freestyle footballer who collabs with athletes across different sports. Here, he’s teaming up with spinning top world champion @jun_spintop_s. “I’ve always been trying to push the boundaries of what’s possible.” Video by @leonmbz and @jun_spintop_s Music by @_zynyx",
+      "hashtagDigest": null,
+      "er": 0.07,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 136309208,
+      "medianViews": 136309208,
+      "vfr": 19.8731,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": 0,
+      "paidRatio": 0,
+      "postsAnalyzed": 1,
+      "followersGrowth": null,
+      "growthClass": null,
+      "audienceQuality": null,
+      "authenticity": null,
+      "followerQuality": null,
+      "femalePct": null,
+      "malePct": null,
+      "genderKnownPct": null,
+      "interests": [],
+      "interestKnownPct": null,
+      "countryShares": [],
+      "countryKnownPct": null,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "cristiano",
+      "resolved": "cristiano",
+      "aliased": false,
+      "found": true,
+      "id": "7dd5bd80-1329-48b7-9330-df04cf57036a",
+      "socialAccountIds": [
+        "8394aacf-5524-42d8-a1fa-7a7454fea2d2"
+      ],
+      "name": "cristiano",
+      "platform": "Instagram",
+      "followers": 679264838,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-03-07T07:42:38.258Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Fitness"
+      ],
+      "category": "Fitness",
+      "categoryBasis": "live",
+      "classifiedCategory": "Tech",
+      "classification": {
+        "category": "Gaming",
+        "basis": "estimated",
+        "topics": [
+          {
+            "label": "Esports",
+            "points": 2,
+            "evidence": [
+              "esports (caption)"
+            ]
+          },
+          {
+            "label": "Makeup",
+            "points": 2,
+            "evidence": [
+              "makeup (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Gaming",
+            "points": 3,
+            "evidence": [
+              "game (caption)",
+              "esports (caption)"
+            ]
+          },
+          {
+            "label": "Beauty",
+            "points": 2,
+            "evidence": [
+              "makeup (caption)"
+            ]
+          },
+          {
+            "label": "Tech",
+            "points": 1,
+            "evidence": [
+              "digital (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 5,
+      "captionDigest": "@Cristiano Ronaldo and Georgina Rodríguez (@georginagio) are married! For weeks, the internet was awash with speculation—about the date, the location, the guest list. (The rumored celebrity attendees included everyone from Rio Ferdinand to Rihanna.) In the end, the couple’s wedding took place on a symbolic date: August 11, the 10th anniversary of the day they first met at a Gucci store in Madrid. Instead of a blowout celebration, the couple, who have over 750 million Instagram followers between them, got married in their living room, wearing @gucci by Demna. “It was exactly as I’d imagined it,” says Georgina. For Vogue’s Summer digital cover, Gaby Wood spoke to Cris y Gio, as they are known to friends and family, about their intimate wedding day in Portugal. Tap the link in our bio for an exclusive look inside the ceremony. Photographed by @juergentellerstudio, makeup by @fermartinezlab, hair by @torrentfernando, with special thanks to @angelsproject, Vogue, Summer Digital Cover 2026. · Back 🟡🔵 · C❤️G · My toys 🚀 · Not yet 🤷🏽‍♂️😅 · Cuando te vuelves hacia la luz del sol, las sombras caen detrás de ti. 🌅 · Try my Game Day Blast recipe. Stay sharp. Stay ready. #FuelLikeRonaldo · Pai feliz ❤️ · Greatness takes many forms 💪 Esports World Cup is live in Paris with over 2000 players putting in the work to be the champion. @ewc_en · Football, art and passion. Proud to be part of Knight of Najd – Chapter II with @alnassr and @vhils. 100 moments from my journey, carved into on",
+      "hashtagDigest": "#fuellikeronaldo #alnassr #vhils #cr7 #knightofnajd",
+      "er": 2.21,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 80305356,
+      "medianViews": 80305356,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": 10,
+      "observationDays": 24,
+      "paidRatio": 12.5,
+      "postsAnalyzed": 8,
+      "followersGrowth": 0.0637,
+      "growthClass": "Low Growth",
+      "audienceQuality": 68,
+      "authenticity": 69,
+      "followerQuality": 68,
+      "femalePct": 18.18,
+      "malePct": 81.82,
+      "genderKnownPct": 22,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 29.4
+        },
+        {
+          "key": "sports",
+          "pct": 29.4
+        },
+        {
+          "key": "entertainment",
+          "pct": 11.8
+        },
+        {
+          "key": "business",
+          "pct": 5.9
+        },
+        {
+          "key": "education",
+          "pct": 5.9
+        },
+        {
+          "key": "food",
+          "pct": 5.9
+        },
+        {
+          "key": "gaming",
+          "pct": 5.9
+        },
+        {
+          "key": "technology",
+          "pct": 5.9
+        }
+      ],
+      "interestKnownPct": 16.7,
+      "countryShares": [
+        {
+          "key": "AR",
+          "pct": 16.7
+        },
+        {
+          "key": "BR",
+          "pct": 16.7
+        },
+        {
+          "key": "FR",
+          "pct": 16.7
+        },
+        {
+          "key": "IN",
+          "pct": 16.7
+        },
+        {
+          "key": "TN",
+          "pct": 16.7
+        },
+        {
+          "key": "US",
+          "pct": 16.7
+        }
+      ],
+      "countryKnownPct": 6,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "leomessi",
+      "resolved": "leomessi",
+      "aliased": false,
+      "found": true,
+      "id": "2fd2276d-25d9-446a-8a48-07636c358926",
+      "socialAccountIds": [
+        "abd72737-8399-4507-a333-c5ed876331c2"
+      ],
+      "name": "leomessi",
+      "platform": "Instagram",
+      "followers": 516185245,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "Bienvenidos a la cuenta oficial de Instagram de Leo Messi / Welcome to the official Leo Messi Instagram account",
+      "tier": "Mega",
+      "addedDate": "2023-06-26T03:33:10.714Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Animal Lovers"
+      ],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 10,
+      "hashtagCount": 0,
+      "captionDigest": "Te amo, pa. ❤️ · Germany 2006. South Africa 2010. Brazil 2014. Russia 2018. Qatar 2022. Canada, Mexico and United States 2026. Six FIFA World Cups. Relive the journey with my official FIFA World Cup™ signed collection - available only at Icons.com Alemania 2006. Sudáfrica 2010. Brasil 2014. Rusia 2018. Qatar 2022. Canadá, México y Estados Unidos 2026. Seis Copas del Mundo. Reviví todo el camino con mi colección oficial firmada de la Copa Mundial de la FIFA™. Disponible exclusivamente en Icons.com · Thanks world, we’ll take it from here. 🌎 MLS & Leagues Cup are back in a big way. · golden memories. ✨ the new Leo Messi x Originals collection, available tomorrow. · Introducing the new Leo Messi x Originals collection, available tomorrow. Certified gold. 🏅 Descubrí la nueva colección Leo Messi x Originals. Disponible desde mañana. Puro oro. 🏅 · El dolor es muy grande y va a costar que cierre esta herida. Pero también me quedo con todo lo bueno… Con los partidos que dimos vuelta dejando todo y que quedarán para siempre en la memoria, con el apoyo de un país entero que junto con el trabajo y el esfuerzo de este grupo nos llevó a volver a estar, una vez más, entre los mejores del mundo. Hoy cuesta valorar lo que hicimos, pero este grupo llegó a dos finales consecutivas de la Copa del Mundo. Muchas gracias de corazón por cada saludo y por cada mensaje. Una vez más logramos unirnos como país y estar todos juntos, compartiendo el inmenso orgullo de ser argentinos. También quiero fel",
+      "hashtagDigest": null,
+      "er": 2.66,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 44938781,
+      "medianViews": 44938781,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": 0.87,
+      "observationDays": 275,
+      "paidRatio": 25,
+      "postsAnalyzed": 8,
+      "followersGrowth": 0.0191,
+      "growthClass": "Low Growth",
+      "audienceQuality": 65,
+      "authenticity": 67,
+      "followerQuality": 63,
+      "femalePct": 20,
+      "malePct": 80,
+      "genderKnownPct": 25,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 21.1
+        },
+        {
+          "key": "sports",
+          "pct": 15.8
+        },
+        {
+          "key": "business",
+          "pct": 10.5
+        },
+        {
+          "key": "gaming",
+          "pct": 10.5
+        },
+        {
+          "key": "music",
+          "pct": 10.5
+        },
+        {
+          "key": "parenting",
+          "pct": 10.5
+        },
+        {
+          "key": "art",
+          "pct": 5.3
+        },
+        {
+          "key": "automotive",
+          "pct": 5.3
+        },
+        {
+          "key": "entertainment",
+          "pct": 5.3
+        },
+        {
+          "key": "fitness",
+          "pct": 5.3
+        }
+      ],
+      "interestKnownPct": 18.3,
+      "countryShares": [
+        {
+          "key": "BR",
+          "pct": 33.3
+        },
+        {
+          "key": "EH",
+          "pct": 33.3
+        },
+        {
+          "key": "TH",
+          "pct": 33.3
+        }
+      ],
+      "countryKnownPct": 3,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "raffinagita1717",
+      "resolved": "raffinagita1717",
+      "aliased": false,
+      "found": true,
+      "id": "606c41ef-8944-4c37-8615-49db65400931",
+      "socialAccountIds": [
+        "d3a87642-e5c3-4e41-a359-b0d708b8a058"
+      ],
+      "name": "raffinagita1717",
+      "platform": "Instagram",
+      "followers": 75052814,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "Single terbaru \"Bersyukurlah\"  ⬇️⬇️",
+      "tier": "Mega",
+      "addedDate": "2023-11-08T04:09:14.059Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [],
+      "category": "Lifestyle",
+      "categoryBasis": "calculated",
+      "classifiedCategory": "Lifestyle",
+      "classification": {
+        "category": "Travel",
+        "basis": "calculated",
+        "topics": [
+          {
+            "label": "Domestic Travel",
+            "points": 7,
+            "evidence": [
+              "wisata lokal (caption)",
+              "destinasi (caption)",
+              "budaya (caption)"
+            ]
+          },
+          {
+            "label": "Business",
+            "points": 5,
+            "evidence": [
+              "umkm (caption)"
+            ]
+          },
+          {
+            "label": "City & Culture",
+            "points": 3,
+            "evidence": [
+              "budaya (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Travel",
+            "points": 9,
+            "evidence": [
+              "jalan-jalan (caption)",
+              "wisata (caption)",
+              "wisata lokal (caption)",
+              "destinasi (caption)",
+              "budaya (caption)"
+            ]
+          },
+          {
+            "label": "Finance",
+            "points": 5,
+            "evidence": [
+              "umkm (caption)"
+            ]
+          },
+          {
+            "label": "Entertainment",
+            "points": 3,
+            "evidence": [
+              "entertainment (caption)",
+              "musik (caption)"
+            ]
+          },
+          {
+            "label": "Education",
+            "points": 2,
+            "evidence": [
+              "karier (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 11,
+      "hashtagCount": 10,
+      "captionDigest": "Dari Indonesia, menuju lebih dekat ke Asia. 🌏🏠 Di press conference D’MASIV Asia Home Run, Nagita Slavina berbagi harapannya untuk membawa pengalaman D’MASIV lebih dekat dengan para pendengar di berbagai negara Asia—dengan skala yang lebih besar dan tentunya pengalaman yang nggak terlupakan. Siap ikut merasakan perjalanan D’MASIV Asia Home Run? 🏃‍♂️💨 🎟️ Dapatkan tiketmu: dmasivtour.com · Perjalanan The Duda’s-1 belum selesai. Setelah berkeliling Indonesia dan sempat membawa cerita sampai ke Amerika, kali ini rasa penasaran itu membawa kita menjelajahi Asia. Bukan cuma datang ke tempat baru, tapi mengenal lebih dekat budaya, kebiasaan, makanan, musik, dan cerita orang-orangnya. Melihat apa yang membuat setiap negara berbeda, sekaligus menemukan banyak hal yang ternyata terasa dekat dengan Indonesia. The Duda’s-1 Goes to Asia. Satu benua, banyak cerita. Kira-kira negara mana yang bakal mereka datangi pertama? · The Dudas-1, yang beranggotakan Raffi Ahmad, Ariel NOAH, Gading Marten, dan Desta, bersiap melebarkan sayap mereka ke kancah internasional lewat tur Asia. Setelah hampir tiga tahun aktif berkeliling Indonesia untuk mempromosikan destinasi wisata lokal serta mendongkrak UMKM, keempat sahabat ini memutuskan untuk menjajal tantangan baru di luar negeri. Ariel NOAH menjelaskan bahwa pemilihan kawasan Asia bertujuan untuk mempelajari cara negara-negara tetangga mempromosikan pariwisata mereka ke tingkat dunia, sehingga hasilnya dapat menjadi bahan pembelajaran yang berman",
+      "hashtagDigest": "#thedudasminusone #ransentertainment #dmasiv #nagitaslavina #utusankhususpresiden #pembinaangenerasimuda #pekerjaseni",
+      "er": 0.52,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 1148129,
+      "medianViews": 1148129,
+      "vfr": 1.5298,
+      "shareRate": null,
+      "postFrequencyMonthly": 0.27,
+      "observationDays": 666,
+      "paidRatio": 0,
+      "postsAnalyzed": 6,
+      "followersGrowth": -0.0261,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 58,
+      "authenticity": 29,
+      "followerQuality": 86,
+      "femalePct": 50,
+      "malePct": 50,
+      "genderKnownPct": 30,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 22.2
+        },
+        {
+          "key": "education",
+          "pct": 22.2
+        },
+        {
+          "key": "beauty",
+          "pct": 11.1
+        },
+        {
+          "key": "entertainment",
+          "pct": 11.1
+        },
+        {
+          "key": "music",
+          "pct": 11.1
+        },
+        {
+          "key": "parenting",
+          "pct": 11.1
+        },
+        {
+          "key": "technology",
+          "pct": 11.1
+        }
+      ],
+      "interestKnownPct": 8.7,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 60
+        },
+        {
+          "key": "BR",
+          "pct": 20
+        },
+        {
+          "key": "LA",
+          "pct": 20
+        }
+      ],
+      "countryKnownPct": 5,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "lunamaya",
+      "resolved": "lunamaya",
+      "aliased": false,
+      "found": true,
+      "id": "3491cdd5-0db0-4c33-a75e-a88ff2064a08",
+      "socialAccountIds": [
+        "8cc9c6d6-d7f9-4824-9be3-9868e9fef93f"
+      ],
+      "name": "lunamaya",
+      "platform": "Instagram",
+      "followers": 37961844,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "@namabeauty.co @tsmediaid\n@roleentertainment @yayasan_lunamayanawasena \nlunamaya@role-entertainment.com \nBA @zappremiere @rrfx.indonesia",
+      "tier": "Mega",
+      "addedDate": "2025-06-26T07:38:51.193Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Beauty"
+      ],
+      "category": "Beauty",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Career",
+            "points": 5,
+            "evidence": [
+              "interview (caption)"
+            ]
+          },
+          {
+            "label": "Job Hunting & CV",
+            "points": 3,
+            "evidence": [
+              "interview (caption)"
+            ]
+          },
+          {
+            "label": "Domestic Travel",
+            "points": 2,
+            "evidence": [
+              "destinasi (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Education",
+            "points": 5,
+            "evidence": [
+              "interview (caption)"
+            ]
+          },
+          {
+            "label": "Fashion",
+            "points": 4,
+            "evidence": [
+              "fashion (caption)",
+              "gaya (caption)",
+              "outfit (caption)",
+              "busana (caption)"
+            ]
+          },
+          {
+            "label": "Beauty",
+            "points": 2,
+            "evidence": [
+              "makeup (caption)"
+            ]
+          },
+          {
+            "label": "Entertainment",
+            "points": 2,
+            "evidence": [
+              "entertainment (bio)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 8,
+      "captionDigest": "POV: the jewels changed everything! @bvlgari✨️ More from this special cover story over at @bazaarindonesia 🫶 · A glimpse behind the sparkle✨️ @bvlgari · Dalam gerak, kilau, dan siluet yang tegas, @lunamaya mewarnai Harper’s Bazaar Indonesia edisi Agustus 2026. Dipotret di Singapura dalam balutan @bvlgari High Jewelry, kamera menangkap sisi Luna yang modern, powerful, dan penuh karakter. ✨ Portofolio ini: Keseluruhan Perhiasan & Jam tangan: @bvlgari High Jewelry Director: @hilariusjason Video Editor: @fajrids Editor Fashion: @yudithnk Busana: @blancstudio.official @dibbaofficial, Didit Hediprasetyo, @heaven_tanudiredja @_peau @yosafat_k Makeup: @zhouaiyimua Hair: @tressandcurvy (@colinyeohair @dorenelowhair @sitosthair @janebokhair) Asst. Stylist: @nau.kamillaa Lokasi: The Clifford Pier Alfresco Deck and La Brasserie’s Private Dining Room at @fullertonbayhotelsg · A very Cinta birthday! @claurakiehl 🥳🫶 · Here’s to a brighter Indonesia🇮🇩🫶 · Dressed up for a day that means so much✨️🇮🇩 Dirgahayu ke-81, Indonesiaku. Semoga negeri ini selalu menjadi rumah yang kita banggakan❤️🤍 -- Outfit: @saptodjojokartiko | Stylist: @hagaipakan | Bag: @bvlgari | Make Up: @kunsoomakeupartist | Hair Do: @iwanetaufik_hair | Broch: @epajewel | Suntiang: @hummingbirdroad · Didn’t expect anything to survive HYROX hahaha but my makeup did tho. complexion, bibir, semuanya masih cakeppp💋 · Untuk edisi Agustus 2026, @lunamaya kembali menghiasi cover Harper’s Bazaar Indonesia. Dipotret di Singapur",
+      "hashtagDigest": "#withgalaxy #teamgalaxy #galaxys26ultra #circletosearchwithgoogle #circleitthatsall #mexico66golf #onitsukatiger #onitsukatigerid",
+      "er": 0.03,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 383646,
+      "medianViews": 205306,
+      "vfr": 1.0106,
+      "shareRate": null,
+      "postFrequencyMonthly": 45,
+      "observationDays": 4,
+      "paidRatio": 0,
+      "postsAnalyzed": 6,
+      "followersGrowth": -0.0301,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 72,
+      "authenticity": 73,
+      "followerQuality": 71,
+      "femalePct": 51.52,
+      "malePct": 48.48,
+      "genderKnownPct": 33,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 28.6
+        },
+        {
+          "key": "fashion",
+          "pct": 10.7
+        },
+        {
+          "key": "religion",
+          "pct": 10.7
+        },
+        {
+          "key": "technology",
+          "pct": 10.7
+        },
+        {
+          "key": "education",
+          "pct": 7.1
+        },
+        {
+          "key": "entertainment",
+          "pct": 7.1
+        },
+        {
+          "key": "automotive",
+          "pct": 3.6
+        },
+        {
+          "key": "beauty",
+          "pct": 3.6
+        },
+        {
+          "key": "food",
+          "pct": 3.6
+        },
+        {
+          "key": "parenting",
+          "pct": 3.6
+        },
+        {
+          "key": "photography",
+          "pct": 3.6
+        },
+        {
+          "key": "sports",
+          "pct": 3.6
+        },
+        {
+          "key": "travel",
+          "pct": 3.6
+        }
+      ],
+      "interestKnownPct": 25.2,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 85
+        },
+        {
+          "key": "BD",
+          "pct": 5
+        },
+        {
+          "key": "JP",
+          "pct": 5
+        },
+        {
+          "key": "PS",
+          "pct": 5
+        }
+      ],
+      "countryKnownPct": 20,
+      "cityShares": [
+        {
+          "key": "Bali",
+          "pct": 25
+        },
+        {
+          "key": "Bandung",
+          "pct": 25
+        },
+        {
+          "key": "Jakarta",
+          "pct": 16.7
+        },
+        {
+          "key": "Lampung",
+          "pct": 8.3
+        },
+        {
+          "key": "Padang",
+          "pct": 8.3
+        },
+        {
+          "key": "Pati",
+          "pct": 8.3
+        },
+        {
+          "key": "Sulawesi Tenggara",
+          "pct": 8.3
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "ibnuwardani",
+      "resolved": "ibnuwardani",
+      "aliased": false,
+      "found": true,
+      "id": "5f336f2d-8ae2-4002-b456-1c956a274b15",
+      "socialAccountIds": [
+        "4acdd7f4-3c7d-43bf-9a50-1dae453c8247"
+      ],
+      "name": "ibnuwardani",
+      "platform": "TikTok",
+      "followers": 26200000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-02-26T14:35:09.618Z",
+      "refreshedAt": "2024-05-09T01:43:24.881Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": [
+          {
+            "label": "Home & Living",
+            "points": 1,
+            "evidence": [
+              "rumah (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 1,
+      "captionDigest": "Setuju ga kalau kita keliling Indonesia? @Lita🐣 @Alvarazka Antarsukha Wardani · 🙏🏻🤣🙏🏻 @Lita🐣 @Alvarazka Antarsukha Wardani · Spiderman😍 @Lita🐣 @Alvarazka Antarsukha Wardani · STICH VIDEO INI‼️ Ultah Agustus mana JJ-nya🤣‼️ @Lita🐣 @Alvarazka Antarsukha Wardani · Kok malah rebahan😭🙏🏻 @Lita🐣 @Alvarazka Antarsukha Wardani · ULANGTAHUN AGUSTUS?! @Lita🐣 @Alvarazka Antarsukha Wardani · BIKIN NGILER! Sekali di TF 1 video jutaan, inimah puluhan ratusan juta gampang bgt🙏🏻😭 @tokoclippers · 🙏🏻🤣 @Lita🐣 @Alvarazka Antarsukha Wardani · BTS konten🤣 @Lita🐣 @Alvarazka Antarsukha Wardani · Rumah Impian ini untukmu, dan hanya untukmu, selamanya kamu akan jadi orang yang paling aku sayang🩵 @Lita🐣 @Alvarazka Antarsukha Wardani @Sibambo Studio @Satrio Ananda #rumahibnulita · #rumahibnulita",
+      "hashtagDigest": "#rumahibnulita",
+      "er": 0.33,
+      "erSource": "l2_gold.kol_profile_card.monitoring_er_pct",
+      "avgViews": 2762680,
+      "medianViews": 308650,
+      "vfr": 5.5438,
+      "shareRate": null,
+      "postFrequencyMonthly": 1.65,
+      "observationDays": 182,
+      "paidRatio": 10,
+      "postsAnalyzed": null,
+      "followersGrowth": 0.2857,
+      "growthClass": "Low Growth",
+      "audienceQuality": 76,
+      "authenticity": 61,
+      "followerQuality": 92,
+      "femalePct": 51.72,
+      "malePct": 48.28,
+      "genderKnownPct": 29,
+      "interests": [
+        {
+          "key": "beauty",
+          "pct": 16.7
+        },
+        {
+          "key": "business",
+          "pct": 16.7
+        },
+        {
+          "key": "music",
+          "pct": 16.7
+        },
+        {
+          "key": "parenting",
+          "pct": 16.7
+        },
+        {
+          "key": "entertainment",
+          "pct": 8.3
+        },
+        {
+          "key": "food",
+          "pct": 8.3
+        },
+        {
+          "key": "religion",
+          "pct": 8.3
+        },
+        {
+          "key": "sports",
+          "pct": 8.3
+        }
+      ],
+      "interestKnownPct": 11.8,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 66.7
+        },
+        {
+          "key": "AL",
+          "pct": 11.1
+        },
+        {
+          "key": "AR",
+          "pct": 11.1
+        },
+        {
+          "key": "TH",
+          "pct": 11.1
+        }
+      ],
+      "countryKnownPct": 9,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "iben_ma",
+      "resolved": "iben_ma",
+      "aliased": false,
+      "found": true,
+      "id": "de7b3261-7d29-45c2-bd45-afb68a980420",
+      "socialAccountIds": [
+        "bceae6f4-8346-4bf4-8cd3-5ecd4c7a3278"
+      ],
+      "name": "iben_ma",
+      "platform": "Instagram",
+      "followers": 3997609,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "living life to the fullest of capacity 💯🚀 \n#LLTTFOC \n@sambalbakar 🔥\n@jualemasidn 🥇\n@fuelworld_ 💨\nCP: 0811-1479-279 (Nonie)",
+      "tier": "Mega",
+      "addedDate": "2023-02-26T14:46:02.297Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Entertainment"
+      ],
+      "category": "Entertainment",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 10,
+      "hashtagCount": 0,
+      "captionDigest": "Awas lu Habibi, harus gantian lah!! · Jujur! Kalau lu bakal bawain nya apa?? 😁🙏🏻 · The real ngebut Pak Vincent, merdeka! 🇮🇩😁 · Maaf, tapi semua tindakan harus ada balasannya. 🙏🏻 · finallyyyyyy joining this trend, lots of prewedding content coming soon❤️ pre-wedding content creator @momentsmatter.id · Kadang semuanya udah masuk akal, masuk logika. Tapi tetep aja, perlu that final push of “I trust u” buat ngejalaninnya bener-bener maksimal dan pede. Thank you baby @natashabigeyl sudah percaya dengan decision-decision aku yang kadang terlalu roller coaster 😁❤️ Penghargaan ini ditujukan untuk kalian semua pecinta Eatsambel, dan yang pasti untuk team yang udah selalu support Eatsambel 24/7. LET’S GO KITA BAWA SAMBEL MENDUNIA!!!! 🔥🔥🔥🤤🤤🤤 · Wah harus JELAS nih. @sambalbakar · A one minute teaser of our pre-wedding session in our favorite city of all time. You know I’m the happiest when the gummy smile is out🤪❤️ baru teaser aja jujur udh mellow nontonnya hahaha gak sabar next week for the full video, tungguin yaaa!!!🥹❤️ video by @retromagis · Kita tunggu bareng nih di akunnya…😁🤩 📍Jual Emas Indonesia Cipinang · Astaga Habibi, udah gua bilang kan.. 🤣😁",
+      "hashtagDigest": null,
+      "er": 1.46,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 1608002.14,
+      "medianViews": 1110744,
+      "vfr": 50.0887,
+      "shareRate": null,
+      "postFrequencyMonthly": 34.29,
+      "observationDays": 7,
+      "paidRatio": 0,
+      "postsAnalyzed": 8,
+      "followersGrowth": 0.2351,
+      "growthClass": "Low Growth",
+      "audienceQuality": 63,
+      "authenticity": 77,
+      "followerQuality": 49,
+      "femalePct": 39.47,
+      "malePct": 60.53,
+      "genderKnownPct": 38,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 18.8
+        },
+        {
+          "key": "education",
+          "pct": 12.5
+        },
+        {
+          "key": "music",
+          "pct": 12.5
+        },
+        {
+          "key": "parenting",
+          "pct": 12.5
+        },
+        {
+          "key": "sports",
+          "pct": 12.5
+        },
+        {
+          "key": "automotive",
+          "pct": 6.3
+        },
+        {
+          "key": "beauty",
+          "pct": 6.3
+        },
+        {
+          "key": "business",
+          "pct": 6.3
+        },
+        {
+          "key": "entertainment",
+          "pct": 6.3
+        },
+        {
+          "key": "food",
+          "pct": 6.3
+        }
+      ],
+      "interestKnownPct": 15.2,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 85.7
+        },
+        {
+          "key": "IT",
+          "pct": 7.1
+        },
+        {
+          "key": "PS",
+          "pct": 7.1
+        }
+      ],
+      "countryKnownPct": 14,
+      "cityShares": [
+        {
+          "key": "Bali",
+          "pct": 33.3
+        },
+        {
+          "key": "Kediri",
+          "pct": 16.7
+        },
+        {
+          "key": "Lampung",
+          "pct": 16.7
+        },
+        {
+          "key": "Pekanbaru",
+          "pct": 16.7
+        },
+        {
+          "key": "Surabaya",
+          "pct": 16.7
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "inul.d",
+      "resolved": "inul.d",
+      "aliased": false,
+      "found": true,
+      "id": "e8658a17-1a19-47cc-af37-cd77b51a5683",
+      "socialAccountIds": [
+        "71775fff-a9ec-4b73-904c-15d09a7bd717"
+      ],
+      "name": "inul.d",
+      "platform": "Instagram",
+      "followers": 20046665,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "✨BA @sunco_id @brightgas @miburungdara @purinaindonesia \nINUL INFO 👇",
+      "tier": "Mega",
+      "addedDate": "2023-01-17T14:17:34.542Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [],
+      "category": "Food",
+      "categoryBasis": "calculated",
+      "classifiedCategory": "Food",
+      "classification": {
+        "category": "Food",
+        "basis": "calculated",
+        "topics": [
+          {
+            "label": "Coffee & Beverage",
+            "points": 7,
+            "evidence": [
+              "minuman (caption)",
+              "cafe (caption)"
+            ]
+          },
+          {
+            "label": "Baking & Dessert",
+            "points": 3,
+            "evidence": [
+              "dessert (caption)"
+            ]
+          },
+          {
+            "label": "Budget Travel",
+            "points": 3,
+            "evidence": [
+              "promo (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Food",
+            "points": 10,
+            "evidence": [
+              "dessert (caption)",
+              "minuman (caption)",
+              "cafe (caption)"
+            ]
+          },
+          {
+            "label": "Travel",
+            "points": 4,
+            "evidence": [
+              "travel (caption)",
+              "promo (caption)"
+            ]
+          },
+          {
+            "label": "Entertainment",
+            "points": 2,
+            "evidence": [
+              "receh (caption)"
+            ]
+          },
+          {
+            "label": "Tech",
+            "points": 2,
+            "evidence": [
+              "ai (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 13,
+      "captionDigest": "sexy 💋 designer 👉 @jaka_raja @jaka_raja2 💋 shoes Bali 👉 @niluhdjelantik 💋 DMD Panggung Rezeki @officialmnctv · REVEAL! ✨ Scent Your Song — Paket Karaoke + Parfum Favoritmu! 🎤✨ Yang kemarin masih coming soon, sekarang waktunya di-reveal! 👀 Nikmati serunya karaoke sambil bawa pulang parfum pilihanmu dalam Scent Your Song dari Inul Vizta. 🎶💐 MEDIUM PACKAGE — Rp315.000 2 Jam Room + 1 Appetizer + 1 Dessert + 1 Pitcher Minuman + 1 Parfum LARGE PACKAGE — Rp510.000 2 Jam Room + 2 Appetizer + 2 Dessert + 2 Pitcher Minuman + 1 Parfum DELUXE PACKAGE — Rp750.000 2 Jam Room + 3 Appetizer + 3 Dessert + 3 Pitcher Minuman + 1 Parfum 🍴 Appetizer: Cheese Sticks / Mac N’ Cheese / Tteokbokki Cheese 🍰 Dessert: Double Choux 🥤 Beverage: Lychee Tea / Lemon Tea / Orange Juice / Coca-Cola / Fanta 🎁 BONUS PROMO PARFUM Tebus parfum hanya Rp75.000 dengan minimal belanja Rp1.000.000. Harga paket sudah termasuk tax & service. Harga tebus parfum Rp75.000 belum termasuk tax & service. 📍 Tersedia di outlet: DKI Jakarta • Inul Vizta Buaran • Inul Vizta Kramat Jati • Inul Vizta Kota Kasablanka • Inul Vizta Melawai • Inul Vizta Pejaten Jawa Barat • Inul Vizta Summarecon Bekasi • Inul Vizta Harapan Indah • Inul Vizta Blu Plaza • Inul Vizta TSM Cibubur • Inul Vizta Cileungsi • Inul Rumah Bernyanyi • Inul Vizta Festive Walk • Inul Vizta Sukabumi • Inul Vizta Paskal Bandung Banten • Inul Vizta Tangerang City • Inul Vizta Balekota Jambi • Inul Vizta Jambi 🎤 Sing your song, complete your scent! Saatnya ",
+      "hashtagDigest": "#inulvizta #daraparfum #promokaraoke #scentyoursong #keinvizaja #inulviztakaraoke #karaokekeluarga #17agustus #dmdpanggungrezeki #mnctvrumahnyadangdut #hutri81",
+      "er": 0.01,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 226692.67,
+      "medianViews": 80192,
+      "vfr": 1.1308,
+      "shareRate": null,
+      "postFrequencyMonthly": 105,
+      "observationDays": 2,
+      "paidRatio": 0,
+      "postsAnalyzed": 7,
+      "followersGrowth": -0.0202,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 62,
+      "authenticity": 55,
+      "followerQuality": 70,
+      "femalePct": 57.5,
+      "malePct": 42.5,
+      "genderKnownPct": 40,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 27.8
+        },
+        {
+          "key": "parenting",
+          "pct": 22.2
+        },
+        {
+          "key": "religion",
+          "pct": 16.7
+        },
+        {
+          "key": "food",
+          "pct": 11.1
+        },
+        {
+          "key": "art",
+          "pct": 5.6
+        },
+        {
+          "key": "education",
+          "pct": 5.6
+        },
+        {
+          "key": "entertainment",
+          "pct": 5.6
+        },
+        {
+          "key": "fitness",
+          "pct": 5.6
+        }
+      ],
+      "interestKnownPct": 17.1,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 86.7
+        },
+        {
+          "key": "PS",
+          "pct": 6.7
+        },
+        {
+          "key": "SG",
+          "pct": 6.7
+        }
+      ],
+      "countryKnownPct": 15,
+      "cityShares": [
+        {
+          "key": "Bandung",
+          "pct": 18.2
+        },
+        {
+          "key": "Bali",
+          "pct": 9.1
+        },
+        {
+          "key": "Jakarta",
+          "pct": 9.1
+        },
+        {
+          "key": "Lampung",
+          "pct": 9.1
+        },
+        {
+          "key": "Palu",
+          "pct": 9.1
+        },
+        {
+          "key": "Pontianak",
+          "pct": 9.1
+        },
+        {
+          "key": "Samarinda",
+          "pct": 9.1
+        },
+        {
+          "key": "Surabaya",
+          "pct": 9.1
+        },
+        {
+          "key": "Tasikmalaya",
+          "pct": 9.1
+        },
+        {
+          "key": "Tulungagung",
+          "pct": 9.1
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "bbrightvc",
+      "resolved": "bbrightvc",
+      "aliased": false,
+      "found": true,
+      "id": "de2ea37e-11c1-4da3-8fd9-181196c41fba",
+      "socialAccountIds": [
+        "b6bebf9d-dd66-4742-b78f-19977148487a"
+      ],
+      "name": "bbrightvc",
+      "platform": "Instagram",
+      "followers": 18018065,
+      "verified": "No",
+      "creatorCity": null,
+      "bio": null,
+      "tier": null,
+      "addedDate": "2024-09-26T09:38:34.698Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Fashion"
+      ],
+      "category": "Fashion",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 0,
+      "hashtagCount": 0,
+      "captionDigest": null,
+      "hashtagDigest": null,
+      "er": null,
+      "erSource": null,
+      "avgViews": null,
+      "medianViews": null,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": null,
+      "paidRatio": null,
+      "postsAnalyzed": null,
+      "followersGrowth": null,
+      "growthClass": null,
+      "audienceQuality": null,
+      "authenticity": null,
+      "followerQuality": null,
+      "femalePct": null,
+      "malePct": null,
+      "genderKnownPct": null,
+      "interests": [],
+      "interestKnownPct": null,
+      "countryShares": [],
+      "countryKnownPct": null,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "pevpearce",
+      "resolved": "pevpearce",
+      "aliased": false,
+      "found": true,
+      "id": "2a16a2e3-5b27-4a0e-b57b-336cacfc995e",
+      "socialAccountIds": [
+        "34d4195e-6542-43be-a464-46c0c1301512"
+      ],
+      "name": "pevpearce",
+      "platform": "Instagram",
+      "followers": 17452714,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-04-29T04:47:23.472Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Lifestyle"
+      ],
+      "category": "Lifestyle",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Race & Event",
+            "points": 3,
+            "evidence": [
+              "race (caption)"
+            ]
+          },
+          {
+            "label": "Running",
+            "points": 3,
+            "evidence": [
+              "race (caption)"
+            ]
+          },
+          {
+            "label": "Investing",
+            "points": 2,
+            "evidence": [
+              "portofolio (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Fitness",
+            "points": 3,
+            "evidence": [
+              "race (caption)"
+            ]
+          },
+          {
+            "label": "Beauty",
+            "points": 2,
+            "evidence": [
+              "makeup (caption)"
+            ]
+          },
+          {
+            "label": "Finance",
+            "points": 2,
+            "evidence": [
+              "portofolio (caption)"
+            ]
+          },
+          {
+            "label": "Fashion",
+            "points": 1,
+            "evidence": [
+              "fashion (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 0,
+      "captionDigest": "A reminder, dreams do come true ✨🏎️ · Monza, we finally meet and even more 🏁 Nggak ada yang ngalahin feeling balik ke race week setelah summer break apalagi ngerasainnya langsung dari salah satu circuit paling legendaris di dunia. Plus, sempat shooting bareng Lewis & Charles juga… kebayang kan serunya kaya apa ✨ Can't wait to show you more... stay tuned! 🏎️ · Next coba apa lagi ya? Spill ✨️ · Date night · Once upon a time di 2019 pas lagi medical check up di Kuala Lumpur dikenalin ke Mirzan dan fast forward sekarang ngerayain hari ulang tahunnya as husband & wife. Life is so funny. They say the best stories are the ones you don’t see coming. Meeting you was mine. Thank you for being you, My Love. Happy birthday to my fave person. · Off the grid for a few days · My July cover for Harper's Bazaar Indonesia is out! Sharing stories of dedication and my creative path, all while in beautiful @louisvuitton. So much love for this feature Fotografi: @mr_hendra Fashion Editor: @sophisticadit Makeup: @evalovira Hair: @picaleva Asisten Stylist: @nau.kamillaa Wardrobe & Accessories: @louisvuitton Teks: sadini Layout Cover: @somadvladislav · Bagi @pevpearce, apa yang terwujud hari ini mungkin pernah bermula dari sesuatu yang sederhana, yakni sebuah bayangan tentang apa yang ingin ia ciptakan. Membuka edisi Juli 2026 Harper’s Bazaar Indonesia, Pevita Pearce hadir dalam balutan @louisvuitton dan berbagi cerita tentang karya, manifestasi, serta dedikasi yang membawanya sampai pada titik in",
+      "hashtagDigest": null,
+      "er": 0.28,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 577655.67,
+      "medianViews": 557850,
+      "vfr": 0.996,
+      "shareRate": null,
+      "postFrequencyMonthly": 5.74,
+      "observationDays": 47,
+      "paidRatio": 0,
+      "postsAnalyzed": 9,
+      "followersGrowth": -0.022,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 54,
+      "authenticity": 51,
+      "followerQuality": 56,
+      "femalePct": 28.21,
+      "malePct": 71.79,
+      "genderKnownPct": 39,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 20.8
+        },
+        {
+          "key": "business",
+          "pct": 16.7
+        },
+        {
+          "key": "food",
+          "pct": 12.5
+        },
+        {
+          "key": "photography",
+          "pct": 12.5
+        },
+        {
+          "key": "music",
+          "pct": 8.3
+        },
+        {
+          "key": "entertainment",
+          "pct": 4.2
+        },
+        {
+          "key": "fitness",
+          "pct": 4.2
+        },
+        {
+          "key": "gaming",
+          "pct": 4.2
+        },
+        {
+          "key": "parenting",
+          "pct": 4.2
+        },
+        {
+          "key": "sports",
+          "pct": 4.2
+        },
+        {
+          "key": "technology",
+          "pct": 4.2
+        },
+        {
+          "key": "travel",
+          "pct": 4.2
+        }
+      ],
+      "interestKnownPct": 22.2,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 56.3
+        },
+        {
+          "key": "JP",
+          "pct": 18.8
+        },
+        {
+          "key": "AE",
+          "pct": 6.3
+        },
+        {
+          "key": "IL",
+          "pct": 6.3
+        },
+        {
+          "key": "MC",
+          "pct": 6.3
+        },
+        {
+          "key": "PS",
+          "pct": 6.3
+        }
+      ],
+      "countryKnownPct": 16,
+      "cityShares": [
+        {
+          "key": "Jakarta",
+          "pct": 25
+        },
+        {
+          "key": "Bandung",
+          "pct": 12.5
+        },
+        {
+          "key": "Jawa",
+          "pct": 12.5
+        },
+        {
+          "key": "Lampung",
+          "pct": 12.5
+        },
+        {
+          "key": "Pati",
+          "pct": 12.5
+        },
+        {
+          "key": "Surabaya",
+          "pct": 12.5
+        },
+        {
+          "key": "Tangerang",
+          "pct": 12.5
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "irwansyah_15",
+      "resolved": "irwansyah_15",
+      "aliased": false,
+      "found": true,
+      "id": "24ddf147-0f3c-4591-8c2d-36ac6c0d991c",
+      "socialAccountIds": [
+        "5a945734-8959-46ae-a58c-980718071756"
+      ],
+      "name": "irwansyah_15",
+      "platform": "Instagram",
+      "followers": 14916540,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "Indonesian\n• @15interior_official \n• @jannahtravel \n• @umroqutravel \n• @swizgroup \nCp +6285176781115 Ov (work only)",
+      "tier": "Mega",
+      "addedDate": "2024-04-06T16:19:22.808Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Coffee & Beverage",
+            "points": 2,
+            "evidence": [
+              "kopi (caption)"
+            ]
+          },
+          {
+            "label": "Kids & Family",
+            "points": 2,
+            "evidence": [
+              "keluarga (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Parenting",
+            "points": 3,
+            "evidence": [
+              "keluarga (caption)"
+            ]
+          },
+          {
+            "label": "Food",
+            "points": 2,
+            "evidence": [
+              "kopi (caption)"
+            ]
+          },
+          {
+            "label": "Fitness",
+            "points": 1,
+            "evidence": [
+              "sehat (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 3,
+      "captionDigest": "Dirgahayu Indonesiaku! 81 tahun Indonesia merdeka, Indonesia berdaulat adil dan makmur 🇮🇩 · Semoga kelak Anak2 bisa lebih baik dari kami , semoga Allah jaga mereka آمِيْن اللّهُمَّ آمِيْن Barakallahufiikum anak2 shaleh dan shalehah ku syg · Gawat Ada King @mister.aloy di hari Minggu ❤️ Sehat\" semuanyaa guys 🙏 · MasyaAllah Tabarakallah ❤️ semoga Allah jaga anak2ku syg · Ternyata ini isi tasnya @irwansyah_15 ❤️👀 ide challenge apa ya berikutnya? #pakaiautannyamukpamitan · kirain ada maling nggak taunya...🤣🦟 #PakaiAutanNyamukPamitan · caption nya apa ya? 😎 · Kamu team roma + kopi ? Atau roma + teh ? #Pastiromakelapa 🤤😍 @roma.biskuitkelapa · Alhamdulillah Senangnya bisa bergabung di keluarga @barakat_id 😍 siapa yang udah coba @barakat_id ? Ada yang mau dikirimin parcel barakat? Cungg👆🏻 · Satu lagi dari @mayoraofficial , @le_mineraleid 😉 · #pakaiautannyamukpamitan · #PakaiAutanNyamukPamitan · #Pastiromakelapa",
+      "hashtagDigest": "#pakaiautannyamukpamitan #pastiromakelapa",
+      "er": 0.25,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": null,
+      "medianViews": null,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": null,
+      "paidRatio": null,
+      "postsAnalyzed": 0,
+      "followersGrowth": -0.0281,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 62,
+      "authenticity": 42,
+      "followerQuality": 81,
+      "femalePct": 71.79,
+      "malePct": 28.21,
+      "genderKnownPct": 39,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 21.7
+        },
+        {
+          "key": "religion",
+          "pct": 17.4
+        },
+        {
+          "key": "parenting",
+          "pct": 8.7
+        },
+        {
+          "key": "technology",
+          "pct": 8.7
+        },
+        {
+          "key": "art",
+          "pct": 4.3
+        },
+        {
+          "key": "automotive",
+          "pct": 4.3
+        },
+        {
+          "key": "beauty",
+          "pct": 4.3
+        },
+        {
+          "key": "education",
+          "pct": 4.3
+        },
+        {
+          "key": "entertainment",
+          "pct": 4.3
+        },
+        {
+          "key": "fitness",
+          "pct": 4.3
+        },
+        {
+          "key": "food",
+          "pct": 4.3
+        },
+        {
+          "key": "music",
+          "pct": 4.3
+        },
+        {
+          "key": "photography",
+          "pct": 4.3
+        },
+        {
+          "key": "sports",
+          "pct": 4.3
+        }
+      ],
+      "interestKnownPct": 21.7,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 70
+        },
+        {
+          "key": "JO",
+          "pct": 10
+        },
+        {
+          "key": "PS",
+          "pct": 10
+        },
+        {
+          "key": "TR",
+          "pct": 10
+        }
+      ],
+      "countryKnownPct": 10,
+      "cityShares": [
+        {
+          "key": "Lampung",
+          "pct": 16.7
+        },
+        {
+          "key": "Madiun",
+          "pct": 16.7
+        },
+        {
+          "key": "Palu",
+          "pct": 16.7
+        },
+        {
+          "key": "Pekanbaru",
+          "pct": 16.7
+        },
+        {
+          "key": "Samarinda",
+          "pct": 16.7
+        },
+        {
+          "key": "Yogyakarta",
+          "pct": 16.7
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "fadiljaidi",
+      "resolved": "fadiljaidi",
+      "aliased": false,
+      "found": true,
+      "id": "6cdc37ba-be56-4b56-b1ea-41cc54187587",
+      "socialAccountIds": [
+        "9a9477fd-ed5e-4fb1-ba0e-1d3debece65c"
+      ],
+      "name": "fadiljaidi",
+      "platform": "Instagram",
+      "followers": 14398391,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "BA @maricafe.id \nEndorsement \nWA : 081295223083(Admin 1)\n         085282606565(Admin 2)",
+      "tier": "Mega",
+      "addedDate": "2023-02-26T15:02:46.966Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Makeup",
+            "points": 3,
+            "evidence": [
+              "shade (caption)"
+            ]
+          },
+          {
+            "label": "Product Swatch & Review",
+            "points": 3,
+            "evidence": [
+              "shade (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Beauty",
+            "points": 3,
+            "evidence": [
+              "shade (caption)"
+            ]
+          },
+          {
+            "label": "Fashion",
+            "points": 1,
+            "evidence": [
+              "gaya (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 8,
+      "captionDigest": "Ini gaya tos nya udah dari kita kecil serius 🙏🏻😭 #Juanneve #jasthr #Fadiljaidi · Udah akrab aja jasthr sama om ini @fadiljaidi 😭 #Juanneve · GIMANA KALO KITA KASIH LANGSUNG DAN LIAT REAKSINYA ?🙄 Jual Emas Indonesia baru buka nihh di JEI Pondok Indah yaaa berikut alamatnya : 📍 Jl. Sultan Iskandar Muda No.8, Kec. Kebayoran Lama, Kota Jakarta Selatan. · Mau review shade, tapi shadenya MOP Arena wkwk seruuuuu bareng @fadiljaidi @keanuagl Nippon Paint, Best in Class!! #NipponPaint #NPBestinClass · Final Match Piala Dunia seru banget!! Terima kasih @rexonamenid udah selalu setia setiap saat bikin papa happy di Piala dunia kali ini #SetiaSetiapSaat · Laporan Kesehatan Papa · Ada orang Ganteng + Wangi · Mood hari ini · 😂❤️😂 · kamu punya paket? langsung aja kirim, dijamin harganya lebih fair #TolakBayarAngin · #Juanneve · #jasthr · #Fadiljaidi · #Juanneve · #NipponPaint · #NPBestinClass · #SetiaSetiapSaat · #TolakBayarAngin",
+      "hashtagDigest": "#juanneve #jasthr #fadiljaidi #nipponpaint #npbestinclass #setiasetiapsaat #tolakbayarangin",
+      "er": 3.07,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 10433740.4,
+      "medianViews": 7989419,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": 6.67,
+      "observationDays": 27,
+      "paidRatio": 0,
+      "postsAnalyzed": 6,
+      "followersGrowth": 0.0038,
+      "growthClass": "Low Growth",
+      "audienceQuality": 58,
+      "authenticity": 64,
+      "followerQuality": 53,
+      "femalePct": 71.43,
+      "malePct": 28.57,
+      "genderKnownPct": 21,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 18.2
+        },
+        {
+          "key": "food",
+          "pct": 18.2
+        },
+        {
+          "key": "religion",
+          "pct": 18.2
+        },
+        {
+          "key": "sports",
+          "pct": 18.2
+        },
+        {
+          "key": "beauty",
+          "pct": 9.1
+        },
+        {
+          "key": "education",
+          "pct": 9.1
+        },
+        {
+          "key": "travel",
+          "pct": 9.1
+        }
+      ],
+      "interestKnownPct": 10.8,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 80
+        },
+        {
+          "key": "SG",
+          "pct": 20
+        }
+      ],
+      "countryKnownPct": 5,
+      "cityShares": [
+        {
+          "key": "Magelang",
+          "pct": 50
+        },
+        {
+          "key": "Pontianak",
+          "pct": 50
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "saalhaerid",
+      "resolved": "saalhaerid",
+      "aliased": false,
+      "found": true,
+      "id": "6ce42ec0-2a7c-4642-8a3d-f445d1fe7e2b",
+      "socialAccountIds": [
+        "c8699f2e-bd28-4cd6-8053-9ee54a68e0f1"
+      ],
+      "name": "saalhaerid",
+      "platform": "Instagram",
+      "followers": 2249679,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "PP/ENDORSE @prabmanagement\nCampaign/Kerjasama DM @adminabadi\n@pentolplatkt \n@tofu_brutal \n@gorenganpokgeboy",
+      "tier": "Mega",
+      "addedDate": "2023-02-22T23:19:02.095Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 9,
+      "hashtagCount": 8,
+      "captionDigest": "🤣🤣🤣 #sadin · kesayanganku😍 #sadin · 🤣🤣🤣 #sadin · langsung ketar ketir😭 #sadin · baru kepikiran🤭🤣 #sadin · 😭😭😭 #sadin · Dua hati, satu janji, dan seumur hidup untuk dijalani. Untuk cinta, tawa, dan awal selamanya kita yang dimulai hari ini. · jika tujuannya sama, perasaanya sama, sebesar apapun rintangan dan cobaanya pasti akan sampai juga. #sadin · a new chapter begins. #sadin · #sadin · #sadin · #sadin · #sadin · #sadin · #sadin · #sadin · #sadin",
+      "hashtagDigest": "#sadin",
+      "er": 0.72,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 501299.75,
+      "medianViews": 335177.5,
+      "vfr": 24.1573,
+      "shareRate": null,
+      "postFrequencyMonthly": 1.03,
+      "observationDays": 233,
+      "paidRatio": 0,
+      "postsAnalyzed": 8,
+      "followersGrowth": 0,
+      "growthClass": "Low Growth",
+      "audienceQuality": 59,
+      "authenticity": 48,
+      "followerQuality": 70,
+      "femalePct": 20,
+      "malePct": 80,
+      "genderKnownPct": 30,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 42.9
+        },
+        {
+          "key": "education",
+          "pct": 14.3
+        },
+        {
+          "key": "music",
+          "pct": 14.3
+        },
+        {
+          "key": "parenting",
+          "pct": 14.3
+        },
+        {
+          "key": "sports",
+          "pct": 14.3
+        }
+      ],
+      "interestKnownPct": 7,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 55.6
+        },
+        {
+          "key": "JP",
+          "pct": 11.1
+        },
+        {
+          "key": "KR",
+          "pct": 11.1
+        },
+        {
+          "key": "PA",
+          "pct": 11.1
+        },
+        {
+          "key": "TL",
+          "pct": 11.1
+        }
+      ],
+      "countryKnownPct": 9,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "jharnabhagwani",
+      "resolved": "jharnabhagwani",
+      "aliased": false,
+      "found": true,
+      "id": "5ab1c10c-e701-4631-a37a-7e4272956e4c",
+      "socialAccountIds": [
+        "1d360305-5835-451d-8928-163337860ecb"
+      ],
+      "name": "jharnabhagwani",
+      "platform": "TikTok",
+      "followers": 13200000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-02-26T14:32:29.158Z",
+      "refreshedAt": "2024-05-09T01:43:02.219Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Makeup",
+            "points": 4,
+            "evidence": [
+              "makeup (caption)",
+              "makeup (hashtag)"
+            ]
+          },
+          {
+            "label": "City & Culture",
+            "points": 3,
+            "evidence": [
+              "budaya (caption)"
+            ]
+          },
+          {
+            "label": "Domestic Travel",
+            "points": 3,
+            "evidence": [
+              "budaya (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Beauty",
+            "points": 4,
+            "evidence": [
+              "makeup (caption)",
+              "makeup (hashtag)"
+            ]
+          },
+          {
+            "label": "Travel",
+            "points": 3,
+            "evidence": [
+              "budaya (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 23,
+      "captionDigest": "Last one! 🕷️❣️ #spiderman · Dirgahayu Republik Indonesia 🇮🇩❤️ Indonesia yang penuh warna, budaya, dan cerita. Merdeka! 🇮🇩✨ · REBIRTH 🕷️🕸️ #spidermanbrandnewday #makeup #transition · Spider woman 🕷️❣️ #spidermanbrandnewday #spiderman #makeup #trend · Thank you @Urban Decay Indonesia having me at The Baddest Party of the Year! Always a blast celebrating bold looks with the best team. #urbandecayid #UDbaddies · Mommy 🕷️ and Baby Spidey 🕸️ #spiderman #makeup #transition · The Odyssey 👁️ #odyssey #makeup #transition · Devdas Makeup Transition 🪔 Paro’s pov ✨ • #devdas #indianmakeup #transition #bollywood · Cleopatra x The Mummy 🪲⚰️ One of the most requests I’ve ever received on a trend!! Better late than never right? 🫣 I tried to putting my own twist on it, and learned so many new things along the way 🥹💛 Hope you enjoyed watching! Trend setter: @ _marianazambrano Shout out to all the amazing content creators who did this trend! And Thank you for tagging and waiting for me to join in ✨ · Here’s my version of the #Asoka trend! 🫣♥️ Hope you guys like it 🥰 #jharnabhagwani #makeuptransition · #spiderman · #spidermanbrandnewday · #makeup · #transition · #spidermanbrandnewday · #spiderman · #makeup · #trend · #urbandecayid · #udbaddies · #spiderman · #makeup · #transition · #odyssey · #makeup · #transition · #devdas · #indianmakeup · #transition · #bollywood · #asoka · #jharnabhagwani · #makeuptransition",
+      "hashtagDigest": "#spiderman #spidermanbrandnewday #makeup #transition #trend #urbandecayid #udbaddies #odyssey #devdas #indianmakeup #bollywood #asoka #jharnabhagwani #makeuptransition",
+      "er": 0.19,
+      "erSource": "l2_gold.kol_profile_card.monitoring_er_pct",
+      "avgViews": 47997390,
+      "medianViews": 354300,
+      "vfr": 1.7595,
+      "shareRate": null,
+      "postFrequencyMonthly": 0.35,
+      "observationDays": 851,
+      "paidRatio": 10,
+      "postsAnalyzed": null,
+      "followersGrowth": 0,
+      "growthClass": "Low Growth",
+      "audienceQuality": 67,
+      "authenticity": 56,
+      "followerQuality": 78,
+      "femalePct": 69.23,
+      "malePct": 30.77,
+      "genderKnownPct": 26,
+      "interests": [
+        {
+          "key": "beauty",
+          "pct": 21.1
+        },
+        {
+          "key": "art",
+          "pct": 15.8
+        },
+        {
+          "key": "gaming",
+          "pct": 15.8
+        },
+        {
+          "key": "fashion",
+          "pct": 10.5
+        },
+        {
+          "key": "parenting",
+          "pct": 10.5
+        },
+        {
+          "key": "religion",
+          "pct": 10.5
+        },
+        {
+          "key": "music",
+          "pct": 5.3
+        },
+        {
+          "key": "photography",
+          "pct": 5.3
+        },
+        {
+          "key": "technology",
+          "pct": 5.3
+        }
+      ],
+      "interestKnownPct": 18.3,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 40
+        },
+        {
+          "key": "BD",
+          "pct": 20
+        },
+        {
+          "key": "MX",
+          "pct": 20
+        },
+        {
+          "key": "LA",
+          "pct": 10
+        },
+        {
+          "key": "PK",
+          "pct": 10
+        }
+      ],
+      "countryKnownPct": 10,
+      "cityShares": [
+        {
+          "key": "Tulungagung",
+          "pct": 100
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "sptrakori_",
+      "resolved": "sptrakori_",
+      "aliased": false,
+      "found": true,
+      "id": "6b54df83-8c12-4176-95c3-857de80da254",
+      "socialAccountIds": [
+        "81870f7b-fb28-4cbd-a577-d5d7ad94eb1d"
+      ],
+      "name": "sptrakori_",
+      "platform": "TikTok",
+      "followers": 13100000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-02-26T16:30:12.599Z",
+      "refreshedAt": "2024-05-11T01:30:59.975Z",
+      "rawCategories": [
+        "Entertainment"
+      ],
+      "category": "Entertainment",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Kids & Family",
+            "points": 2,
+            "evidence": [
+              "anak (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Parenting",
+            "points": 3,
+            "evidence": [
+              "anak (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 19,
+      "captionDigest": "uncle sama enduw jalan jalan di Bali Farm🥰 #sptrakori_ #enduw #korizen · snack ini emang untuk perempuan di seluruh muka bumi de kayaknya🥲#snackterserah · kalo di culik tapi ditidurinnya diatas @TURU sih mau yaaa😗 #sptrakori_ #korizen · anak kecil belom boleh pacaran yah😛 #sptrakori_ #korizen · pertama kali enduw berenang dirumah uncle😍 #sptrakori_ #enduw · ga pernah se-terharu ini🥹😭❤️ makasi banyak semuanyaa🫶🏻 #sptrakori_ · PAPAPA ULALALA😛 · Kalo sampe crush kalian kayak gini mau ges?@Garnier Indonesia #MomenPalingNyerah #HelloMochiSkin #GarnierDryTouchCream #skin · maapin ya vlognya panjang, biar puas nontonnya hahaha😆 #sptrakori_ #korizen · ASMR acara Melaspas dan Birthday, 13.08.2026 #sptrakori_ #korizen · #sptrakori_ · #enduw · #korizen · #snackterserah · #sptrakori_ · #korizen · #sptrakori_ · #korizen · #sptrakori_ · #enduw · #sptrakori_ · #momenpalingnyerah · #hellomochiskin · #garnierdrytouchcream · #skin · #sptrakori_ · #korizen · #sptrakori_ · #korizen",
+      "hashtagDigest": "#sptrakori_ #enduw #korizen #snackterserah #momenpalingnyerah #hellomochiskin #garnierdrytouchcream #skin",
+      "er": 0.6,
+      "erSource": "l2_gold.kol_profile_card.monitoring_er_pct",
+      "avgViews": 843860,
+      "medianViews": 495650,
+      "vfr": 4.1775,
+      "shareRate": null,
+      "postFrequencyMonthly": 50,
+      "observationDays": 6,
+      "paidRatio": 10,
+      "postsAnalyzed": null,
+      "followersGrowth": 0,
+      "growthClass": "Low Growth",
+      "audienceQuality": 76,
+      "authenticity": 59,
+      "followerQuality": 93,
+      "femalePct": 80.65,
+      "malePct": 19.35,
+      "genderKnownPct": 31,
+      "interests": [
+        {
+          "key": "parenting",
+          "pct": 21.4
+        },
+        {
+          "key": "business",
+          "pct": 14.3
+        },
+        {
+          "key": "education",
+          "pct": 14.3
+        },
+        {
+          "key": "gaming",
+          "pct": 14.3
+        },
+        {
+          "key": "pets",
+          "pct": 14.3
+        },
+        {
+          "key": "religion",
+          "pct": 14.3
+        },
+        {
+          "key": "travel",
+          "pct": 7.1
+        }
+      ],
+      "interestKnownPct": 13.9,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 81.3
+        },
+        {
+          "key": "IL",
+          "pct": 12.5
+        },
+        {
+          "key": "IN",
+          "pct": 6.3
+        }
+      ],
+      "countryKnownPct": 16,
+      "cityShares": [
+        {
+          "key": "Garut",
+          "pct": 33.3
+        },
+        {
+          "key": "Palembang",
+          "pct": 33.3
+        },
+        {
+          "key": "Tangerang",
+          "pct": 33.3
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "lalitahutami",
+      "resolved": "lalitahutami",
+      "aliased": false,
+      "found": true,
+      "id": "4815a3e8-234e-4a76-8112-4e7b01c5f1fa",
+      "socialAccountIds": [
+        "ac234201-572f-459b-ab1d-da38e0c9f8c1"
+      ],
+      "name": "lalitahutami",
+      "platform": "TikTok",
+      "followers": 12700000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-02-26T14:35:18.695Z",
+      "refreshedAt": "2024-05-09T01:43:13.999Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": [
+          {
+            "label": "Education",
+            "points": 1,
+            "evidence": [
+              "belajar (caption)"
+            ]
+          },
+          {
+            "label": "Lifestyle",
+            "points": 1,
+            "evidence": [
+              "daily (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 8,
+      "captionDigest": "ashoyyy 🤙🏼 @Ibnu Wardani · CAPEK BGT NGETAWAIN MASNU 😭 @Ibnu Wardani · Lift Trend💖 @Ibnu Wardani @Alvarazka Antarsukha Wardani · Pengen sedikit cerita sama kalian 🥹 hampir mau nyerah, tapi untung ada @Garnier Indonesia ✨ #MomenPalingNyerah #HelloMochiSkin #GarnierDryTouchCream #Skin · Zuzurrr bgt ganyangka sampe abis segini🤣 untung aja sekarang pake @ulike.indonesia 😋🫶🏻 #Ulike #Ulikeid #UlikeIPL · Hubungan saling effort😊👊❤️ @Ibnu Wardani @Alvarazka Antarsukha Wardani @Ibnu Lita daily · hasil belajar 5menit ☺️🫶🏻 · Hmm jadi percaya siapa yaa?🙄 @iniristamoritaa @Ibnu Wardani #MertuaMenantuShow · Cuma mau liatin video doang loh😭 @Ibnu Wardani @Alvarazka Antarsukha Wardani · 🫶🏻🥲 @Ibnu Wardani @Alvarazka Antarsukha Wardani · #momenpalingnyerah · #hellomochiskin · #garnierdrytouchcream · #skin · #ulike · #ulikeid · #ulikeipl · #mertuamenantushow",
+      "hashtagDigest": "#momenpalingnyerah #hellomochiskin #garnierdrytouchcream #skin #ulike #ulikeid #ulikeipl #mertuamenantushow",
+      "er": 0.06,
+      "erSource": "l2_gold.kol_profile_card.monitoring_er_pct",
+      "avgViews": 392440,
+      "medianViews": 286800,
+      "vfr": 0.7763,
+      "shareRate": null,
+      "postFrequencyMonthly": 5.36,
+      "observationDays": 56,
+      "paidRatio": 20,
+      "postsAnalyzed": null,
+      "followersGrowth": 0,
+      "growthClass": "Low Growth",
+      "audienceQuality": 78,
+      "authenticity": 65,
+      "followerQuality": 90,
+      "femalePct": 66.67,
+      "malePct": 33.33,
+      "genderKnownPct": 21,
+      "interests": [
+        {
+          "key": "parenting",
+          "pct": 23.1
+        },
+        {
+          "key": "religion",
+          "pct": 23.1
+        },
+        {
+          "key": "gaming",
+          "pct": 15.4
+        },
+        {
+          "key": "beauty",
+          "pct": 7.7
+        },
+        {
+          "key": "business",
+          "pct": 7.7
+        },
+        {
+          "key": "entertainment",
+          "pct": 7.7
+        },
+        {
+          "key": "fashion",
+          "pct": 7.7
+        },
+        {
+          "key": "music",
+          "pct": 7.7
+        }
+      ],
+      "interestKnownPct": 12.7,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 70
+        },
+        {
+          "key": "JP",
+          "pct": 10
+        },
+        {
+          "key": "KH",
+          "pct": 10
+        },
+        {
+          "key": "LA",
+          "pct": 10
+        }
+      ],
+      "countryKnownPct": 10,
+      "cityShares": [
+        {
+          "key": "Ende",
+          "pct": 50
+        },
+        {
+          "key": "Sulawesi Selatan",
+          "pct": 50
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "isyanasarasvati",
+      "resolved": "isyanasarasvati",
+      "aliased": false,
+      "found": true,
+      "id": "6f5d6884-363a-4913-80c6-8caef8ea3e28",
+      "socialAccountIds": [
+        "46769c57-3dd9-4bee-a611-747686cf0a10"
+      ],
+      "name": "isyanasarasvati",
+      "platform": "Instagram",
+      "followers": 12292815,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "@sarasvatistage\n@redrose.records",
+      "tier": "Mega",
+      "addedDate": "2024-06-20T11:04:41.555Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Fashion"
+      ],
+      "category": "Fashion",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Music",
+            "points": 2,
+            "evidence": [
+              "music (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Entertainment",
+            "points": 2,
+            "evidence": [
+              "music (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 7,
+      "captionDigest": "MANILA, WE’RE COMING! 🇵🇭 Isyana Sarasvati’s ASIA TOUR SET is making its way to @lalalafestmanila See youuuu! ❤️‍🔥🤘🏻 · seru-seruan pake menu spesial 😋 · Kangenku terobati piuu kemarin, thank youu energi isanesenna Inyooo @isyanation_ 🥹❤️‍🔥✨ #ISYANAEKLEKTIKO · The ICON Season 1 has finally come to an end! It’s been an incredible journey being one of the judges for this pilot season. Thank you @theiconindonesia_sctv for trusting me. Such an honor to witness so many incredible talents and watch them grow stronger EVERY single day. Congratulationsss to @theicon_felicia , @theicon_vedra , and all the contestants. You GUYS ARE ONE OF A KIND! Thank you for bringing such a breath of fresh air to the music scene. I’m officially a fan of you both. Welcome to the club! 🖤🫶🏻✨🤘🏻🎤🎵 photos by @lukasandre0306 · Honored to be performing at the Yamaha Gala Concert 2026 in Tokyo! 🇯🇵🫶🏻✨ As a yamaha music school alumna, it means so much to return and celebrate music alongside incredible musicians. Grateful to represent Indonesia w/ @kenanloui as the only two artists joining from overseas. See you in Tokyo!! · KOREAAAA! YESTERDAY WAS UNREAL! YOUR ENERGY WAS OUT OF THIS WORLD! One of the best crowds I’ve had this year! KAMSAMNIDA, YOROBUNNN!! @pentaportrf 🤘🏻✨🇰🇷 It was my second time performing in Korea, and once again, it felt so unreal to see how much you appreciated my music. I truly hope I can come back again someday! #IsyanaSarasvatiAsiaTour2026 Photos by team @pentaportrf ",
+      "hashtagDigest": "#isyanaeklektiko #isyanasarasvatiasiatour2026 #isyanasarasvati #sarasvatistage #eklektikoisyana #isyana5thalbum",
+      "er": 0.12,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": null,
+      "medianViews": null,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": null,
+      "paidRatio": null,
+      "postsAnalyzed": 0,
+      "followersGrowth": -0.051,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 59,
+      "authenticity": 52,
+      "followerQuality": 66,
+      "femalePct": 38.46,
+      "malePct": 61.54,
+      "genderKnownPct": 26,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 11.8
+        },
+        {
+          "key": "music",
+          "pct": 11.8
+        },
+        {
+          "key": "parenting",
+          "pct": 11.8
+        },
+        {
+          "key": "pets",
+          "pct": 11.8
+        },
+        {
+          "key": "technology",
+          "pct": 11.8
+        },
+        {
+          "key": "automotive",
+          "pct": 5.9
+        },
+        {
+          "key": "education",
+          "pct": 5.9
+        },
+        {
+          "key": "entertainment",
+          "pct": 5.9
+        },
+        {
+          "key": "fitness",
+          "pct": 5.9
+        },
+        {
+          "key": "photography",
+          "pct": 5.9
+        },
+        {
+          "key": "religion",
+          "pct": 5.9
+        },
+        {
+          "key": "travel",
+          "pct": 5.9
+        }
+      ],
+      "interestKnownPct": 16.3,
+      "countryShares": [
+        {
+          "key": "BD",
+          "pct": 16.7
+        },
+        {
+          "key": "ID",
+          "pct": 16.7
+        },
+        {
+          "key": "IN",
+          "pct": 16.7
+        },
+        {
+          "key": "JP",
+          "pct": 16.7
+        },
+        {
+          "key": "KR",
+          "pct": 16.7
+        },
+        {
+          "key": "PS",
+          "pct": 16.7
+        }
+      ],
+      "countryKnownPct": 6,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "lambe_turah",
+      "resolved": "lambe_turah",
+      "aliased": false,
+      "found": true,
+      "id": "5dc465b4-bf50-4db8-a0dd-0492f250c66b",
+      "socialAccountIds": [
+        "89c0a941-20f5-4fad-9045-a5ad10f92f2f"
+      ],
+      "name": "lambe_turah",
+      "platform": "Instagram",
+      "followers": 12163586,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "GOSIP ADALAH FAKTA YANG TERTUNDA\nDM NO PICT = HOAX\nSPAM = BLOCK",
+      "tier": "Mega",
+      "addedDate": "2023-04-05T10:36:34.880Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Entertainment"
+      ],
+      "category": "Entertainment",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 10,
+      "hashtagCount": 0,
+      "captionDigest": "Bisa sekalian hiling nehhh... · Lagi banyak kejadian di laut.. · Pake sabun.... · Ka kanwil pajak lhoooo..... · What happen aya naon?🤔🤔 · Pray For NTT 🙏🙏 · Klean desil berapa nderr??? · Siappp grak.... · Semangat kakak 💪💪 · Klean desil berapa nderr???",
+      "hashtagDigest": null,
+      "er": 0.08,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": null,
+      "medianViews": null,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": 300,
+      "observationDays": 1,
+      "paidRatio": 0,
+      "postsAnalyzed": 10,
+      "followersGrowth": 0.0343,
+      "growthClass": "Low Growth",
+      "audienceQuality": 63,
+      "authenticity": 52,
+      "followerQuality": 74,
+      "femalePct": 45,
+      "malePct": 55,
+      "genderKnownPct": 20,
+      "interests": [
+        {
+          "key": "business",
+          "pct": 31.3
+        },
+        {
+          "key": "parenting",
+          "pct": 12.5
+        },
+        {
+          "key": "religion",
+          "pct": 12.5
+        },
+        {
+          "key": "beauty",
+          "pct": 6.3
+        },
+        {
+          "key": "education",
+          "pct": 6.3
+        },
+        {
+          "key": "fashion",
+          "pct": 6.3
+        },
+        {
+          "key": "gaming",
+          "pct": 6.3
+        },
+        {
+          "key": "music",
+          "pct": 6.3
+        },
+        {
+          "key": "pets",
+          "pct": 6.3
+        },
+        {
+          "key": "technology",
+          "pct": 6.3
+        }
+      ],
+      "interestKnownPct": 15.5,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 90
+        },
+        {
+          "key": "JP",
+          "pct": 10
+        }
+      ],
+      "countryKnownPct": 10,
+      "cityShares": [
+        {
+          "key": "Padang",
+          "pct": 33.3
+        },
+        {
+          "key": "Palu",
+          "pct": 33.3
+        },
+        {
+          "key": "Samarinda",
+          "pct": 33.3
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "ditanganu",
+      "resolved": "ditanganu",
+      "aliased": false,
+      "found": true,
+      "id": "934b0de4-d57a-4798-a36f-79dc15bc07b0",
+      "socialAccountIds": [
+        "7f24a513-b477-4c39-a8f8-1147f944ba76"
+      ],
+      "name": "ditanganu",
+      "platform": "TikTok",
+      "followers": 12100000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-02-26T14:44:57.610Z",
+      "refreshedAt": "2024-05-09T01:43:55.976Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": [
+          {
+            "label": "Finance",
+            "points": 1,
+            "evidence": [
+              "uang (caption)"
+            ]
+          },
+          {
+            "label": "Food",
+            "points": 1,
+            "evidence": [
+              "makanan (caption)"
+            ]
+          },
+          {
+            "label": "Home & Living",
+            "points": 1,
+            "evidence": [
+              "rumah (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 0,
+      "captionDigest": "TUTUP GORDEN LANJUT TIDUR · HARUS PUNYA INI DI RUMAH · COCOK BUAT KALIAN YANG SUKA FOTO · KANGEN BANGET MASA ITU · KALAU KE MAKANAN UANG SELALU ADA · BANGGA DENGAN PENCAPAIANKU · BISA DI PINDAHIN KEMANAPUN · YAUDAH AKU MINTA MAAF · SIAP JALAN JALAN · NYESEL MAKAN DI LUAR",
+      "hashtagDigest": null,
+      "er": 0.06,
+      "erSource": "l2_gold.kol_profile_card.monitoring_er_pct",
+      "avgViews": 96298.4,
+      "medianViews": 66800,
+      "vfr": 0.6463,
+      "shareRate": null,
+      "postFrequencyMonthly": 150,
+      "observationDays": 2,
+      "paidRatio": 20,
+      "postsAnalyzed": null,
+      "followersGrowth": 0,
+      "growthClass": "Low Growth",
+      "audienceQuality": 70,
+      "authenticity": 57,
+      "followerQuality": 82,
+      "femalePct": 65.62,
+      "malePct": 34.38,
+      "genderKnownPct": 32,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 42.9
+        },
+        {
+          "key": "food",
+          "pct": 28.6
+        },
+        {
+          "key": "parenting",
+          "pct": 14.3
+        },
+        {
+          "key": "photography",
+          "pct": 14.3
+        }
+      ],
+      "interestKnownPct": 7,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 58.3
+        },
+        {
+          "key": "AL",
+          "pct": 8.3
+        },
+        {
+          "key": "AR",
+          "pct": 8.3
+        },
+        {
+          "key": "GB",
+          "pct": 8.3
+        },
+        {
+          "key": "JP",
+          "pct": 8.3
+        },
+        {
+          "key": "MC",
+          "pct": 8.3
+        }
+      ],
+      "countryKnownPct": 12,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "hesfinatia",
+      "resolved": "hesfinatia",
+      "aliased": false,
+      "found": true,
+      "id": "8e0cdd34-85b3-446c-ad96-d1d19a9d32db",
+      "socialAccountIds": [
+        "305b9b0d-11f3-4cd9-9fc5-c7aee90fc609"
+      ],
+      "name": "hesfinatia",
+      "platform": "TikTok",
+      "followers": 12000000,
+      "verified": "No",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-02-26T16:30:56.342Z",
+      "refreshedAt": "2024-05-11T01:31:06.464Z",
+      "rawCategories": [
+        "Entertainment"
+      ],
+      "category": "Entertainment",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 10,
+      "hashtagCount": 8,
+      "captionDigest": "Reaksi orang” pada ngakak😭🫵🏻 #fyp · Ternyata dia gatau kopdes jadi maunya indromarets🥲🙏🏻 · bisa” nya dia baru bilang😭 #fyp · Ini hasilnya🥹🙏🏻 #fyp · Drama banget😭🙏🏻 #fakebodyy⚠️ #fakesituation⚠️️ · lah ko dia doyan😭 · Plis takut banget😭🫵🏻 #fyp · Jadi pengen nikah lagi deh😭🙏🏻 #fyp · Bridesmaid nya @Gelia Linda 🤍✨ · Banyak ngelamun gini😭 #fyp · #fyp · #fyp · #fyp · #fakebodyy⚠️ · #fakesituation⚠️️ · #fyp · #fyp · #fyp",
+      "hashtagDigest": "#fyp #fakebodyy⚠️ #fakesituation⚠️️",
+      "er": 1.81,
+      "erSource": "l2_gold.kol_profile_card.monitoring_er_pct",
+      "avgViews": 2383810,
+      "medianViews": 1700000,
+      "vfr": 16.1074,
+      "shareRate": null,
+      "postFrequencyMonthly": 42.86,
+      "observationDays": 7,
+      "paidRatio": 0,
+      "postsAnalyzed": null,
+      "followersGrowth": 0.6711,
+      "growthClass": "Low Growth",
+      "audienceQuality": 75,
+      "authenticity": 67,
+      "followerQuality": 83,
+      "femalePct": 90,
+      "malePct": 10,
+      "genderKnownPct": 20,
+      "interests": [
+        {
+          "key": "parenting",
+          "pct": 27.3
+        },
+        {
+          "key": "food",
+          "pct": 18.2
+        },
+        {
+          "key": "music",
+          "pct": 18.2
+        },
+        {
+          "key": "gaming",
+          "pct": 9.1
+        },
+        {
+          "key": "pets",
+          "pct": 9.1
+        },
+        {
+          "key": "religion",
+          "pct": 9.1
+        },
+        {
+          "key": "technology",
+          "pct": 9.1
+        }
+      ],
+      "interestKnownPct": 11,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 55.6
+        },
+        {
+          "key": "AL",
+          "pct": 11.1
+        },
+        {
+          "key": "AR",
+          "pct": 11.1
+        },
+        {
+          "key": "GE",
+          "pct": 11.1
+        },
+        {
+          "key": "JP",
+          "pct": 11.1
+        }
+      ],
+      "countryKnownPct": 9,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "erickapinedao9",
+      "resolved": "erickapineda09",
+      "aliased": true,
+      "found": true,
+      "id": "6115ab2f-8e56-4656-989d-a0a2895e8b43",
+      "socialAccountIds": [
+        "a08fa0b5-593b-4e81-8121-3fea3956abd3"
+      ],
+      "name": "erickapineda09",
+      "platform": "TikTok",
+      "followers": 11800000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2024-10-07T06:41:51.306Z",
+      "refreshedAt": "2024-10-07T06:49:20.310Z",
+      "rawCategories": [
+        "Beauty"
+      ],
+      "category": "Beauty",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 0,
+      "hashtagCount": 0,
+      "captionDigest": null,
+      "hashtagDigest": null,
+      "er": null,
+      "erSource": null,
+      "avgViews": null,
+      "medianViews": null,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": null,
+      "paidRatio": null,
+      "postsAnalyzed": null,
+      "followersGrowth": null,
+      "growthClass": null,
+      "audienceQuality": null,
+      "authenticity": null,
+      "followerQuality": null,
+      "femalePct": null,
+      "malePct": null,
+      "genderKnownPct": null,
+      "interests": [],
+      "interestKnownPct": null,
+      "countryShares": [],
+      "countryKnownPct": null,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "anyageraldine",
+      "resolved": "anyageraldine",
+      "aliased": false,
+      "found": true,
+      "id": "d6e669df-9f46-4de6-a140-7c0a2c43cdd1",
+      "socialAccountIds": [
+        "dd945491-b7b4-46df-8d9e-c612545f30ea"
+      ],
+      "name": "anyageraldine",
+      "platform": "Instagram",
+      "followers": 11208273,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": "🇮🇩 Business inquiries: +62 811 191 8959 (ochi) Whatsapp.",
+      "tier": "Mega",
+      "addedDate": "2023-09-13T06:34:19.995Z",
+      "refreshedAt": "2026-08-14T09:23:46.230Z",
+      "rawCategories": [
+        "Lifestyle"
+      ],
+      "category": "Lifestyle",
+      "categoryBasis": "live",
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [
+          {
+            "label": "Career",
+            "points": 5,
+            "evidence": [
+              "interview (caption)"
+            ]
+          },
+          {
+            "label": "Film & Series",
+            "points": 4,
+            "evidence": [
+              "film (caption)",
+              "bioskop (caption)"
+            ]
+          },
+          {
+            "label": "Job Hunting & CV",
+            "points": 3,
+            "evidence": [
+              "interview (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Education",
+            "points": 5,
+            "evidence": [
+              "interview (caption)"
+            ]
+          },
+          {
+            "label": "Entertainment",
+            "points": 4,
+            "evidence": [
+              "film (caption)",
+              "bioskop (caption)"
+            ]
+          },
+          {
+            "label": "Finance",
+            "points": 1,
+            "evidence": [
+              "cuan (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 15,
+      "captionDigest": "reminiscing 🇯🇵🥢 · Kemanapun dan kapanpun, aku gak pernah lepas dari Joiway i1 ini! Selain harganya yang affordable banget, Joiway i1 udah jadi salah satu barang essential aku yang harus selalu aku bawa😆 @joiway_id #JOIWAYi1 #JoiwayEveryday #BestDevice2026 · dululululu one-sided love story 💓🤓🫰🏻🌈🫂🦋 (doain ya ges) · Karena banyak pilihan warna, Joiway i1 bisa aku bawa untuk semua aktivitas aku! Termasuk interview kali ini, yang sampai bikin salfok🫣 #JOIWAYi1 #JoiwayEveryday #BestDevice2026 · her ego needed some fresh air 🧘🏼‍♀️🏞️🥂💅🏼✨ · #obsession 💘💘💘 · The little details make all the difference. ✨ Mulai dari apa yang kudengar dengan #OPPOEncoClip2 hingga momen yang kuabadikan dengan #OPPOFindX9s, setiap detail punya ceritanya sendiri. #EffortlessInStyle · Official Poster #Shutter 📸🧟‍♀️ Tayang 30 Oktober di Bioskop @vinogbastian__ @nikenanjanii @anyageraldine @donnyalamsyah @andrimashadi @rangganattra @dewigita01 @rukmanrosadi_ @chellibobs @nugietrilogy @iangdarmawan @nonangie @aphang_alimsudio @herwinnovianto @er1ca · Masa lalu yang kelam membuat luka yang begitu dalam di hati. Namun, Aris kembali. Kinan, Lydia... Siapa yang tersakiti kali ini? Film Layangan Putus SEGERA di bioskop! 🪁 #LayanganPutus #MDEntertainment #MDPictures · Emangnya GAMPANG cari CUAN? Adik kakak selalu punya sifat, kelakukan, tempramen, dan ambisi beda-beda. Tapi pas ada momen, harus kerja bareng melawan realita yang lebih sering bikin nangis daripada manis. Apapun itu, yang penting ",
+      "hashtagDigest": "#joiwayi1 #joiwayeveryday #bestdevice2026 #obsession #oppoencoclip2 #oppofindx9s, #effortlessinstyle #shutter #layanganputus #mdentertainment #mdpictures #gampangcuanfilm",
+      "er": 0.6,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 230981.5,
+      "medianViews": 230981.5,
+      "vfr": 1.5523,
+      "shareRate": null,
+      "postFrequencyMonthly": 3.44,
+      "observationDays": 61,
+      "paidRatio": 0,
+      "postsAnalyzed": 7,
+      "followersGrowth": -0.0271,
+      "growthClass": "Negative Growth",
+      "audienceQuality": 59,
+      "authenticity": 61,
+      "followerQuality": 57,
+      "femalePct": 25.64,
+      "malePct": 74.36,
+      "genderKnownPct": 39,
+      "interests": [
+        {
+          "key": "religion",
+          "pct": 38.5
+        },
+        {
+          "key": "business",
+          "pct": 23.1
+        },
+        {
+          "key": "fashion",
+          "pct": 7.7
+        },
+        {
+          "key": "food",
+          "pct": 7.7
+        },
+        {
+          "key": "music",
+          "pct": 7.7
+        },
+        {
+          "key": "parenting",
+          "pct": 7.7
+        },
+        {
+          "key": "art",
+          "pct": 3.8
+        },
+        {
+          "key": "beauty",
+          "pct": 3.8
+        }
+      ],
+      "interestKnownPct": 24.5,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 100
+        }
+      ],
+      "countryKnownPct": 10,
+      "cityShares": [
+        {
+          "key": "Bali",
+          "pct": 12.5
+        },
+        {
+          "key": "Bandung",
+          "pct": 12.5
+        },
+        {
+          "key": "Bogor",
+          "pct": 12.5
+        },
+        {
+          "key": "Palu",
+          "pct": 12.5
+        },
+        {
+          "key": "Pati",
+          "pct": 12.5
+        },
+        {
+          "key": "Purwokerto",
+          "pct": 12.5
+        },
+        {
+          "key": "Samarinda",
+          "pct": 12.5
+        },
+        {
+          "key": "Surabaya",
+          "pct": 12.5
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "shabiraaluaadnan",
+      "resolved": "shabiraalulaadnan",
+      "aliased": true,
+      "found": true,
+      "id": "7666b1a1-bc43-4eca-8319-97caff2e268d",
+      "socialAccountIds": [
+        "a087ccaa-421c-48a9-9d1b-4bf5311404f5"
+      ],
+      "name": "shabiraalulaadnan",
+      "platform": "TikTok",
+      "followers": 10664778,
+      "verified": "No",
+      "creatorCity": null,
+      "bio": null,
+      "tier": null,
+      "addedDate": "2025-01-31T09:34:48.201Z",
+      "refreshedAt": "2025-07-01T06:50:47.785Z",
+      "rawCategories": [],
+      "category": null,
+      "categoryBasis": null,
+      "classifiedCategory": null,
+      "classification": {
+        "category": null,
+        "basis": null,
+        "topics": [],
+        "categoryScores": []
+      },
+      "captionCount": 0,
+      "hashtagCount": 0,
+      "captionDigest": null,
+      "hashtagDigest": null,
+      "er": null,
+      "erSource": null,
+      "avgViews": null,
+      "medianViews": null,
+      "vfr": null,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": null,
+      "paidRatio": null,
+      "postsAnalyzed": null,
+      "followersGrowth": null,
+      "growthClass": null,
+      "audienceQuality": null,
+      "authenticity": null,
+      "followerQuality": null,
+      "femalePct": null,
+      "malePct": null,
+      "genderKnownPct": null,
+      "interests": [],
+      "interestKnownPct": null,
+      "countryShares": [],
+      "countryKnownPct": null,
+      "cityShares": [],
+      "cityKnownPct": null,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    },
+    {
+      "requested": "pojoksatu.id",
+      "resolved": "pojoksatu.id",
+      "aliased": false,
+      "found": true,
+      "id": "b5c58aa0-c1ee-40a4-9ba0-11befb331bd6",
+      "socialAccountIds": [
+        "0a03ffa4-772d-4c11-97b9-03dcfeaea5cd"
+      ],
+      "name": "pojoksatu.id",
+      "platform": "TikTok",
+      "followers": 10500000,
+      "verified": "Yes",
+      "creatorCity": null,
+      "bio": null,
+      "tier": "Mega",
+      "addedDate": "2023-08-16T04:19:41.005Z",
+      "refreshedAt": "2023-08-16T04:19:47.635Z",
+      "rawCategories": [],
+      "category": "Lifestyle",
+      "categoryBasis": "calculated",
+      "classifiedCategory": "Lifestyle",
+      "classification": {
+        "category": "Travel",
+        "basis": "calculated",
+        "topics": [
+          {
+            "label": "Domestic Travel",
+            "points": 10,
+            "evidence": [
+              "pantai (caption)",
+              "gunung (caption)"
+            ]
+          },
+          {
+            "label": "Nature & Outdoor",
+            "points": 6,
+            "evidence": [
+              "pantai (caption)",
+              "gunung (caption)"
+            ]
+          },
+          {
+            "label": "Audio & Wearable",
+            "points": 3,
+            "evidence": [
+              "headphone (caption)"
+            ]
+          }
+        ],
+        "categoryScores": [
+          {
+            "label": "Travel",
+            "points": 10,
+            "evidence": [
+              "pantai (caption)",
+              "gunung (caption)"
+            ]
+          },
+          {
+            "label": "Tech",
+            "points": 6,
+            "evidence": [
+              "headphone (caption)",
+              "api (caption)"
+            ]
+          },
+          {
+            "label": "Education",
+            "points": 3,
+            "evidence": [
+              "kelas (caption)",
+              "sekolah (caption)"
+            ]
+          },
+          {
+            "label": "Entertainment",
+            "points": 3,
+            "evidence": [
+              "viral (caption)",
+              "musik (caption)"
+            ]
+          }
+        ]
+      },
+      "captionCount": 10,
+      "hashtagCount": 5,
+      "captionDigest": "Kasus hukum yang menyangkut PT Toba Pulp Lestari kembali jadi sorotan. Bagaimana tidak, kini ada 3 kasus hukum sekaligus. Terbaru Kejagung mengungkap dugaan korupsi transfer pricing yang menyeret nama perusahaan. Usai viral, PT Toba Pulp Lestari Tbk (INRU) buka suara. Direktur sekaligus Corporate Secretary INRU, Anwar Lawden, mengaku telah menerima informasi tersebut. Saat ini, perseroan masih melakukan pendalaman dan verifikasi atas informasi tersebut. \"Perseroan akan menyampaikan informasi lebih lanjut kepada BEI dan publik sesuai dengan ketentuan peraturan perundang-undangan yang berlaku apabila telah tersedia informasi yang material, relevan, dan dapat diverifikasi,\" tulis Anwar, Kamis (20/8/2026). #pojoksatu · Aksi seorang pengendara motor di Jalan Lebak Bulus mendadak bikin warganet mengelus dada dan emosi jiwa. Bagaimana tidak, di saat ambulans sedang melaju kencang membawa pasien dalam kondisi kritis menuju RS Fatmawati, pemotor ini justru terkesan enggan memberi ruang jalan meski sirine sudah meraung-raung. Bukannya langsung menepi demi menyelamatkan nyawa orang, situasi di jalanan malah makin memanas setelah sang pemotor justru terlibat cekcok dengan sopir ambulans. Aksi egois yang lebih mementingkan gengsi ketimbang keselamatan pasien kritis ini jelas memicu amarah publik. Bikin heran, kok ya sempat-sempatnya diajak debat di saat nyawa orang lain sedang dipertaruhkan? · Momen seorang penumpang kereta api menjadi perhatian setelah memutar musik dengan volume keras t",
+      "hashtagDigest": "#pojoksatu #wuwacreator #wutheringwaves",
+      "er": 0.01,
+      "erSource": "kol_directory.engagement_rate",
+      "avgViews": 59235.9,
+      "medianViews": 46550,
+      "vfr": 0.5434,
+      "shareRate": null,
+      "postFrequencyMonthly": null,
+      "observationDays": 0,
+      "paidRatio": 0,
+      "postsAnalyzed": null,
+      "followersGrowth": 0.9174,
+      "growthClass": "Low Growth",
+      "audienceQuality": 80,
+      "authenticity": 75,
+      "followerQuality": 84,
+      "femalePct": 26.67,
+      "malePct": 73.33,
+      "genderKnownPct": 15,
+      "interests": [
+        {
+          "key": "food",
+          "pct": 23.1
+        },
+        {
+          "key": "gaming",
+          "pct": 15.4
+        },
+        {
+          "key": "parenting",
+          "pct": 15.4
+        },
+        {
+          "key": "religion",
+          "pct": 15.4
+        },
+        {
+          "key": "travel",
+          "pct": 15.4
+        },
+        {
+          "key": "automotive",
+          "pct": 7.7
+        },
+        {
+          "key": "pets",
+          "pct": 7.7
+        }
+      ],
+      "interestKnownPct": 12.7,
+      "countryShares": [
+        {
+          "key": "ID",
+          "pct": 76.9
+        },
+        {
+          "key": "GB",
+          "pct": 7.7
+        },
+        {
+          "key": "JP",
+          "pct": 7.7
+        },
+        {
+          "key": "KR",
+          "pct": 7.7
+        }
+      ],
+      "countryKnownPct": 13,
+      "cityShares": [
+        {
+          "key": "Jakarta",
+          "pct": 25
+        },
+        {
+          "key": "Lampung",
+          "pct": 25
+        },
+        {
+          "key": "Sulawesi",
+          "pct": 25
+        },
+        {
+          "key": "Tasikmalaya",
+          "pct": 25
+        }
+      ],
+      "cityKnownPct": 100,
+      "ageBands": null,
+      "contentCategoryFromPipeline": null,
+      "commentSentiment": null,
+      "communityScore": null,
+      "rateCard": null
+    }
+  ]
+}

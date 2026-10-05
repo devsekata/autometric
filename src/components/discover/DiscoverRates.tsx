@@ -1,0 +1,211 @@
+'use client'
+
+/**
+ * Rate Cards — the first segment of Ordering, and the hinge of the buying flow.
+ *
+ * The source puts this screen in the same place (`rateCardsView` in its
+ * `pages/negotiation.js`, rendered by the Ordering tab): one card per creator,
+ * every deliverable priced, and from each card the two ways forward — open an
+ * offer, or add to the cart. Its header says the rate card is "the starting
+ * point, never automatically the final price", which is the whole reason
+ * Negotiation sits between here and checkout.
+ *
+ * One thing is ours. The source's rates were literals in its creator array, so
+ * it had nowhere to enter them; here the base rate is a real per-account value
+ * the cart prices against, so it is editable inline and the multiplier preview
+ * shows what it turns into before it is saved.
+ */
+
+import { useEffect, useMemo, useState } from 'react'
+import { Card } from '@/components/dashboard/ui'
+import {
+  Btn, Chip, EmptyState, ErrorState, PJ, PLATFORM_ICON, Spinner, gradientFor,
+} from './ui'
+import type { DirectoryAccount } from '@/lib/discover/types'
+import type { Deliverable, RateCard } from '@/lib/discover/vocab'
+import { RATE_CARD_AVAILABLE, RATE_CARD_UNAVAILABLE_REASON } from '@/lib/discover/rateCardAvailability'
+
+const idr = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
+
+export default function DiscoverRates({
+  orgId, onOpenCreator, onNegotiate,
+}: {
+  orgId: string
+  /** Into that creator's own rate card — packages, terms and Add to Cart. */
+  onOpenCreator?: (account: DirectoryAccount) => void
+  /** The source offers `Make Offer` from every card; this is that door. */
+  onNegotiate?: () => void
+}) {
+  const [accounts, setAccounts] = useState<DirectoryAccount[]>([])
+  const [rates, setRates] = useState<Record<string, RateCard>>({})
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([])
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(RATE_CARD_AVAILABLE)
+  const [relation, setRelation] = useState('all')
+
+  useEffect(() => {
+    // No official rate-card source: nothing to load (`/discover/rates` is 503).
+    if (!RATE_CARD_AVAILABLE) return
+    let cancelled = false
+    fetch(`/api/organizations/${orgId}/discover/rates`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { rates: Record<string, RateCard>; deliverables: Deliverable[]; accounts: DirectoryAccount[] }) => {
+        if (cancelled) return
+        setRates(d.rates); setDeliverables(d.deliverables); setAccounts(d.accounts)
+      })
+      .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [orgId])
+
+  const save = async (accountId: string) => {
+    if (!RATE_CARD_AVAILABLE) return
+    const raw = drafts[accountId]
+    // Accept "10.000.000" or "10000000" — Indonesian thousands separators are
+    // the natural thing to type here.
+    const baseRate = Number(String(raw ?? '').replace(/[^\d]/g, ''))
+    if (!Number.isFinite(baseRate) || baseRate < 0) { setError('Tarif harus angka positif.'); return }
+
+    setSavingId(accountId); setError(null)
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/discover/rates`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ socialAccountId: accountId, baseRate }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+      setRates(body.rates)
+      setDrafts(d => { const n = { ...d }; delete n[accountId]; return n })
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  const rows = useMemo(
+    () => accounts.filter(a => relation === 'all' || a.relation === relation),
+    [accounts, relation])
+
+  // After every hook: shown instead of a rate form over a source that does not
+  // exist — no price, no 0, no API error.
+  if (!RATE_CARD_AVAILABLE) {
+    return <EmptyState icon="payments" title="Rate card belum tersedia" body={RATE_CARD_UNAVAILABLE_REASON} />
+  }
+
+  if (loading) return <Spinner />
+  if (error && accounts.length === 0) return <ErrorState message={error} />
+
+  const priced = accounts.filter(a => rates[a.id]?.baseRate > 0).length
+
+  return (
+    <div>
+      <p className="text-[11.5px] text-[#6b7280] mb-3">
+        {priced} dari {accounts.length} akun sudah punya tarif. Harga tiap deliverable dihitung
+        dari base rate × pengali. Angka ini titik awal, bukan harga final — Negotiation yang
+        menentukan angka yang dipakai saat checkout.
+      </p>
+
+      {error && (
+        <div className="flex items-start gap-2 bg-[#fcefec] border border-[#f0c8bf] rounded-xl px-3.5 py-2.5 mb-3.5">
+          <span className="material-symbols-outlined text-[16px] text-[#c2553f] mt-0.5">error</span>
+          <p className="text-[11.5px] text-[#c2553f]">{error}</p>
+        </div>
+      )}
+
+      <div className="flex gap-1.5 mb-3.5">
+        <Chip label="Semua" on={relation === 'all'} onClick={() => setRelation('all')} />
+        <Chip label="Brand kamu" on={relation === 'owned'} onClick={() => setRelation('owned')} />
+        <Chip label="Kompetitor" on={relation === 'competitor'} onClick={() => setRelation('competitor')} />
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyState icon="payments" title="Tidak ada akun" body="Belum ada akun pada filter ini." />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {rows.map(a => {
+            const current = rates[a.id]?.baseRate ?? 0
+            const draft = drafts[a.id]
+            const pending = draft !== undefined && Number(draft.replace(/[^\d]/g, '')) !== current
+            const preview = Number((draft ?? String(current)).replace(/[^\d]/g, '')) || 0
+            const opts = deliverables.filter(d => d.platform === a.platform)
+
+            return (
+              <Card key={`${a.relation}:${a.id}`}>
+                <div className="flex items-center gap-2.5 px-4 pt-3.5">
+                  <div style={{ ...PJ, background: gradientFor(a.username) }}
+                    className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-[11px] font-extrabold">
+                    {a.username.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || '??'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div style={PJ} className="text-[12.5px] font-extrabold text-[#111827] truncate">{a.username}</div>
+                    <div className="flex items-center gap-1 text-[10.5px] text-[#9ca3af]">
+                      <span className="material-symbols-outlined text-[12px]">{PLATFORM_ICON[a.platform]}</span>
+                      <span className="capitalize">{a.platform}</span>
+                      <span className="text-[#d1d5db]">·</span>
+                      <span>{a.relation === 'owned' ? 'Brand' : 'Kompetitor'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-[#9ca3af]">Rp</span>
+                    <input
+                      value={draft ?? (current > 0 ? current.toLocaleString('id-ID') : '')}
+                      onChange={e => setDrafts(d => ({ ...d, [a.id]: e.target.value }))}
+                      placeholder="0"
+                      inputMode="numeric"
+                      className="w-36 h-8 px-2.5 rounded-lg border border-[#e5e7eb] text-[12px] text-right text-[#374151] tabular-nums focus:outline-none focus:border-[#327488]"
+                    />
+                    <Btn size="sm" variant={pending ? 'primary' : 'secondary'}
+                      disabled={!pending || savingId === a.id} onClick={() => save(a.id)}>
+                      {savingId === a.id ? '…' : 'Simpan'}
+                    </Btn>
+                  </div>
+                </div>
+
+                <div className="px-4 pb-3.5 pt-2.5">
+                  {preview <= 0 ? (
+                    <p className="text-[11px] text-[#9ca3af]">Isi base rate untuk melihat harga per deliverable.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {opts.map(d => (
+                        <span key={d.id} style={PJ}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e7eb] bg-[#f9fafb] px-2.5 h-7 text-[11px] font-bold text-[#6b7280]">
+                          <span className="material-symbols-outlined text-[13px] text-[#9ca3af]">{d.icon}</span>
+                          {d.label}
+                          <span className="text-[#285D6E]">
+                            {idr(Math.round((preview * d.mult) / 1000) * 1000)}
+                          </span>
+                          <span className="text-[9.5px] text-[#b6bcc4]">×{d.mult}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {(onOpenCreator || onNegotiate) && (
+                    <div className="flex gap-1.5 flex-wrap mt-2.5">
+                      {onNegotiate && (
+                        <Btn size="sm" variant="primary" onClick={onNegotiate}>
+                          <span className="material-symbols-outlined text-[14px]">handshake</span>
+                          Buat Penawaran
+                        </Btn>
+                      )}
+                      {onOpenCreator && (
+                        <Btn size="sm" variant="secondary" onClick={() => onOpenCreator(a)}>
+                          <span className="material-symbols-outlined text-[14px]">person</span>
+                          Buka Rate Card
+                        </Btn>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}

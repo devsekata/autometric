@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getMemberRole } from '@/lib/organizations/queries'
-import pool from '@/lib/db'
+import kolDb from '@/lib/kolDb'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -24,20 +24,23 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!role) return NextResponse.json({ error: 'Organization not found.' }, { status: 404 })
 
     const email = req.nextUrl.searchParams.get('email')?.trim().toLowerCase() ?? ''
-    if (email.length < 4) return NextResponse.json({ data: [] })
+    // Exact address only. A substring search let any member list every account
+    // on the platform one letter at a time; a full address reveals nothing the
+    // caller did not already know.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ data: [] })
 
-    const { rows } = await pool.query<UserSearchResult>(
-      `SELECT id, name, email, avatar_url
-       FROM users
-       WHERE email ILIKE $1
-         AND id NOT IN (
-           SELECT user_id FROM organization_members
-           WHERE organization_id = $2
-             AND user_id IS NOT NULL
-             AND status != 'CANCELLED'
+    const { rows } = await kolDb().query<UserSearchResult>(
+      `SELECT u.id, u.name, u.email, u.avatar_url
+       FROM public.user u
+       WHERE lower(u.email) = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM public.agency_members am
+           WHERE am.agency_id = $2
+             AND am.user_id = u.id
+             AND am.status IS DISTINCT FROM 'CANCELLED'
          )
-       LIMIT 5`,
-      [`%${email}%`, id]
+       LIMIT 1`,
+      [email, id]
     )
 
     return NextResponse.json({ data: rows })

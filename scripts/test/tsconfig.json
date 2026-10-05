@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/auth": ["./authStub.ts"],
+      "@/*": ["../../src/*"]
+    }
+  },
+  "include": ["../verify-kol-tenant-isolation.ts", "./authStub.ts"]
+}
