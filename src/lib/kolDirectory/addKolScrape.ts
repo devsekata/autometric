@@ -167,7 +167,7 @@ function igWebsite(item: Json): string | null {
 }
 
 /** `compute_engagement_rate(item)` in transform.py. */
-function igEngagementRate(item: Json): number | null {
+export function igEngagementRate(item: Json): number | null {
   const followers = asInt(pick(item, 'followersCount', 'followers_count', 'edge_followed_by.count'))
   const posts = item.latestPosts
   if (!followers || followers <= 0 || !Array.isArray(posts) || !posts.length) return null
@@ -178,6 +178,30 @@ function igEngagementRate(item: Json): number | null {
     let likes = asInt((post as Json).likesCount) ?? 0
     const comments = asInt((post as Json).commentsCount) ?? 0
     if (likes < 0) likes = 0 // -1 means Instagram hid the like count
+    if (likes || comments) interactions.push(likes + comments)
+  }
+  if (!interactions.length) return null
+  const avg = interactions.reduce((a, b) => a + b, 0) / interactions.length
+  return Math.round((avg / followers) * 100 * 10_000) / 10_000
+}
+
+/**
+ * The TikTok counterpart of `igEngagementRate` — same roster ER definition
+ * (average likes + comments per post over the followers the scrape just
+ * returned), read from the posts this pipeline already fetched. Shares stay
+ * out, as they do for Instagram. No Python equivalent: `tiktok_transform.py`
+ * never computed one.
+ */
+export function ttEngagementRate(posts: ApifyTiktokPost[], author: ApifyTiktokAuthorMeta): number | null {
+  const followers = asInt(author.fans)
+  if (!followers || followers <= 0 || !Array.isArray(posts) || !posts.length) return null
+
+  const interactions: number[] = []
+  for (const post of posts) {
+    if (!post || typeof post !== 'object' || apifyItemError(post)) continue
+    let likes = asInt(post.diggCount) ?? 0
+    const comments = asInt(post.commentCount) ?? 0
+    if (likes < 0) likes = 0
     if (likes || comments) interactions.push(likes + comments)
   }
   if (!interactions.length) return null
@@ -515,13 +539,16 @@ async function updateDirectoryFromIg(kolDirectoryId: string, profile: Json): Pro
  * and mirrors the Instagram update's shape and field choices rather than
  * porting an existing one.
  */
-async function updateDirectoryFromTt(kolDirectoryId: string, author: ApifyTiktokAuthorMeta): Promise<void> {
+async function updateDirectoryFromTt(
+  kolDirectoryId: string, author: ApifyTiktokAuthorMeta, posts: ApifyTiktokPost[],
+): Promise<void> {
   const verifiedStatus = typeof author.verified === 'boolean' ? (author.verified ? 'verified' : 'unverified') : null
   const avatarUrl = author.originalAvatarUrl ?? author.avatar ?? null
 
   await kolDbWrite().query(
     `UPDATE public.kol_directory k
         SET followers_count   = COALESCE($2, k.followers_count),
+            engagement_rate   = COALESCE($6, k.engagement_rate),
             avatar_url        = COALESCE($3, k.avatar_url),
             bio               = COALESCE($4, k.bio),
             verified_status   = COALESCE($5, k.verified_status),
@@ -531,7 +558,10 @@ async function updateDirectoryFromTt(kolDirectoryId: string, author: ApifyTiktok
             last_refreshed_at = now(),
             updated_at        = now()
       WHERE k.id = $1`,
-    [kolDirectoryId, author.fans ?? null, avatarUrl, author.signature ?? null, verifiedStatus],
+    [
+      kolDirectoryId, author.fans ?? null, avatarUrl, author.signature ?? null, verifiedStatus,
+      ttEngagementRate(posts, author),
+    ],
   )
 }
 
@@ -764,7 +794,7 @@ async function runRestOfPipeline(
       await insertFollowersRaw(ctx, 'tiktok', followers as Json[])
 
       await runHarmonization({ runId: scrapeRunId, kolDirectoryId, platform: input.platform })
-      await updateDirectoryFromTt(kolDirectoryId, author)
+      await updateDirectoryFromTt(kolDirectoryId, author, posts)
     }
   } catch (err) {
     console.error(`[addKolScrape] pipeline failed for ${input.platform}/@${input.username}:`, err)
